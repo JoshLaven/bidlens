@@ -3,6 +3,7 @@ from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Text, F
 from sqlalchemy.orm import relationship
 import enum
 from .database import Base
+from sqlalchemy import UniqueConstraint
 
 class OpportunityStatus(str, enum.Enum):
     SAVED = "saved"
@@ -40,15 +41,25 @@ class User(Base):
 
 class UserOpportunity(Base):
     __tablename__ = "user_opportunities"
-    
+    __table_args__ = (
+        UniqueConstraint("user_id", "opportunity_id", name="uq_user_opportunity"),
+    )
+
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False)
-    status = Column(String, default=OpportunityStatus.SAVED)
+
+    status = Column(
+        Enum(OpportunityStatus),
+        default=OpportunityStatus.SAVED,
+        nullable=False
+    )
+
     internal_deadline = Column(Date, nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+
     user = relationship("User", back_populates="user_opportunities")
     opportunity = relationship("Opportunity", back_populates="user_opportunities")
+

@@ -120,7 +120,7 @@ async def save_opportunity(
     referer = request.headers.get("referer", "/")
     return RedirectResponse(url=referer, status_code=303)
 
-@router.post("/opportunity/{opp_id}/unsave")
+#@router.post("/opportunity/{opp_id}/unsave")
 async def unsave_opportunity(
     request: Request,
     opp_id: int,
