@@ -50,11 +50,13 @@ class UserOpportunity(Base):
     opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False)
 
     status = Column(
-        Enum(OpportunityStatus),
+        Enum(
+            OpportunityStatus,
+            values_callable=lambda enum: [e.value for e in enum]
+        ),
         default=OpportunityStatus.SAVED,
         nullable=False
     )
-
     internal_deadline = Column(Date, nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
