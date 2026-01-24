@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}My Bids - BidLens{% endblock %}
+{% block content %}
+<h1>My Bids</h1>
+
+<form method="GET" class="filters">
+    <select name="status" onchange="this.form.submit()">
+        <option value="">All Statuses</option>
+        <option value="saved" {{ 'selected' if status_filter == 'saved' else '' }}>Saved</option>
+        <option value="in_progress" {{ 'selected' if status_filter == 'in_progress' else '' }}>In Progress</option>
+        <option value="dropped" {{ 'selected' if status_filter == 'dropped' else '' }}>Dropped</option>
+    </select>
+    <select name="type" onchange="this.form.submit()">
+        <option value="">All Types</option>
+        <option value="solicitation" {{ 'selected' if type_filter == 'solicitation' else '' }}>Solicitations</option>
+        <option value="rfi" {{ 'selected' if type_filter == 'rfi' else '' }}>RFIs & Sources Sought</option>
+    </select>
+</form>
+
+{% if saved_items %}
+    {% for item in saved_items %}
+        <div class="card">
+            <div class="card-header">
+                <a href="/opportunity/{{ item.opportunity.id }}" class="card-title">{{ item.opportunity.title }}</a>
+                <span class="badge badge-status-{{ item.status }}">{{ item.status | replace('_', ' ') | title }}</span>
+            </div>
+            <div class="card-meta">
+                <span class="card-agency">{{ item.opportunity.agency }}</span>
+                <span class="badge {{ 'badge-rfi' if item.opportunity.opportunity_type in ['RFI', 'Sources Sought'] else 'badge-type' }}">{{ item.opportunity.opportunity_type }}</span>
+            </div>
+            <div class="card-meta">
+                <span class="due-date">
+                    {% if item.internal_deadline %}
+                        Your deadline: {{ item.internal_deadline.strftime('%b %d, %Y') }}
+                    {% else %}
+                        Due: {{ item.opportunity.response_deadline.strftime('%b %d, %Y') }}
+                    {% endif %}
+                </span>
+            </div>
+            {% if item.notes %}
+            <div class="card-meta">
+                <span style="font-style: italic; color: var(--gray-500);">{{ item.notes[:100] }}{% if item.notes|length > 100 %}...{% endif %}</span>
+            </div>
+            {% endif %}
+            <div class="card-actions">
+                <a href="/opportunity/{{ item.opportunity.id }}" class="btn btn-secondary btn-sm">View Details</a>
+            </div>
+        </div>
+    {% endfor %}
+{% else %}
+    <div class="empty-state">
+        <h2>No saved opportunities</h2>
+        <p>Start by browsing the <a href="/">feed</a> and saving opportunities you're interested in.</p>
+    </div>
+{% endif %}
+{% endblock %}

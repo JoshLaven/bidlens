@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Feed - BidLens{% endblock %}
+{% block content %}
+<h1>Contract Opportunities</h1>
+
+<div class="tabs">
+    <a href="/?tab=solicitations{% if show_all %}&show_all=1{% endif %}" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
+    <a href="/?tab=rfi{% if show_all %}&show_all=1{% endif %}" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs & Sources Sought</a>
+</div>
+
+{% if opportunities %}
+    {% for opp in opportunities %}
+        <div class="card">
+            <div class="card-header">
+                <a href="/opportunity/{{ opp.id }}" class="card-title">{{ opp.title }}</a>
+                <span class="badge {{ 'badge-rfi' if opp.opportunity_type in ['RFI', 'Sources Sought'] else 'badge-type' }}">{{ opp.opportunity_type }}</span>
+            </div>
+            <div class="card-meta">
+                <span class="card-agency">{{ opp.agency }}</span>
+                {% if opp.set_aside %}
+                    <span class="badge badge-setaside">{{ opp.set_aside }}</span>
+                {% endif %}
+                {% if opp.naics %}
+                    <span>NAICS: {{ opp.naics }}</span>
+                {% endif %}
+            </div>
+            <div class="card-meta">
+                <span class="due-date {{ 'due-urgent' if opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due <= 14 else '' }}">
+                    Due: {{ opp.response_deadline.strftime('%b %d, %Y') }}
+                    {% if opp.days_until_due >= 0 %}
+                        ({{ opp.days_until_due }} days)
+                    {% else %}
+                        (past due)
+                    {% endif %}
+                </span>
+            </div>
+            <div class="card-actions">
+                {% if opp.user_status %}
+                    <span class="badge badge-status-{{ opp.user_status }}">{{ opp.user_status | replace('_', ' ') | title }}</span>
+                    <form method="POST" action="/opportunity/{{ opp.id }}/drop" style="display: inline;">
+                        <button type="submit" class="btn btn-danger btn-sm">Drop</button>
+                    </form>
+                {% else %}
+                    <form method="POST" action="/opportunity/{{ opp.id }}/save" style="display: inline;">
+                        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                    </form>
+                {% endif %}
+                <a href="/opportunity/{{ opp.id }}" class="btn btn-secondary btn-sm">View Details</a>
+            </div>
+        </div>
+    {% endfor %}
+    
+    {% if not show_all and has_more %}
+        <div class="show-more">
+            <a href="/?tab={{ current_tab }}&show_all=1">Show me everything &rarr;</a>
+        </div>
+    {% elif show_all %}
+        <div class="show-more">
+            <a href="/?tab={{ current_tab }}">&larr; Show less</a>
+        </div>
+    {% endif %}
+{% else %}
+    <div class="empty-state">
+        <h2>No opportunities found</h2>
+        <p>Check back later for new {{ 'solicitations' if current_tab == 'solicitations' else 'RFIs and Sources Sought' }}.</p>
+    </div>
+{% endif %}
+{% endblock %}

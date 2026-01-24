@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}BidLens{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <nav>
+        <div class="container">
+            <a href="/" class="logo">BidLens</a>
+            <div class="nav-links">
+                {% if user %}
+                    <a href="/" class="{{ 'active' if active_page == 'feed' else '' }}">Feed</a>
+                    <a href="/saved" class="{{ 'active' if active_page == 'saved' else '' }}">My Bids</a>
+                    <a href="/calendar" class="{{ 'active' if active_page == 'calendar' else '' }}">Calendar</a>
+                    <span class="nav-user">{{ user.email }}</span>
+                    <a href="/logout">Logout</a>
+                {% else %}
+                    <a href="/login">Login</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+    <main>
+        <div class="container">
+            {% if message %}
+                <div class="alert alert-success">{{ message }}</div>
+            {% endif %}
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+</body>
+</html>

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Calendar - BidLens{% endblock %}
+{% block content %}
+<h1>Calendar</h1>
+<p style="color: var(--gray-500); margin-bottom: 24px;">Your saved solicitations organized by deadline.</p>
+
+{% if months %}
+    <div class="calendar-view">
+        {% for month_name, weeks in months.items() %}
+            <div class="calendar-month">
+                <h2 class="calendar-month-title">{{ month_name }}</h2>
+                {% for week_label, items in weeks.items() %}
+                    <div class="calendar-week">
+                        <div class="calendar-week-label">{{ week_label }}</div>
+                        {% for item in items %}
+                            <a href="/opportunity/{{ item.opportunity.id }}" class="calendar-item">
+                                <span class="calendar-item-title">{{ item.opportunity.title }}</span>
+                                <span class="calendar-item-date">
+                                    {{ (item.internal_deadline or item.opportunity.response_deadline).strftime('%b %d') }}
+                                    {% if item.internal_deadline %}
+                                        (internal)
+                                    {% endif %}
+                                </span>
+                            </a>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="empty-state">
+        <h2>No items on your calendar</h2>
+        <p>Save some solicitations from the <a href="/">feed</a> to see them here.</p>
+    </div>
+{% endif %}
+{% endblock %}

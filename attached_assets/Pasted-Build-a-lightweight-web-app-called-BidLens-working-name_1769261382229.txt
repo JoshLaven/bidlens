@@ -1,0 +1,91 @@
+Build a lightweight web app called “BidLens” (working name) that helps small businesses triage SAM.gov Contract Opportunities. The app is decision-first: calm UI, short default lists, and stateful “Saved” items that show up on a simple calendar view. It must not feel like a dense filter/database UI.
+
+Tech stack:
+- Backend: Python FastAPI
+- Frontend: server-rendered HTML templates (Jinja2) OR a simple React frontend (choose the simplest for speed). Keep UI clean and card-based (not a dense table).
+- DB: SQLite for MVP (with a clear path to Postgres). Use SQLAlchemy.
+- Auth: Email-only magic link (no passwords). For MVP, implement “dev mode auth” (enter email, create session) to avoid email provider integration; structure code so real magic links can be added later.
+- Payments: Stub only (no Stripe yet). Implement gating logic using a boolean “is_paid” field on user for now.
+
+Core domain model:
+- Opportunity: global records ingested from SAM.gov (or stub data for now)
+- UserOpportunity: per-user state for an opportunity (saved/tracked/status/internal_deadline/notes)
+
+Data model (minimum):
+1) opportunities
+- id (internal)
+- sam_notice_id (unique string)
+- title
+- agency
+- opportunity_type (e.g., “Solicitation”, “RFI”, “Sources Sought”)
+- posted_date (date)
+- response_deadline (date)
+- naics (string, nullable)
+- set_aside (string, nullable)
+- description (text, nullable)
+- sam_url (string)
+- created_at / updated_at
+
+2) users
+- id
+- email (unique)
+- is_paid (bool default false)
+- created_at
+
+3) user_opportunities
+- id
+- user_id (fk)
+- opportunity_id (fk)
+- status (enum/string: “saved”, “in_progress”, “dropped”)
+- internal_deadline (date, nullable)
+- notes (text, nullable)
+- created_at / updated_at
+
+Core UX and pages:
+1) Home / Feed page
+- Default view: “Solicitations” tab selected.
+- Secondary tab: “RFIs & Sources Sought”.
+- Each tab shows a calm feed of opportunity cards (max ~20 items by default).
+- Sorting: by response_deadline ascending (urgency).
+- Each card shows: title, agency, due date (absolute + “due in X days”), set-aside badge (if present), NAICS (small), and a clear type badge.
+- Primary action per card: “Save” (creates/updates user_opportunities with status=saved). Also allow “Drop” once saved.
+- Include a subtle control: “Show me everything” that expands to paginated/full list within the current tab (still sorted by deadline). This is not the default.
+
+2) Opportunity detail page
+- Shows key fields + description + link to SAM.gov.
+- Buttons: Save / Unsave (or Drop), Set internal deadline, Add notes.
+- Keep it minimal.
+
+3) Saved page (or “My Bids”)
+- List of saved opportunities with status and internal deadline.
+- Filters: status (saved/in_progress/dropped) and tab type (Solicitation vs RFI)
+- Link to detail page.
+
+4) Calendar page
+- Shows ONLY saved solicitations (not RFIs) by default.
+- Calendar can be very simple: a list grouped by week/month OR a basic calendar grid.
+- Each saved solicitation appears on the date = internal_deadline if set, else response_deadline.
+- Clicking an item opens the detail page.
+
+Key product rules:
+- Default feed must feel curated by being short (limit ~20). Users can expand with “Show me everything.”
+- RFIs/Sources Sought must be separated from solicitations via tab.
+- No heavy onboarding. User lands on feed first after login.
+- Preferences are not required for MVP.
+
+Data ingestion:
+- For MVP, seed the database with ~30 stub opportunities in a script.
+- Structure the code to later add a SAM.gov ingestion job (do not implement the real API calls yet unless easy).
+- Include an admin-only endpoint or script to refresh/replace stub opportunities.
+
+Quality requirements:
+- Clean folder structure.
+- Use environment variables for config.
+- Provide a README with run instructions.
+- Keep UI extremely friendly, whitespacey, and calm. Avoid dense tables.
+
+Deliverables:
+- Working app with the pages above.
+- Seed script for opportunities.
+- Basic session auth.
+- CRUD actions for save/internal deadline/notes/status.

@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}{{ opportunity.title }} - BidLens{% endblock %}
+{% block content %}
+<div class="detail-page">
+    <a href="/" class="btn btn-secondary btn-sm" style="margin-bottom: 24px;">&larr; Back to Feed</a>
+    
+    <div class="detail-header">
+        <h1 class="detail-title">{{ opportunity.title }}</h1>
+        <div class="detail-badges">
+            <span class="badge {{ 'badge-rfi' if opportunity.opportunity_type in ['RFI', 'Sources Sought'] else 'badge-type' }}">{{ opportunity.opportunity_type }}</span>
+            {% if opportunity.set_aside %}
+                <span class="badge badge-setaside">{{ opportunity.set_aside }}</span>
+            {% endif %}
+            {% if user_opp %}
+                <span class="badge badge-status-{{ user_opp.status }}">{{ user_opp.status | replace('_', ' ') | title }}</span>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="detail-meta">
+        <div class="detail-meta-item">
+            <div class="detail-meta-label">Agency</div>
+            <div class="detail-meta-value">{{ opportunity.agency }}</div>
+        </div>
+        <div class="detail-meta-item">
+            <div class="detail-meta-label">Response Deadline</div>
+            <div class="detail-meta-value {{ 'due-urgent' if days_until_due <= 7 else 'due-soon' if days_until_due <= 14 else '' }}">
+                {{ opportunity.response_deadline.strftime('%B %d, %Y') }}
+                {% if days_until_due >= 0 %}
+                    ({{ days_until_due }} days left)
+                {% else %}
+                    (past due)
+                {% endif %}
+            </div>
+        </div>
+        <div class="detail-meta-item">
+            <div class="detail-meta-label">Posted Date</div>
+            <div class="detail-meta-value">{{ opportunity.posted_date.strftime('%B %d, %Y') }}</div>
+        </div>
+        {% if opportunity.naics %}
+        <div class="detail-meta-item">
+            <div class="detail-meta-label">NAICS Code</div>
+            <div class="detail-meta-value">{{ opportunity.naics }}</div>
+        </div>
+        {% endif %}
+        <div class="detail-meta-item">
+            <div class="detail-meta-label">SAM.gov ID</div>
+            <div class="detail-meta-value">{{ opportunity.sam_notice_id }}</div>
+        </div>
+        {% if user_opp and user_opp.internal_deadline %}
+        <div class="detail-meta-item">
+            <div class="detail-meta-label">Your Internal Deadline</div>
+            <div class="detail-meta-value">{{ user_opp.internal_deadline.strftime('%B %d, %Y') }}</div>
+        </div>
+        {% endif %}
+    </div>
+    
+    {% if opportunity.description %}
+    <div class="detail-description">
+        <h2>Description</h2>
+        <p>{{ opportunity.description }}</p>
+    </div>
+    {% endif %}
+    
+    <div class="detail-actions">
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;">
+            {% if user_opp %}
+                <form method="POST" action="/opportunity/{{ opportunity.id }}/unsave" style="display: inline;">
+                    <button type="submit" class="btn btn-secondary">Unsave</button>
+                </form>
+                <form method="POST" action="/opportunity/{{ opportunity.id }}/drop" style="display: inline;">
+                    <button type="submit" class="btn btn-danger">Drop</button>
+                </form>
+                <form method="POST" action="/opportunity/{{ opportunity.id }}/status" style="display: inline;">
+                    <input type="hidden" name="status" value="in_progress">
+                    <button type="submit" class="btn btn-primary">Mark In Progress</button>
+                </form>
+            {% else %}
+                <form method="POST" action="/opportunity/{{ opportunity.id }}/save" style="display: inline;">
+                    <button type="submit" class="btn btn-primary">Save This Opportunity</button>
+                </form>
+            {% endif %}
+            <a href="{{ opportunity.sam_url }}" target="_blank" class="btn btn-secondary">View on SAM.gov &rarr;</a>
+        </div>
+        
+        {% if user_opp %}
+        <div class="detail-form">
+            <form method="POST" action="/opportunity/{{ opportunity.id }}/update">
+                <div class="form-group">
+                    <label for="internal_deadline">Internal Deadline</label>
+                    <input type="date" id="internal_deadline" name="internal_deadline" value="{{ user_opp.internal_deadline.strftime('%Y-%m-%d') if user_opp.internal_deadline else '' }}">
+                </div>
+                <div class="form-group">
+                    <label for="notes">Notes</label>
+                    <textarea id="notes" name="notes" placeholder="Add your notes here...">{{ user_opp.notes or '' }}</textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
