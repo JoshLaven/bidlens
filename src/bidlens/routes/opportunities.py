@@ -129,24 +129,32 @@ async def opportunity_detail(
     days_until_due = (opportunity.response_deadline - today).days
     
     # --- Votes (org-level counts + user's vote) ---
-    # --- Votes (org-level counts + user's vote) ---
     vote_counts = db.query(
         func.coalesce(func.sum(case((Vote.vote == "UP", 1), else_=0)), 0).label("up"),
         func.coalesce(func.sum(case((Vote.vote == "DOWN", 1), else_=0)), 0).label("down"),
+        func.coalesce(func.sum(case((Vote.vote == "PASS", 1), else_=0)), 0).label("pass_"),
     ).filter(
         Vote.org_id == user.organization_id,
         Vote.opp_id == opp_id
     ).first()
 
+    print(
+        "PASS COUNT (raw):",
+        db.query(Vote)
+          .filter(Vote.opp_id == opp_id, Vote.vote == "PASS")
+          .count()
+    )
     my_vote_row = db.query(Vote).filter(
         Vote.org_id == user.organization_id,
         Vote.opp_id == opp_id,
         Vote.user_id == user.id
     ).first()
 
+    my_vote = my_vote_row.vote if my_vote_row else None  # "UP" | "DOWN" | "PASS" | None
+
     up_count = int(vote_counts.up) if vote_counts else 0
     down_count = int(vote_counts.down) if vote_counts else 0
-    my_vote = my_vote_row.vote if my_vote_row else None  # "UP" | "DOWN" | None
+    pass_count = int(vote_counts.pass_) if vote_counts else 0
 
     return templates.TemplateResponse("detail.html", {
         "request": request,
@@ -158,6 +166,7 @@ async def opportunity_detail(
         "active_page": None,
         "up_count": up_count,
         "down_count": down_count,
+        "pass_count": pass_count,
         "my_vote": my_vote,
         "show_votes": True
     })

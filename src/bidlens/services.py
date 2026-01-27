@@ -65,11 +65,11 @@ def set_vote(
     org_id: int,
     user_id: int,
     opp_id: int,
-    vote: str | None,  # "UP" | "DOWN" | None
+    vote: str | None,  # "UP" | "DOWN" | "PASS" | None
     ui_version: str = "v1",
 ) -> None:
-    if vote not in ("UP", "DOWN", None):
-        raise ValueError("vote must be UP, DOWN, or null")
+    if vote not in ("UP", "DOWN", "PASS", None):
+        raise ValueError("vote must be UP, DOWN, PASS, or null")
 
     row = (
         db.query(Vote)

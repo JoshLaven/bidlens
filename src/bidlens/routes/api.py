@@ -57,8 +57,8 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
     v = payload.vote
     if isinstance(v, str):
         v = v.upper()
-    if v not in ("UP", "DOWN", None):
-        raise HTTPException(status_code=400, detail="vote must be UP, DOWN, or null")
+    if v not in ("UP", "DOWN", "PASS", None):
+        raise HTTPException(status_code=400, detail="vote must be UP, DOWN, PASS, or null")
 
     set_vote(
         db,
