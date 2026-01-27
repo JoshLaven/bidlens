@@ -35,29 +35,40 @@
                 </span>
             </div>
             <div class="card-actions">
-                {% if opp.user_status %}
-                    <span class="badge badge-status-{{ opp.user_status }}">{{ opp.user_status | replace('_', ' ') | title }}</span>
-                    <form method="POST" action="/opportunity/{{ opp.id }}/drop" style="display: inline;">
-                        <button type="submit" class="btn btn-danger btn-sm">Drop</button>
-                    </form>
-                {% else %}
-                    <form method="POST" action="/opportunity/{{ opp.id }}/save" style="display: inline;">
-                        <button type="submit" class="btn btn-primary btn-sm">Save</button>
-                    </form>
-                {% endif %}
-                <a href="/opportunity/{{ opp.id }}" class="btn btn-secondary btn-sm">View Details</a>
+              {% if opp.user_status %}
+                {% set status = opp.user_status %}
+                {% include "_status_badge.html" %}
+              {% endif %}
+              {# Show Save unless already saved/in progress #}
+              {% if opp.user_status not in ['saved', 'in_progress'] %}
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  onclick="transitionOpp('{{ opp.id }}','SAVED')"
+                >Shortlist</button>
+              {% endif %}
+
+              {# Show Skip unless already skipped #}
+              {% if opp.user_status != 'dropped' %}
+                <button
+                  type="button"
+                  class="btn btn-danger btn-sm"
+                  onclick="transitionOpp('{{ opp.id }}','NO_BID')"
+                >No Bid</button>
+              {% endif %}
+
+              <a href="/opportunity/{{ opp.id }}" class="btn btn-secondary btn-sm">View Details</a>
             </div>
         </div>
     {% endfor %}
-    
-    {% if not show_all and has_more %}
-        <div class="show-more">
-            <a href="/?tab={{ current_tab }}&show_all=1">Show me everything &rarr;</a>
-        </div>
-    {% elif show_all %}
-        <div class="show-more">
-            <a href="/?tab={{ current_tab }}">&larr; Show less</a>
-        </div>
+    {% if not show_all %}
+      <div class="show-more">
+        <a href="/?tab={{ current_tab }}&show_all=1">Include Marked Opportunities &rarr;</a>
+      </div>
+    {% else %}
+      <div class="show-more">
+        <a href="/?tab={{ current_tab }}">&larr; Show less</a>
+      </div>
     {% endif %}
 {% else %}
     <div class="empty-state">
@@ -65,4 +76,26 @@
         <p>Check back later for new {{ 'solicitations' if current_tab == 'solicitations' else 'RFIs and Sources Sought' }}.</p>
     </div>
 {% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+async function transitionOpp(oppId, toState) {
+  const res = await fetch('/api/transition', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      opp_id: Number(oppId),
+      to_state: toState,
+      ui_version: "v1"
+    })
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.detail || 'Error');
+    return;
+  }
+  window.location.reload();
+}
+</script>
 {% endblock %}

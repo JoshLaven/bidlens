@@ -11,8 +11,12 @@
             {% if opportunity.set_aside %}
                 <span class="badge badge-setaside">{{ opportunity.set_aside }}</span>
             {% endif %}
-            {% if user_opp %}
-                <span class="badge badge-status-{{ user_opp.status }}">{{ user_opp.status | replace('_', ' ') | title }}</span>
+            {% if decision_state == "SAVED" %}
+              <span class="badge badge-saved">Shortlisted</span>
+            {% elif decision_state == "BID" %}
+              <span class="badge badge-inprogress">Go Bid</span>
+            {% elif decision_state == "NO_BID" %}
+              <span class="badge badge-dropped">No Bid</span>
             {% endif %}
         </div>
     </div>
@@ -63,38 +67,105 @@
     {% endif %}
     
     <div class="detail-actions">
-        <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;">
-            {% if user_opp %}
-                <form method="POST" action="/opportunity/{{ opportunity.id }}/drop" style="display: inline;">
-                    <button type="submit" class="btn btn-danger">Drop</button>
-                </form>
-                <form method="POST" action="/opportunity/{{ opportunity.id }}/status" style="display: inline;">
-                    <input type="hidden" name="status" value="in_progress">
-                    <button type="submit" class="btn btn-primary">Mark In Progress</button>
-                </form>
-            {% else %}
-                <form method="POST" action="/opportunity/{{ opportunity.id }}/save" style="display: inline;">
-                    <button type="submit" class="btn btn-primary">Save This Opportunity</button>
-                </form>
-            {% endif %}
-            <a href="{{ opportunity.sam_url }}" target="_blank" class="btn btn-secondary">View on SAM.gov &rarr;</a>
+        <div class="detail-votes" style="display:flex; gap:10px; align-items:center; margin-bottom: 14px;">
+          <button type="button"
+                  class="btn btn-secondary btn-sm"
+                  onclick="voteOpp('{{ opportunity.id }}', 1)">
+            👍 <span id="voteUpCount">{{ up_count }}</span>
+            {% if my_vote == "UP" %}✓{% endif %}
+          </button>
+
+          <button type="button"
+                  class="btn btn-secondary btn-sm"
+                  onclick="voteOpp('{{ opportunity.id }}', -1)">
+            👎 <span id="voteDownCount">{{ down_count }}</span>
+            {% if my_vote == "DOWN"%}✓{% endif %}
+          </button>
+
+          {% if my_vote != 0 %}
+            <button type="button"
+                    class="btn btn-light btn-sm"
+                    onclick="voteOpp('{{ opportunity.id }}', 0)">
+              Clear
+            </button>
+          {% endif %}
         </div>
-        
+
+        {% if decision_state == "FEED" %}
+          <button type="button" class="btn btn-primary"
+                  onclick="transitionOpp('{{ opportunity.id }}','SAVED')">Shortlist</button>
+
+          <button type="button" class="btn btn-danger"
+                  onclick="transitionOpp('{{ opportunity.id }}','NO_BID')">No Bid</button>
+
+        {% elif decision_state == "SAVED" %}
+          <button type="button" class="btn btn-success"
+                  onclick="transitionOpp('{{ opportunity.id }}','BID')">Go Bid</button>
+
+          <button type="button" class="btn btn-danger"
+                  onclick="transitionOpp('{{ opportunity.id }}','NO_BID')">No Bid</button>
+
+        {% elif decision_state == "BID" %}
+          <span class="badge badge-inprogress">Go Bid</span>
+
+        {% elif decision_state == "NO_BID" %}
+          <span class="badge badge-dropped">No Bid</span>
+        {% endif %}
+
         {% if user_opp %}
         <div class="detail-form">
-            <form method="POST" action="/opportunity/{{ opportunity.id }}/update">
-                <div class="form-group">
-                    <label for="internal_deadline">Internal Deadline</label>
-                    <input type="date" id="internal_deadline" name="internal_deadline" value="{{ user_opp.internal_deadline.strftime('%Y-%m-%d') if user_opp.internal_deadline else '' }}">
-                </div>
-                <div class="form-group">
-                    <label for="notes">Notes</label>
-                    <textarea id="notes" name="notes" placeholder="Add your notes here...">{{ user_opp.notes or '' }}</textarea>
-                </div>
-                <button type="submit" class="btn btn-primary">Save Changes</button>
-            </form>
+          <form method="POST" action="/opportunity/{{ opportunity.id }}/update">
+              <div class="form-group">
+                  <label for="internal_deadline">Internal Deadline</label>
+                  <input type="date" id="internal_deadline" name="internal_deadline"
+                         value="{{ user_opp.internal_deadline.strftime('%Y-%m-%d') if user_opp and user_opp.internal_deadline else '' }}">
+              </div>
+              <div class="form-group">
+                  <label for="notes">Notes</label>
+                  <textarea id="notes" name="notes" placeholder="Add your notes here...">{{ user_opp.notes if user_opp and user_opp.notes else '' }}</textarea>
+              </div>
+              <button type="submit" class="btn btn-primary">Save Changes</button>
+          </form>
         </div>
         {% endif %}
     </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function transitionOpp(oppId, toState) {
+  const res = await fetch('/api/transition', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      opp_id: Number(oppId),
+      to_state: toState,
+      ui_version: "v1"
+    })
+  });
+  const data = await res.json();
+  if (!res.ok) { alert(data.detail || 'Error'); return; }
+  window.location.reload();
+}
+</script>
+<script>
+async function voteOpp(oppId, vote) {
+  const res = await fetch('/api/vote', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      opp_id: Number(oppId),
+      vote: vote,           // "UP" | "DOWN" | null
+      ui_version: "v1"
+    })
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.detail || 'Error');
+    return;
+  }
+  window.location.reload();
+}
+</script>
 {% endblock %}

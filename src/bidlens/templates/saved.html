@@ -1,28 +1,47 @@
 {% extends "base.html" %}
-{% block title %}My Bids - BidLens{% endblock %}
+{% block title %}Decisions - BidLens{% endblock %}
 {% block content %}
-<h1>My Bids</h1>
+<h1>Decisions</h1>
+
+<div class="tabs">
+  <a href="/saved?state=saved{% if type_filter %}&type={{ type_filter }}{% endif %}"
+     class="tab {{ 'active' if state_filter == 'saved' else '' }}">Shortlist</a>
+
+  <a href="/saved?state=bid{% if type_filter %}&type={{ type_filter }}{% endif %}"
+     class="tab {{ 'active' if state_filter == 'bid' else '' }}">Bid</a>
+
+  <a href="/saved?state=no_bid{% if type_filter %}&type={{ type_filter }}{% endif %}"
+     class="tab {{ 'active' if state_filter == 'no_bid' else '' }}">No Bid</a>
+</div>
 
 <form method="GET" class="filters">
-    <select name="status" onchange="this.form.submit()">
-        <option value="">All Statuses</option>
-        <option value="saved" {{ 'selected' if status_filter == 'saved' else '' }}>Saved</option>
-        <option value="in_progress" {{ 'selected' if status_filter == 'in_progress' else '' }}>In Progress</option>
-        <option value="dropped" {{ 'selected' if status_filter == 'dropped' else '' }}>Dropped</option>
-    </select>
-    <select name="type" onchange="this.form.submit()">
-        <option value="">All Types</option>
-        <option value="solicitation" {{ 'selected' if type_filter == 'solicitation' else '' }}>Solicitations</option>
-        <option value="rfi" {{ 'selected' if type_filter == 'rfi' else '' }}>RFIs & Sources Sought</option>
-    </select>
+  <input type="hidden" name="state" value="{{ state_filter or 'saved' }}">
+  <select name="type" onchange="this.form.submit()">
+      <option value="">All Types</option>
+      <option value="solicitation" {{ 'selected' if type_filter == 'solicitation' else '' }}>Solicitations</option>
+      <option value="rfi" {{ 'selected' if type_filter == 'rfi' else '' }}>RFIs & Sources Sought</option>
+  </select>
 </form>
 
+<div class="saved-count">
+  {% if saved_items %}
+    {{ saved_items|length }} opportunities
+  {% endif %}
+</div>
 {% if saved_items %}
     {% for item in saved_items %}
         <div class="card">
             <div class="card-header">
                 <a href="/opportunity/{{ item.opportunity.id }}" class="card-title">{{ item.opportunity.title }}</a>
-                <span class="badge badge-status-{{ item.status }}">{{ item.status | replace('_', ' ') | title }}</span>
+                {% if state_filter == 'saved' %}
+                  <span class="badge badge-saved">Shortlisted</span>
+                {% elif state_filter == 'bid' %}
+                  <span class="badge badge-inprogress">Go Bid</span>
+                {% elif state_filter == 'no_bid' %}
+                  <span class="badge badge-dropped">No Bid</span>
+                {% else %}
+                  <span class="badge badge-saved">Shortlisted</span>
+                {% endif %}
             </div>
             <div class="card-meta">
                 <span class="card-agency">{{ item.opportunity.agency }}</span>
@@ -43,14 +62,69 @@
             </div>
             {% endif %}
             <div class="card-actions">
-                <a href="/opportunity/{{ item.opportunity.id }}" class="btn btn-secondary btn-sm">View Details</a>
+              {% if state_filter == 'saved' %}
+                <button
+                  type="button"
+                  class="btn btn-success btn-sm"
+                  onclick="transitionOpp('{{ item.opportunity.id }}','BID')"
+                >
+                  Go Bid
+                </button>
+
+                <button
+                  type="button"
+                  class="btn btn-danger btn-sm"
+                  onclick="transitionOpp('{{ item.opportunity.id }}','NO_BID')"
+                >
+                  No Bid
+                </button>
+              {% endif %}
+
+              <a href="/opportunity/{{ item.opportunity.id }}" class="btn btn-secondary btn-sm">View Details</a>
+            </div>
+            <div class="card-footer">
+                <span class="saved-date">Saved on {{ item.created_at.strftime('%b %d, %Y') }}</span>
             </div>
         </div>
     {% endfor %}
 {% else %}
-    <div class="empty-state">
-        <h2>No saved opportunities</h2>
-        <p>Start by browsing the <a href="/">feed</a> and saving opportunities you're interested in.</p>
-    </div>
+  <div class="empty-state">
+    {% if state_filter == 'saved' %}
+      <h2>No shortlisted opportunities</h2>
+      <p>Start by browsing the <a href="/">feed</a> and shortlisting opportunities you're interested in.</p>
+    {% elif state_filter == 'bid' %}
+      <h2>No Go Bid decisions yet</h2>
+      <p>Move an opportunity from Shortlist to Go Bid when you’ve decided to pursue it.</p>
+    {% elif state_filter == 'no_bid' %}
+      <h2>No No Bid decisions yet</h2>
+      <p>Mark opportunities as No Bid from the Feed or Shortlist.</p>
+    {% else %}
+      <h2>No opportunities</h2>
+    {% endif %}
+  </div>
 {% endif %}
+
 {% endblock %}
+{% block scripts %}
+<script>
+async function transitionOpp(oppId, toState) {
+  const res = await fetch('/api/transition', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      opp_id: Number(oppId),
+      to_state: toState,
+      ui_version: "v1"
+    })
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.detail || 'Error');
+    return;
+  }
+  window.location.reload();
+}
+</script>
+{% endblock %}
+

@@ -28,6 +28,9 @@ def get_current_user(request: Request, db: Session) -> User | None:
     except Exception:
         pass
     return None
+    
+def org_is_active(user):
+    return user.organization and user.organization.is_active
 
 def clear_session(response: Response):
     response.delete_cookie(SESSION_COOKIE_NAME)

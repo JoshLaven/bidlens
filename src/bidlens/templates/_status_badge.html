@@ -1,0 +1,15 @@
+{# _status_badge.html #}
+{% set raw_status = status|string %}
+{% set raw_status = raw_status
+  |replace('OpportunityStatus.', '')
+  |replace('OpportunityStatus:', '')
+  |lower
+%}
+
+{% set status_label = {
+  'saved': 'Saved',
+  'in_progress': 'In Progress',
+  'dropped': 'Skipped'
+}.get(raw_status, raw_status | replace('_', ' ') | title) %}
+
+<span class="badge badge-status-{{ raw_status }}">{{ status_label }}</span>
