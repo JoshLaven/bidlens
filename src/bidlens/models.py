@@ -7,6 +7,7 @@ from sqlalchemy import UniqueConstraint
 from sqlalchemy import JSON, func
 from pydantic import BaseModel
 from typing import Optional
+from sqlalchemy import Boolean
 
 class OpportunityStatus(str, enum.Enum):
     SAVED = "saved"
@@ -31,6 +32,25 @@ class Opportunity(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     user_opportunities = relationship("UserOpportunity", back_populates="opportunity")
+
+class OpportunityBrief(Base):
+    __tablename__ = "opportunity_briefs"
+    __table_args__ = (UniqueConstraint("opportunity_id", name="uq_brief_opp"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
+
+    brief_json = Column(JSON, nullable=True)
+    model = Column(String, nullable=True)
+
+    status = Column(String, nullable=False, default="pending", index=True)  # pending | ok | failed
+    error_message = Column(Text, nullable=True)
+
+    generated_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 
 class OpportunityState(Base):
     __tablename__ = "opportunity_states"
@@ -92,6 +112,29 @@ class Organization(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     users = relationship("User", back_populates="organization")
+    
+class OrgProfile(Base):
+    __tablename__ = "org_profiles"
+    __table_args__ = (UniqueConstraint("org_id", name="uq_org_profile"),)
+
+    id = Column(Integer, primary_key=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+
+    include_keywords = Column(Text, nullable=True)   # comma-separated for V1
+    exclude_keywords = Column(Text, nullable=True)
+    include_agencies = Column(Text, nullable=True)
+    exclude_agencies = Column(Text, nullable=True)
+
+    min_days_out = Column(Integer, nullable=True)  # e.g., 3
+    max_days_out = Column(Integer, nullable=True)  # e.g., 60
+
+    digest_max_items = Column(Integer, nullable=False, default=20)
+    digest_recipients = Column(Text, nullable=True)  # comma-separated emails
+    digest_time_local = Column(String, nullable=True)  # "07:00" for now
+
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 
 class User(Base):
     __tablename__ = "users"
@@ -131,4 +174,14 @@ class UserOpportunity(Base):
 
     user = relationship("User", back_populates="user_opportunities")
     opportunity = relationship("Opportunity", back_populates="user_opportunities")
+    watched = Column(Boolean, nullable=False, server_default="false")
 
+class DigestLog(Base):
+    __tablename__ = "digest_log"
+
+    id = Column(Integer, primary_key=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+
+    sent_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    since_ts = Column(DateTime(timezone=True), nullable=True)
+    item_count = Column(Integer, nullable=False, default=0)

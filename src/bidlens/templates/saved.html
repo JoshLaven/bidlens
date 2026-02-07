@@ -61,6 +61,12 @@
                 <span style="font-style: italic; color: var(--gray-500);">{{ item.notes[:100] }}{% if item.notes|length > 100 %}...{% endif %}</span>
             </div>
             {% endif %}
+          <div class="card-meta" style="display:flex; gap:12px;">
+            <span>👍 {{ item.up_count }}</span>
+            <span>👎 {{ item.down_count }}</span>
+            <span>⏭️ {{ item.pass_count }}</span>
+          </div>
+
             <div class="card-actions">
               {% if state_filter == 'saved' %}
                 <button
@@ -83,7 +89,9 @@
               <a href="/opportunity/{{ item.opportunity.id }}" class="btn btn-secondary btn-sm">View Details</a>
             </div>
             <div class="card-footer">
+              {% if item.created_at %}
                 <span class="saved-date">Saved on {{ item.created_at.strftime('%b %d, %Y') }}</span>
+              {% endif %}
             </div>
         </div>
     {% endfor %}

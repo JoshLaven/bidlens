@@ -11,13 +11,15 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import aliased
 from ..models import OpportunityState
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Optional
 from sqlalchemy import func, case
 from ..models import Vote
+from ..models import OpportunityBrief
+
 
 router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
+CLOSED_STATES = ("BID", "NO_BID")
 
 def require_user(request: Request, db: Session):
     user = get_current_user(request, db)
@@ -31,12 +33,17 @@ class SavedItemVM:
     notes: Optional[str] = None
     internal_deadline: Optional[datetime] = None
     created_at: Optional[datetime] = None
+    up_count: int = 0
+    down_count: int = 0
+    pass_count: int = 0
+
+
 
 @router.get("/")
 async def feed(
     request: Request,
     tab: str = "solicitations",
-    show_all: bool = False,
+    show_all: bool = False,  # you can ignore this later if you want
     db: Session = Depends(get_db)
 ):
     user = require_user(request, db)
@@ -46,44 +53,56 @@ async def feed(
     solicitation_types = ["Solicitation", "Combined Synopsis/Solicitation", "Award Notice"]
     rfi_types = ["RFI", "Sources Sought", "Special Notice", "Pre-Solicitation"]
 
-    # Base query by tab
-    if tab == "solicitations":
-        query = db.query(Opportunity).filter(Opportunity.opportunity_type.in_(solicitation_types))
-    else:
-        query = db.query(Opportunity).filter(Opportunity.opportunity_type.in_(rfi_types))
-
-    # NEW: Feed truth comes from OpportunityState (org-level)
     OS = aliased(OpportunityState)
+    MyVote = aliased(Vote)
 
-    query = query.outerjoin(
+    base = db.query(
+        Opportunity,
+        func.coalesce(func.sum(case((Vote.vote == "UP", 1), else_=0)), 0).label("pursue_count"),
+        func.coalesce(func.sum(case((Vote.vote == "PASS", 1), else_=0)), 0).label("pass_count"),
+        MyVote.vote.label("my_signal"),
+        UserOpportunity.watched.label("watched"),
+    ).outerjoin(
         OS,
-        and_(
-            OS.opp_id == Opportunity.id,
-            OS.org_id == user.organization_id,
-        )
+        and_(OS.opp_id == Opportunity.id, OS.org_id == user.organization_id)
+    ).outerjoin(
+        Vote,
+        and_(Vote.opp_id == Opportunity.id, Vote.org_id == user.organization_id)
+    ).outerjoin(
+        MyVote,
+        and_(MyVote.opp_id == Opportunity.id, MyVote.org_id == user.organization_id, MyVote.user_id == user.id)
+    ).outerjoin(
+        UserOpportunity,
+        and_(UserOpportunity.opportunity_id == Opportunity.id, UserOpportunity.user_id == user.id)
+    ).filter(
+        # OPEN = not closed
+        or_(OS.id.is_(None), OS.state.notin_(CLOSED_STATES))
     )
 
-    # If NOT show_all: show only FEED (or no state row yet)
+    # Option A: hide items I personally PASSED unless show_all=1
     if not show_all:
-        query = query.filter(or_(OS.id.is_(None), OS.state == "FEED"))
+        base = base.filter(or_(MyVote.vote.is_(None), MyVote.vote != "PASS"))
 
-    query = query.order_by(Opportunity.response_deadline.asc())
+    base = base.group_by(
+        Opportunity.id, MyVote.vote, UserOpportunity.watched
+    )
+    # Type tab filter
+    if tab == "solicitations":
+        base = base.filter(Opportunity.opportunity_type.in_(solicitation_types))
+    else:
+        base = base.filter(Opportunity.opportunity_type.in_(rfi_types))
 
-    total_count = query.count()
-    limit = None if show_all else 20
-    opportunities = query.limit(limit).all() if limit else query.all()
-
-    # Optional: keep your existing per-user status badges for now (notes/etc)
-    # This does NOT drive filtering anymore.
-    user_opps = {
-        uo.opportunity_id: uo.status
-        for uo in db.query(UserOpportunity).filter(UserOpportunity.user_id == user.id).all()
-    }
+    rows = base.order_by(Opportunity.response_deadline.asc()).limit(50).all()
 
     today = date.today()
-    for opp in opportunities:
+    opportunities = []
+    for opp, pursue_count, pass_count, my_signal, watched in rows:
         opp.days_until_due = (opp.response_deadline - today).days
-        opp.user_status = user_opps.get(opp.id)
+        opp.pursue_count = int(pursue_count)
+        opp.pass_count = int(pass_count)
+        opp.my_signal = my_signal  # "UP" | "PASS" | None
+        opp.watched = bool(watched) if watched is not None else False
+        opportunities.append(opp)
 
     return templates.TemplateResponse("feed.html", {
         "request": request,
@@ -91,7 +110,6 @@ async def feed(
         "opportunities": opportunities,
         "current_tab": tab,
         "show_all": show_all,
-        "has_more": total_count > 20,
         "active_page": "feed"
     })
 
@@ -109,6 +127,14 @@ async def opportunity_detail(
     opportunity = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
     if not opportunity:
         return RedirectResponse(url="/", status_code=303)
+        
+    brief_row = db.query(OpportunityBrief).filter(
+        OpportunityBrief.opportunity_id == opp_id
+    ).first()
+
+    brief = brief_row.brief_json if (brief_row and brief_row.brief_json) else None
+    brief_status = brief_row.status if brief_row else None
+    brief_error = brief_row.error_message if brief_row else None
 
     # user metadata (notes/internal deadline) stays per-user
     user_opp = db.query(UserOpportunity).filter(
@@ -168,7 +194,10 @@ async def opportunity_detail(
         "down_count": down_count,
         "pass_count": pass_count,
         "my_vote": my_vote,
-        "show_votes": True
+        "show_votes": True,
+        "brief": brief,
+        "brief_status": brief_status,
+        "brief_error": brief_error
     })
 
 @router.post("/opportunity/{opp_id}/save")
@@ -358,7 +387,13 @@ async def saved_page(
 
     # Base query: decision truth from OpportunityState
     query = (
-        db.query(Opportunity, UserOpportunity)
+        db.query(
+            Opportunity,
+            UserOpportunity,
+            func.coalesce(func.sum(case((Vote.vote == "UP", 1), else_=0)), 0).label("up"),
+            func.coalesce(func.sum(case((Vote.vote == "DOWN", 1), else_=0)), 0).label("down"),
+            func.coalesce(func.sum(case((Vote.vote == "PASS", 1), else_=0)), 0).label("pass_"),
+        )
         .join(
             OpportunityState,
             and_(
@@ -374,7 +409,16 @@ async def saved_page(
                 UserOpportunity.user_id == user.id,
             ),
         )
+        .outerjoin(
+            Vote,
+            and_(
+                Vote.opp_id == Opportunity.id,
+                Vote.org_id == user.organization_id,
+            ),
+        )
+        .group_by(Opportunity.id, UserOpportunity.id)
     )
+
 
     # Optional type filter
     if type == "solicitation":
@@ -386,16 +430,21 @@ async def saved_page(
 
     rows = query.order_by(Opportunity.response_deadline.asc()).all()
 
+
     # Shape results to match template expectations:
     # item.opportunity, item.notes, item.internal_deadline, item.created_at
     saved_items = []
-    for opp, user_opp in rows:
+    for opp, user_opp, up, down, pass_ in rows:
         saved_items.append(
             SavedItemVM(
                 opportunity=opp,
                 notes=getattr(user_opp, "notes", None) if user_opp else None,
                 internal_deadline=getattr(user_opp, "internal_deadline", None) if user_opp else None,
                 created_at=getattr(user_opp, "created_at", None) if user_opp else None,
+
+                up_count=int(up),
+                down_count=int(down),
+                pass_count=int(pass_),
             )
         )
 
@@ -450,3 +499,215 @@ async def calendar_page(
         "months": months,
         "active_page": "calendar"
     })
+@router.post("/opportunity/{opp_id}/watch")
+async def toggle_watch(
+    request: Request,
+    opp_id: int,
+    db: Session = Depends(get_db)
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    uo = db.query(UserOpportunity).filter(
+        UserOpportunity.user_id == user.id,
+        UserOpportunity.opportunity_id == opp_id
+    ).first()
+
+    if not uo:
+        uo = UserOpportunity(
+            user_id=user.id,
+            opportunity_id=opp_id,
+            watched=True
+        )
+        db.add(uo)
+    else:
+        uo.watched = not bool(uo.watched)
+
+    db.commit()
+
+    referer = request.headers.get("referer", "/")
+    return RedirectResponse(url=referer, status_code=303)
+    
+@router.get("/watchlist")
+async def org_watchlist(
+    request: Request,
+    tab: str = "solicitations",
+    db: Session = Depends(get_db)
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    solicitation_types = ["Solicitation", "Combined Synopsis/Solicitation", "Award Notice"]
+    rfi_types = ["RFI", "Sources Sought", "Special Notice", "Pre-Solicitation"]
+
+    OS = aliased(OpportunityState)
+    MyVote = aliased(Vote)
+
+    pursue_sum = func.coalesce(func.sum(case((Vote.vote == "UP", 1), else_=0)), 0)
+
+    q = db.query(
+        Opportunity,
+        pursue_sum.label("pursue_count"),
+        func.coalesce(func.sum(case((Vote.vote == "PASS", 1), else_=0)), 0).label("pass_count"),
+        MyVote.vote.label("my_signal"),
+        UserOpportunity.watched.label("watched"),
+    ).outerjoin(
+        OS,
+        and_(OS.opp_id == Opportunity.id, OS.org_id == user.organization_id)
+    ).outerjoin(
+        Vote,
+        and_(Vote.opp_id == Opportunity.id, Vote.org_id == user.organization_id)
+    ).outerjoin(
+        MyVote,
+        and_(MyVote.opp_id == Opportunity.id, MyVote.org_id == user.organization_id, MyVote.user_id == user.id)
+    ).outerjoin(
+        UserOpportunity,
+        and_(UserOpportunity.opportunity_id == Opportunity.id, UserOpportunity.user_id == user.id)
+    ).filter(
+        # OPEN only
+        or_(OS.id.is_(None), OS.state.notin_(CLOSED_STATES))
+    ).group_by(
+        Opportunity.id, MyVote.vote, UserOpportunity.watched
+    ).having(
+        pursue_sum >= 1
+    )
+
+    if tab == "solicitations":
+        q = q.filter(Opportunity.opportunity_type.in_(solicitation_types))
+    else:
+        q = q.filter(Opportunity.opportunity_type.in_(rfi_types))
+
+    rows = q.order_by(Opportunity.response_deadline.asc()).all()
+
+    today = date.today()
+    opportunities = []
+    for opp, pursue_count, pass_count, my_signal, watched in rows:
+        opp.days_until_due = (opp.response_deadline - today).days
+        opp.pursue_count = int(pursue_count)
+        opp.pass_count = int(pass_count)
+        opp.my_signal = my_signal
+        opp.watched = bool(watched) if watched is not None else False
+        opportunities.append(opp)
+
+    return templates.TemplateResponse("watchlist.html", {
+        "request": request,
+        "user": user,
+        "opportunities": opportunities,
+        "current_tab": tab,
+        "active_page": "watchlist"
+    })
+
+@router.get("/decisions")
+async def decisions(
+    request: Request,
+    state: str = "bid",  # bid | no_bid
+    tab: str = "solicitations",
+    db: Session = Depends(get_db)
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    STATE_MAP = {"bid": "BID", "no_bid": "NO_BID"}
+    state_value = STATE_MAP.get(state, "BID")
+
+    solicitation_types = ["Solicitation", "Combined Synopsis/Solicitation", "Award Notice"]
+    rfi_types = ["RFI", "Sources Sought", "Special Notice", "Pre-Solicitation"]
+
+    MyVote = aliased(Vote)
+
+    q = db.query(
+        Opportunity,
+        func.coalesce(func.sum(case((Vote.vote == "UP", 1), else_=0)), 0).label("pursue_count"),
+        func.coalesce(func.sum(case((Vote.vote == "PASS", 1), else_=0)), 0).label("pass_count"),
+        MyVote.vote.label("my_signal"),
+        UserOpportunity.watched.label("watched"),
+    ).join(
+        OpportunityState,
+        and_(
+            OpportunityState.opp_id == Opportunity.id,
+            OpportunityState.org_id == user.organization_id,
+            OpportunityState.state == state_value,
+        )
+    ).outerjoin(
+        Vote,
+        and_(Vote.opp_id == Opportunity.id, Vote.org_id == user.organization_id)
+    ).outerjoin(
+        MyVote,
+        and_(MyVote.opp_id == Opportunity.id, MyVote.org_id == user.organization_id, MyVote.user_id == user.id)
+    ).outerjoin(
+        UserOpportunity,
+        and_(UserOpportunity.opportunity_id == Opportunity.id, UserOpportunity.user_id == user.id)
+    ).group_by(
+        Opportunity.id, MyVote.vote, UserOpportunity.watched
+    )
+
+    if tab == "solicitations":
+        q = q.filter(Opportunity.opportunity_type.in_(solicitation_types))
+    else:
+        q = q.filter(Opportunity.opportunity_type.in_(rfi_types))
+
+    rows = q.order_by(Opportunity.response_deadline.asc()).all()
+
+    today = date.today()
+    opportunities = []
+    for opp, pursue_count, pass_count, my_signal, watched in rows:
+        opp.days_until_due = (opp.response_deadline - today).days
+        opp.pursue_count = int(pursue_count)
+        opp.pass_count = int(pass_count)
+        opp.my_signal = my_signal
+        opp.watched = bool(watched) if watched is not None else False
+        opportunities.append(opp)
+
+    return templates.TemplateResponse("decisions.html", {
+        "request": request,
+        "user": user,
+        "opportunities": opportunities,
+        "state_filter": state,     # "bid" | "no_bid"
+        "current_tab": tab,
+        "active_page": "decisions"
+    })
+
+# @router.get("/saved_for_later")
+# async def saved_for_later(
+#      request: Request,
+#      tab: str = "solicitations",
+#      db: Session = Depends(get_db)
+#  ):
+#      user = require_user(request, db)
+#      if not user:
+#          return RedirectResponse(url="/login", status_code=303)
+
+#      solicitation_types = ["Solicitation", "Combined Synopsis/Solicitation", "Award Notice"]
+#      rfi_types = ["RFI", "Sources Sought", "Special Notice", "Pre-Solicitation"]
+
+#      q = db.query(Opportunity).join(
+#          UserOpportunity,
+#          and_(
+#              UserOpportunity.opportunity_id == Opportunity.id,
+#              UserOpportunity.user_id == user.id,
+#              UserOpportunity.watched.is_(True),
+#          )
+#      )
+
+#      if tab == "solicitations":
+#          q = q.filter(Opportunity.opportunity_type.in_(solicitation_types))
+#      else:
+#          q = q.filter(Opportunity.opportunity_type.in_(rfi_types))
+
+#      opportunities = q.order_by(Opportunity.response_deadline.asc()).all()
+
+#      today = date.today()
+#      for opp in opportunities:
+#          opp.days_until_due = (opp.response_deadline - today).days
+#          opp.watched = True
+
+#      return templates.TemplateResponse("saved_for_later.html", {
+#          "request": request,
+#          "user": user,
+#          "opportunities": opportunities,
+#          "current_tab": tab,
+#          "active_page": "saved"
+#      })

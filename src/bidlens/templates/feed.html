@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Feed - BidLens{% endblock %}
 {% block content %}
-<h1>Contract Opportunities</h1>
+<h1>New Opportunities</h1>
 
 <div class="tabs">
     <a href="/?tab=solicitations{% if show_all %}&show_all=1{% endif %}" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
@@ -35,7 +35,10 @@
                 </span>
             </div>
             <div class="card-actions">
-              {% if opp.user_status %}
+             <!--{# 
+              ORG-LEVEL DECISION ACTIONS (BID / NO BID)
+              Intentionally deferred. Will re-enable once workflow layer is finalized.
+              #} {% if opp.user_status %}
                 {% set status = opp.user_status %}
                 {% include "_status_badge.html" %}
               {% endif %}
@@ -55,19 +58,59 @@
                   class="btn btn-danger btn-sm"
                   onclick="transitionOpp('{{ opp.id }}','NO_BID')"
                 >No Bid</button>
-              {% endif %}
+              {% endif %}-->
+              <div class="card-actions">
 
-              <a href="/opportunity/{{ opp.id }}" class="btn btn-secondary btn-sm">View Details</a>
+                <div class="signal-counts">
+                  <span>Interested: {{ opp.pursue_count }}</span>
+                  <span>Not Interested: {{ opp.pass_count }}</span>
+                  <span class="badge badge-score">
+                    Fit: {{ opp.fit_score if opp.fit_score is defined else '—' }}
+                  </span>
+                </div>
+
+                <!-- Pursue / Pass buttons -->
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  onclick="castVote('{{ opp.id }}', 'UP')"
+                >
+                  Interested
+                </button>
+
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  onclick="castVote('{{ opp.id }}', 'PASS')"
+                >
+                  Not Interested
+                </button>
+
+                <!-- Save for Later (watch) -->
+                <form
+                  method="POST"
+                  action="/opportunity/{{ opp.id }}/watch"
+                  style="display:inline;"
+                >
+                  <button class="btn btn-outline-secondary btn-sm" type="submit">
+                    {% if opp.watched %}Saved{% else %}Save for Later{% endif %}
+                  </button>
+                </form>
+
+                <a href="/opportunity/{{ opp.id }}" class="btn btn-secondary btn-sm">
+                  View Details
+                </a>
+              </div>
             </div>
         </div>
     {% endfor %}
     {% if not show_all %}
       <div class="show-more">
-        <a href="/?tab={{ current_tab }}&show_all=1">Include Marked Opportunities &rarr;</a>
+        <a href="/?tab={{ current_tab }}&show_all=1">Show passed</a>
       </div>
     {% else %}
       <div class="show-more">
-        <a href="/?tab={{ current_tab }}">&larr; Show less</a>
+        <a href="/?tab={{ current_tab }}">&larr; Hide passed</a>
       </div>
     {% endif %}
 {% else %}
@@ -97,5 +140,26 @@ async function transitionOpp(oppId, toState) {
   }
   window.location.reload();
 }
+
+async function castVote(oppId, voteValue) {
+  const res = await fetch('/api/vote', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      opp_id: Number(oppId),
+      vote: voteValue,
+      ui_version: "v1"
+    })
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.detail || 'Error');
+    return;
+  }
+
+  window.location.reload();
+}
 </script>
 {% endblock %}
+
