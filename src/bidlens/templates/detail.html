@@ -3,174 +3,177 @@
 {% block content %}
 <div class="detail-page">
     <a href="/" class="btn btn-secondary btn-sm" style="margin-bottom: 24px;">&larr; Back to Feed</a>
-    
+
     <div class="detail-header">
-        <h1 class="detail-title">{{ opportunity.title }}</h1>
-        <div class="detail-badges">
+        <div class="detail-title-row">
+            <h1 class="detail-title">{{ opportunity.title }}</h1>
             <span class="badge {{ 'badge-rfi' if opportunity.opportunity_type in ['RFI', 'Sources Sought'] else 'badge-type' }}">{{ opportunity.opportunity_type }}</span>
+        </div>
+        <div class="detail-badges">
             {% if opportunity.set_aside %}
                 <span class="badge badge-setaside">{{ opportunity.set_aside }}</span>
             {% endif %}
-            <!--{% if decision_state == "SAVED" %}
-              <span class="badge badge-saved">Shortlisted</span>
+            {% if decision_state == "SAVED" %}
+              <span class="badge badge-status-saved">Shortlisted</span>
             {% elif decision_state == "BID" %}
-              <span class="badge badge-inprogress">Go Bid</span>
+              <span class="badge badge-status-in_progress">Go Bid</span>
             {% elif decision_state == "NO_BID" %}
-              <span class="badge badge-dropped">No Bid</span>
-            {% endif %}-->
+              <span class="badge badge-status-dropped">No Bid</span>
+            {% endif %}
         </div>
     </div>
-    
-      <div class="detail-meta">
-        <div class="detail-meta-item">
-          <div class="detail-meta-label">Agency</div>
-          <div class="detail-meta-value">{{ opportunity.agency }}</div>
-        </div>
 
-        <!-- Opportunity Brief card -->
-        <div class="card" style="margin-top:16px;">
-          <div class="card-header" style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
-            <div class="card-title">Opportunity Brief</div>
+    <div class="detail-grid">
+        <div class="detail-primary">
+            <div class="card">
+                <div class="card-header" style="justify-content:space-between; align-items:center;">
+                    <div class="card-title">Opportunity Brief</div>
+                    <button class="btn btn-secondary btn-sm"
+                            type="button"
+                            onclick="generateBrief('{{ opportunity.id }}')">
+                      Generate AI Brief
+                    </button>
+                </div>
 
-            <button class="btn btn-secondary btn-sm"
-                    type="button"
-                    onclick="generateBrief('{{ opportunity.id }}')">
-              Generate AI Brief
-            </button>
-          </div>
+                <div class="brief-content">
+                  {% if brief %}
+                    {% if brief.summary_bullets %}
+                      <ul>
+                        {% for b in brief.summary_bullets %}
+                          <li>{{ b }}</li>
+                        {% endfor %}
+                      </ul>
+                    {% endif %}
 
-          <div class="card-meta">
-            {% if brief %}
-              {% if brief.summary_bullets %}
-                <ul>
-                  {% for b in brief.summary_bullets %}
-                    <li>{{ b }}</li>
-                  {% endfor %}
-                </ul>
-              {% endif %}
+                    {% if brief.key_requirements %}
+                      <h4>Key requirements</h4>
+                      <ul>
+                        {% for x in brief.key_requirements %}
+                          <li>{{ x }}</li>
+                        {% endfor %}
+                      </ul>
+                    {% endif %}
 
-              {% if brief.key_requirements %}
-                <h4>Key requirements</h4>
-                <ul>
-                  {% for x in brief.key_requirements %}
-                    <li>{{ x }}</li>
-                  {% endfor %}
-                </ul>
-              {% endif %}
+                    {% if brief.deliverables %}
+                      <h4>Deliverables</h4>
+                      <ul>
+                        {% for x in brief.deliverables %}
+                          <li>{{ x }}</li>
+                        {% endfor %}
+                      </ul>
+                    {% endif %}
 
-              {% if brief.deliverables %}
-                <h4>Deliverables</h4>
-                <ul>
-                  {% for x in brief.deliverables %}
-                    <li>{{ x }}</li>
-                  {% endfor %}
-                </ul>
-              {% endif %}
+                    {% if brief.eligibility %}
+                      <h4>Eligibility</h4>
+                      <ul>
+                        {% for x in brief.eligibility %}
+                          <li>{{ x }}</li>
+                        {% endfor %}
+                      </ul>
+                    {% endif %}
 
-              {% if brief.eligibility %}
-                <h4>Eligibility</h4>
-                <ul>
-                  {% for x in brief.eligibility %}
-                    <li>{{ x }}</li>
-                  {% endfor %}
-                </ul>
-              {% endif %}
+                    {% if brief.red_flags %}
+                      <h4>Red flags</h4>
+                      <ul>
+                        {% for x in brief.red_flags %}
+                          <li>{{ x }}</li>
+                        {% endfor %}
+                      </ul>
+                    {% endif %}
 
-              {% if brief.red_flags %}
-                <h4>Red flags</h4>
-                <ul>
-                  {% for x in brief.red_flags %}
-                    <li>{{ x }}</li>
-                  {% endfor %}
-                </ul>
-              {% endif %}
+                    {% if brief.recommended_next_steps %}
+                      <h4>Recommended next steps</h4>
+                      <ul>
+                        {% for x in brief.recommended_next_steps %}
+                          <li>{{ x }}</li>
+                        {% endfor %}
+                      </ul>
+                    {% endif %}
 
-              {% if brief.recommended_next_steps %}
-                <h4>Recommended next steps</h4>
-                <ul>
-                  {% for x in brief.recommended_next_steps %}
-                    <li>{{ x }}</li>
-                  {% endfor %}
-                </ul>
-              {% endif %}
+                  {% else %}
+                    {% if brief_status == "pending" %}
+                      <script>
+                        setTimeout(() => window.location.reload(), 5000);
+                      </script>
+                      <p><em>Generating summary…</em></p>
+                    {% elif brief_status == "failed" %}
+                      <p><strong>Brief failed:</strong> {{ brief_error or "unknown error" }}</p>
+                    {% else %}
+                      <p><em>No brief yet. Click "Generate AI Brief" to create one.</em></p>
+                    {% endif %}
+                  {% endif %}
+                </div>
+            </div>
 
-            {% else %}
-              {% if brief_status == "pending" %}
-                <script>
-                  setTimeout(() => window.location.reload(), 5000);
-                </script>
-                <p><em>Generating summary…</em></p>
-
-              {% elif brief_status == "failed" %}
-                <p><strong>Brief failed:</strong> {{ brief_error or "unknown error" }}</p>
-
-              {% else %}
-                <p><em>No brief yet.</em></p>
-              {% endif %}
+            {% if opportunity.description %}
+            <div class="card">
+                <details>
+                    <summary class="accordion-trigger">Original SAM.gov Description</summary>
+                    <div class="accordion-body">{{ opportunity.description }}</div>
+                </details>
+            </div>
             {% endif %}
-          </div>
         </div>
 
-        <!-- Other meta items (back to normal grid flow) -->
-        <div class="detail-meta-item">
-          <div class="detail-meta-label">Response Deadline</div>
-          <div class="detail-meta-value {{ 'due-urgent' if days_until_due <= 7 else 'due-soon' if days_until_due <= 14 else '' }}">
-            {{ opportunity.response_deadline.strftime('%B %d, %Y') }}
-            {% if days_until_due >= 0 %}
-              ({{ days_until_due }} days left)
-            {% else %}
-              (past due)
-            {% endif %}
-          </div>
+        <div class="detail-secondary">
+            <div class="card">
+                <h3 class="key-info-title">Key Info</h3>
+
+                <div class="key-info-row">
+                    <span class="key-info-label">Agency</span>
+                    <span class="key-info-value">{{ opportunity.agency }}</span>
+                </div>
+
+                <div class="key-info-row">
+                    <span class="key-info-label">Response Deadline</span>
+                    <span class="key-info-value {{ 'due-urgent' if days_until_due <= 7 else 'due-soon' if days_until_due <= 14 else '' }}">
+                        {{ opportunity.response_deadline.strftime('%B %d, %Y') }}
+                        {% if days_until_due >= 0 %}
+                            ({{ days_until_due }} days left)
+                        {% else %}
+                            (past due)
+                        {% endif %}
+                    </span>
+                </div>
+
+                <div class="key-info-row">
+                    <span class="key-info-label">Posted Date</span>
+                    <span class="key-info-value">{{ opportunity.posted_date.strftime('%B %d, %Y') }}</span>
+                </div>
+
+                {% if opportunity.naics %}
+                <div class="key-info-row">
+                    <span class="key-info-label">NAICS</span>
+                    <span class="key-info-value">{{ opportunity.naics }}</span>
+                </div>
+                {% endif %}
+
+                {% if opportunity.set_aside %}
+                <div class="key-info-row">
+                    <span class="key-info-label">Set-Aside</span>
+                    <span class="key-info-value">{{ opportunity.set_aside }}</span>
+                </div>
+                {% endif %}
+
+                <div class="key-info-row">
+                    <span class="key-info-label">SAM.gov ID</span>
+                    <span class="key-info-value">{{ opportunity.sam_notice_id }}</span>
+                </div>
+
+                {% if user_opp and user_opp.internal_deadline %}
+                <div class="key-info-row">
+                    <span class="key-info-label">Internal Deadline</span>
+                    <span class="key-info-value">{{ user_opp.internal_deadline.strftime('%B %d, %Y') }}</span>
+                </div>
+                {% endif %}
+
+                <a href="{{ opportunity.sam_url }}" target="_blank" class="btn btn-secondary btn-sm" style="margin-top: 12px; width: 100%; justify-content: center;">View on SAM.gov &rarr;</a>
+            </div>
         </div>
-
-        <div class="detail-meta-item">
-          <div class="detail-meta-label">Posted Date</div>
-          <div class="detail-meta-value">{{ opportunity.posted_date.strftime('%B %d, %Y') }}</div>
-        </div>
-
-        {% if opportunity.naics %}
-          <div class="detail-meta-item">
-            <div class="detail-meta-label">NAICS Code</div>
-            <div class="detail-meta-value">{{ opportunity.naics }}</div>
-          </div>
-        {% endif %}
-
-        <div class="detail-meta-item">
-          <div class="detail-meta-label">SAM.gov ID</div>
-          <div class="detail-meta-value">{{ opportunity.sam_notice_id }}</div>
-        </div>
-
-        {% if user_opp and user_opp.internal_deadline %}
-          <div class="detail-meta-item">
-            <div class="detail-meta-label">Your Internal Deadline</div>
-            <div class="detail-meta-value">{{ user_opp.internal_deadline.strftime('%B %d, %Y') }}</div>
-          </div>
-        {% endif %}
-        {% if opportunity.description %}
-          <div class="detail-description">
-            <details style="margin-top: 12px;">
-              <summary style="cursor:pointer; font-weight:600;">
-                Show original SAM.gov description
-              </summary>
-              <div style="margin-top: 10px; white-space: pre-wrap;">
-                {{ opportunity.description }}
-              </div>
-            </details>
-          </div>
-        {% endif %}
-      </div>
+    </div>
+</div>
 
 <script>
-const SIGNAL_LABEL = {
-  up: "Shortlist",
-  down: "Pass",
-};
-
-const SIGNAL_PAST_TENSE = {
-  up: "Shortlisted",
-  down: "Passed",
-};
 async function transitionOpp(oppId, toState) {
   const res = await fetch('/api/transition', {
     method: 'POST',
@@ -185,56 +188,31 @@ async function transitionOpp(oppId, toState) {
   if (!res.ok) { alert(data.detail || 'Error'); return; }
   window.location.reload();
 }
+
 async function voteOpp(oppId, vote) {
   const payload = {
     opp_id: Number(oppId),
     ui_version: "v1"
   };
-
-  // Only include vote if UP/DOWN; omitting vote = clear
   if (vote === "UP" || vote === "DOWN") {
     payload.vote = vote;
   }
-
-
   const res = await fetch('/api/vote', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify(payload)
   });
-
   if (!res.ok) {
-    // Keep it simple for users
     const data = await res.json().catch(() => ({}));
     alert(data.detail || "Error saving vote");
     return;
   }
-
   window.location.reload();
 }
 
 async function generateBrief(oppId) {
-  console.log("Generate clicked for", oppId);
-
-  await fetch(`/api/opps/${oppId}/generate_brief`, {
-    method: "POST",
-  });
-
+  await fetch(`/api/opps/${oppId}/generate_brief`, { method: "POST" });
   window.location.reload();
 }
-
-// async function resetBrief(oppId) {
-//   const res = await fetch(`/api/opps/${oppId}/enrichment/reset`, {
-//     method: "POST",
-//     headers: { "Content-Type": "application/json" }
-//   });
-//   const data = await res.json();
-//   if (!res.ok) {
-//     alert(data.detail || "Failed to reset brief");
-//     return;
-//   }
-//   alert("Brief reset to pending. n8n will regenerate on next run.");
-//   window.location.reload();
-// }
 </script>
 {% endblock %}

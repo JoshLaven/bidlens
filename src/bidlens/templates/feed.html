@@ -1,11 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Feed - BidLens{% endblock %}
 {% block content %}
-<h1>New Opportunities</h1>
+<h1>Feed</h1>
 
 <div class="tabs">
   <a href="/" class="tab {{ 'active' if active_page == 'feed' else '' }}">Feed</a>
-  <a href="/watchlist" class="tab {{ 'active' if active_page == 'watchlist' else '' }}">My Watchlist</a>
+  <div class="filters">
+    <a href="/" class="filter active">All</a>
+    <a href="/?filter=shortlisted" class="filter">Shortlisted</a>
+    <a href="/?filter=watchlist" class="filter">My Watchlist</a>
+  </div>
+
 </div>
 
 

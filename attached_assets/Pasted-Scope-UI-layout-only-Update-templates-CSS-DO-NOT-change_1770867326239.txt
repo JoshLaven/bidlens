@@ -1,0 +1,68 @@
+Scope: UI/layout only. Update templates + CSS.
+DO NOT change backend routes, database models, API behavior, vote logic, or transition logic.
+Keep API vote values exactly "UP" and "DOWN". Keep toggle behavior where sending vote: null clears.
+
+A) Feed (templates/feed.html)
+1) Remove the separate “Shortlisted: X / Passed: Y” line.
+2) Make the two signal buttons include counts:
+   - "Shortlist · {pursue_count}" (show ✓ if selected)
+   - "Pass · {pass_count}" (show ✓ if selected)
+3) Layout: left side = Shortlist + Pass buttons.
+   Right side = Save button + Details link.
+4) Make “Details” a text link styled with a .details-link class, not a filled button.
+5) Ensure layout wraps cleanly on mobile under 640px (no overflow).
+
+B) Decisions page (templates/saved.html)
+1) Keep tabs Shortlist / Bid / No Bid.
+2) Replace the “Shortlist X / Pass Y” row with:
+   “Signals — Shortlist · X  Pass · Y”
+   Make this subtle (small text, not bold headline).
+3) Layout actions like Feed:
+   - Left: Go Bid / No Bid buttons (only when state_filter == 'saved')
+   - Right: Details link styled consistently with Feed.
+4) Fix badge CSS mismatch so Shortlisted / Go Bid / No Bid badges render properly using existing styles or minimal aliases.
+
+C) Opportunity Detail page (the template used for /opportunity/<id>)
+Reorganize layout into a clean two-column structure on desktop:
+
+Top:
+- Title + type badge row
+
+Below:
+- Two-column grid
+  Left column (primary content):
+    - Opportunity Brief card
+    - Original SAM.gov description (accordion) below it
+  Right column (secondary content):
+    - Key Info card with:
+      Agency
+      Due date (+ days left, keep urgency styling)
+      Posted date
+      NAICS
+      Set-aside (if present)
+      SAM.gov ID
+      Internal deadline (if present)
+
+On mobile (<=640px):
+- Stack everything vertically
+- Key Info above Brief
+
+UI requirements:
+- Use existing design system (cards, spacing, colors).
+- Make “Generate AI Brief” a secondary-style button.
+- Do not introduce new frameworks.
+- Do not modify data fields, only reorganize layout.
+
+D) CSS (static/css/styles.css)
+Add only minimal new classes needed for:
+- .actions-left / .actions-right layout
+- .details-link styling
+- Two-column detail page grid that collapses under 640px
+Keep styling consistent with existing palette and shadows.
+
+Acceptance criteria:
+- No duplicate “Shortlist / Pass” labels on Feed cards.
+- Counts live inside buttons on Feed.
+- Decisions page shows subtle “Signals — …” line.
+- Detail page looks organized and intentional.
+- No backend behavior changes.
