@@ -253,6 +253,16 @@ h2 {
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
 }
 
+.signals-line {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--gray-500);
+    margin-bottom: 4px;
+    margin-top: 4px;
+}
+
 .details-link {
   font-size: 0.875rem;
   font-weight: 600;
@@ -296,6 +306,15 @@ h2 {
 
 .btn-secondary:hover {
     background: var(--gray-200);
+}
+
+.btn-success {
+    background: #d1fae5;
+    color: var(--success);
+}
+
+.btn-success:hover {
+    background: #bbf7d0;
 }
 
 .btn-danger {
