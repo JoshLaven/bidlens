@@ -25,6 +25,30 @@
         <span class="badge badge-status-dropped">No Bid</span>
       {% endif %}
     </div>
+    <div class="card-actions" style="margin-bottom: 16px;">
+      <div class="actions-left">
+        <button type="button"
+                class="btn btn-primary btn-sm {% if my_vote == 'UP' %}is-selected{% endif %}"
+                onclick="voteOpp('{{ opportunity.id }}', 'UP', '{{ my_vote or '' }}')">
+          Shortlist {% if my_vote == "UP" %}✓{% endif %}
+        </button>
+
+        <button type="button"
+                class="btn btn-secondary btn-sm {% if my_vote == 'DOWN' %}is-selected{% endif %}"
+                onclick="voteOpp('{{ opportunity.id }}', 'DOWN', '{{ my_vote or '' }}')">
+          Pass {% if my_vote == "DOWN" %}✓{% endif %}
+        </button>
+      </div>
+
+      <div class="actions-right">
+        <form method="POST" action="/opportunity/{{ opportunity.id }}/watch" style="display:inline;">
+          <button class="btn btn-outline-secondary btn-sm" type="submit">
+            {% if user_opp and user_opp.watched %}★{% else %}☆{% endif %}
+          </button>
+        </form>
+      </div>
+    </div>
+
   </div>
 
   <div class="detail-primary">
@@ -85,7 +109,7 @@
         {% if opportunity.sam_url %}
           <a href="{{ opportunity.sam_url }}" target="_blank"
              class="btn btn-secondary btn-sm"
-             style="margin-top: 12px; width: 100%; justify-content: center;">
+             style="margin-top: 12px; justify-content: center;">
             View on SAM.gov &rarr;
           </a>
         {% endif %}
@@ -182,12 +206,11 @@
     {% if opportunity.description %}
       <details class="accordion">
         <summary class="accordion-summary">Original SAM.gov Description</summary>
-        <div class="accordion-body" style="white-space: pre-wrap;">
+        <div class="accordion-body prewrap">
           {{ opportunity.description }}
         </div>
       </details>
     {% endif %}
-
   </div>
 </div>
 
@@ -208,26 +231,34 @@ async function transitionOpp(oppId, toState) {
   window.location.reload();
 }
 
-async function voteOpp(oppId, vote) {
+async function voteOpp(oppId, voteValue, currentVote) {
   const payload = {
     opp_id: Number(oppId),
     ui_version: "v1"
   };
-  if (vote === "UP" || vote === "DOWN") {
-    payload.vote = vote;
+
+  // toggle off if clicking the same vote again
+  if (currentVote === voteValue) {
+    payload.vote = null;
+  } else {
+    payload.vote = voteValue; // "UP" or "DOWN"
   }
+
   const res = await fetch('/api/vote', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify(payload)
   });
+
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     alert(data.detail || "Error saving vote");
     return;
   }
+
   window.location.reload();
 }
+
 
 async function generateBrief(oppId) {
   await fetch(`/api/opps/${oppId}/generate_brief`, { method: "POST" });

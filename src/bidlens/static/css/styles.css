@@ -481,6 +481,10 @@ h2 {
     margin-bottom: 6px;
 }
 
+.prewrap {
+  white-space: pre-wrap;
+}
+
 .accordion-trigger {
     cursor: pointer;
     font-weight: 600;
@@ -489,13 +493,22 @@ h2 {
     padding: 4px 0;
 }
 
+
+/* Accordion body: normal flow (do NOT preserve whitespace) */
 .accordion-body {
-    margin-top: 12px;
-    white-space: pre-wrap;
-    color: var(--gray-700);
-    font-size: 0.9375rem;
-    line-height: 1.7;
+  padding: 8px 12px 12px 12px;
+  border-top: 1px solid var(--gray-200);
+  color: var(--gray-700);
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  white-space: normal; /* critical */
+  margin-top: 0;       /* critical */
 }
+
+.accordion-body .btn {
+  width: auto !important;
+}
+
 .accordion {
   background: white;
   border-radius: var(--radius);
@@ -528,43 +541,42 @@ details[open] .accordion-summary::after {
   content: "▴";
 }
 
-.accordion-body {
-  padding: 0 18px 18px 18px;
-  border-top: 1px solid var(--gray-200);
-}
-
-.key-info-title {
-    font-size: 1rem;
-    font-weight: 600;
-    margin-bottom: 16px;
-    color: var(--gray-900);
-}
-
+/* Key Info layout */
 .key-info-row {
-    display: flex;
-    flex-direction: column;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--gray-100);
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--gray-200);
+  align-items: baseline;
 }
 
-.key-info-row:last-of-type {
-    border-bottom: none;
+.key-info-row:last-child {
+  border-bottom: none;
 }
 
 .key-info-label {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--gray-500);
-    margin-bottom: 2px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gray-500);
 }
 
 .key-info-value {
-    font-size: 0.9375rem;
-    font-weight: 500;
-    color: var(--gray-900);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--gray-900);
+  text-align: left; /* key change */
 }
+
+.key-info-value.due-urgent {
+  color: var(--danger);
+}
+
+.key-info-value.due-soon {
+  color: var(--warning);
+}
+
 
 .detail-actions {
     background: white;
@@ -705,5 +717,12 @@ details[open] .accordion-summary::after {
 
     .detail-secondary {
         order: -1;
+    }
+    .key-info-row {
+      grid-template-columns: 1fr;
+      gap: 4px;
+    }
+    .key-info-value {
+      text-align: left;
     }
 }

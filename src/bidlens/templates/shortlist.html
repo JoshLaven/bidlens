@@ -1,23 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Feed - BidLens{% endblock %}
 {% block content %}
-<h1>Feed</h1>
+<h1>Shortlist</h1>
 
 <div class="tabs">
-  <a href="/?tab=solicitations" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
-  <a href="/?tab=rfi" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
+  <a href="/shortlist?tab=solicitations" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
+  <a href="/shortlist?tab=rfi" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
 </div>
-
-<!-- For secondary tabs inside Feed
-<div class="tabs">
-  <a href="/" class="tab {{ 'active' if active_page == 'feed' else '' }}">Feed</a>
-  <div class="filters">
-    <a href="/" class="filter active">All</a>
-    <a href="/?filter=shortlisted" class="filter">Shortlisted</a>
-    <a href="/?filter=watchlist" class="filter">My Watchlist</a>
-  </div>
-
-</div> -->
 
 
 {% if opportunities %}
@@ -50,32 +39,34 @@
             <div class="actions-left">
               <button
                 type="button"
-                class="btn btn-primary btn-sm {% if opp.my_signal == 'UP' %}is-selected{% endif %}"
-                onclick="castVote('{{ opp.id }}', 'UP', '{{ opp.my_signal or '' }}')"
+                class="btn btn-primary btn-sm signal-btn {% if opp.my_signal == "UP" %}is-selected{% endif %}"
+                onclick="castVote('{{ opp.id }}', 'UP', '{{ opp.my_signal or "" }}')"
               >
-                Shortlist ({{ opp.pursue_count }})
+                Shortlist <span class="signal-dot">·</span> <span class="signal-count">{{ opp.pursue_count }}</span>
+                {% if opp.my_signal == "UP" %}<span class="signal-check">✓</span>{% endif %}
               </button>
 
               <button
                 type="button"
-                class="btn btn-secondary btn-sm {% if opp.my_signal == 'DOWN' %}is-selected{% endif %}"
-                onclick="castVote('{{ opp.id }}', 'DOWN', '{{ opp.my_signal or '' }}')"
+                class="btn btn-secondary btn-sm signal-btn {% if opp.my_signal == "DOWN" %}is-selected{% endif %}"
+                onclick="castVote('{{ opp.id }}', 'DOWN', '{{ opp.my_signal or "" }}')"
               >
-                Pass ({{ opp.pass_count }})
+                Pass <span class="signal-dot">·</span> <span class="signal-count">{{ opp.pass_count }}</span>
+                {% if opp.my_signal == "DOWN" %}<span class="signal-check">✓</span>{% endif %}
               </button>
             </div>
 
             <div class="actions-right">
               <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
                 <button class="btn btn-outline-secondary btn-sm" type="submit">
-                  {% if opp.watched %}Bookmarked{% else %}Bookmark{% endif %}
+                  {% if opp.watched %}Saved{% else %}Save{% endif %}
                 </button>
               </form>
-
-              <a href="/opportunity/{{ opp.id }}" class="details-link">Details →</a>
+              <a href="/opportunity/{{ opp.id }}" class="details-link">
+                Details
+              </a>
             </div>
           </div>
-
         </div>
     {% endfor %}
 {% else %}
@@ -108,23 +99,25 @@ async function transitionOpp(oppId, toState) {
 }
 
 async function castVote(oppId, voteValue, currentSignal) {
-  const payload = { opp_id: Number(oppId), ui_version: "v1" };
-  payload.vote = (currentSignal === voteValue) ? null : voteValue;
+  const payload = {
+    opp_id: Number(oppId),
+    ui_version: "v1"
+  };
 
-  const res = await fetch('/api/vote', {
+  if (currentSignal === voteValue) {
+    payload.vote = null;  // clear
+  } else {
+    payload.vote = voteValue;  // "UP" or "DOWN"
+  }
+
+  await fetch('/api/vote', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(payload)
   });
 
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    alert(data.detail || 'Error');
-    return;
-  }
   window.location.reload();
 }
-
 
 
 </script>

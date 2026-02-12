@@ -13,8 +13,9 @@
             <div class="nav-links">
                 {% if user %}
                     <a href="/" class="{{ 'active' if active_page == 'feed' else '' }}">Feed</a>
-                    <a href="/saved" class="{{ 'active' if active_page == 'saved' else '' }}">Decisions</a>
+                    <a href="/shortlist" class="{{ 'active' if active_page == 'shortlist' else '' }}">Shortlist</a>
                     <a href="/settings" class="{{ 'active' if active_page == 'settings' else '' }}">Settings</a>
+
 
                     <!-- <a href="/calendar" class="{{ 'active' if active_page == 'calendar' else '' }}">Calendar</a> -->
                     <span class="nav-user">{{ user.email }}</span>

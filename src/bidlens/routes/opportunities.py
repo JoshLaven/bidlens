@@ -117,6 +117,69 @@ async def feed(
         "active_page": "feed"
     })
 
+@router.get("/shortlist")
+async def my_shortlist(
+    request: Request,
+    tab: str = "solicitations",
+    db: Session = Depends(get_db)
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    solicitation_types = ["Solicitation", "Combined Synopsis/Solicitation", "Award Notice"]
+    rfi_types = ["RFI", "Sources Sought", "Special Notice", "Pre-Solicitation"]
+
+    OS = aliased(OpportunityState)
+    MyVote = aliased(Vote)
+
+    base = db.query(
+        Opportunity,
+        func.coalesce(func.sum(case((Vote.vote == "UP", 1), else_=0)), 0).label("shortlist_count"),
+        func.coalesce(func.sum(case((Vote.vote == "DOWN", 1), else_=0)), 0).label("pass_count"),
+        MyVote.vote.label("my_signal"),
+        UserOpportunity.watched.label("watched"),
+    ).outerjoin(
+        OS, and_(OS.opp_id == Opportunity.id, OS.org_id == user.organization_id)
+    ).outerjoin(
+        Vote, and_(Vote.opp_id == Opportunity.id, Vote.org_id == user.organization_id)
+    ).outerjoin(
+        MyVote, and_(MyVote.opp_id == Opportunity.id, MyVote.org_id == user.organization_id, MyVote.user_id == user.id)
+    ).outerjoin(
+        UserOpportunity, and_(UserOpportunity.opportunity_id == Opportunity.id, UserOpportunity.user_id == user.id)
+    ).filter(
+        # open only (not BID/NO_BID)
+        or_(OS.id.is_(None), OS.state.notin_(CLOSED_STATES)),
+        # Option A: My shortlist
+        MyVote.vote == "UP",
+    ).group_by(
+        Opportunity.id, MyVote.vote, UserOpportunity.watched
+    )
+
+    if tab == "solicitations":
+        base = base.filter(Opportunity.opportunity_type.in_(solicitation_types))
+    else:
+        base = base.filter(Opportunity.opportunity_type.in_(rfi_types))
+
+    rows = base.order_by(Opportunity.response_deadline.asc()).limit(50).all()
+
+    today = date.today()
+    opportunities = []
+    for opp, shortlist_count, pass_count, my_signal, watched in rows:
+        opp.days_until_due = (opp.response_deadline - today).days
+        opp.pursue_count = int(shortlist_count)
+        opp.pass_count = int(pass_count)
+        opp.my_signal = my_signal
+        opp.watched = bool(watched) if watched is not None else False
+        opportunities.append(opp)
+
+    return templates.TemplateResponse("shortlist.html", {
+        "request": request,
+        "user": user,
+        "opportunities": opportunities,
+        "current_tab": tab,
+        "active_page": "shortlist",
+    })
 
 @router.get("/opportunity/{opp_id}")
 async def opportunity_detail(
@@ -370,96 +433,95 @@ async def update_opportunity(
     return RedirectResponse(url=f"/opportunity/{opp_id}", status_code=303)
 
 
-@router.get("/saved")
-async def saved_page(
-    request: Request,
-    state: str | None = "saved",   # saved | bid | no_bid
-    type: str | None = None,
-    db: Session = Depends(get_db)
-):
-    user = require_user(request, db)
-    if not user:
-        return RedirectResponse(url="/login", status_code=303)
+# @router.get("/saved")
+# async def saved_page(
+#     request: Request,
+#     state: str | None = "saved",   # saved | bid | no_bid
+#     type: str | None = None,
+#     db: Session = Depends(get_db)
+# ):
+#     user = require_user(request, db)
+#     if not user:
+#         return RedirectResponse(url="/login", status_code=303)
 
-    # Map URL state → canonical OpportunityState
-    STATE_MAP = {
-        "saved": "SAVED",
-        "bid": "BID",
-        "no_bid": "NO_BID",
-    }
-    state_value = STATE_MAP.get(state, "SAVED")
+#     # Map URL state → canonical OpportunityState
+#     STATE_MAP = {
+#         "saved": "SAVED",
+#         "bid": "BID",
+#         "no_bid": "NO_BID",
+#     }
+#     state_value = STATE_MAP.get(state, "SAVED")
 
-    # Base query: decision truth from OpportunityState
-    query = (
-        db.query(
-            Opportunity,
-            UserOpportunity,
-            func.coalesce(func.sum(case((Vote.vote == "UP", 1), else_=0)), 0).label("up"),
-            func.coalesce(func.sum(case((Vote.vote == "DOWN", 1), else_=0)), 0).label("down"),
-            func.coalesce(func.sum(case((Vote.vote == "PASS", 1), else_=0)), 0).label("pass_"),
-        )
-        .join(
-            OpportunityState,
-            and_(
-                OpportunityState.opp_id == Opportunity.id,
-                OpportunityState.org_id == user.organization_id,
-                OpportunityState.state == state_value,
-            ),
-        )
-        .outerjoin(
-            UserOpportunity,
-            and_(
-                UserOpportunity.opportunity_id == Opportunity.id,
-                UserOpportunity.user_id == user.id,
-            ),
-        )
-        .outerjoin(
-            Vote,
-            and_(
-                Vote.opp_id == Opportunity.id,
-                Vote.org_id == user.organization_id,
-            ),
-        )
-        .group_by(Opportunity.id, UserOpportunity.id)
-    )
-
-
-    # Optional type filter
-    if type == "solicitation":
-        solicitation_types = ["Solicitation", "Combined Synopsis/Solicitation", "Award Notice"]
-        query = query.filter(Opportunity.opportunity_type.in_(solicitation_types))
-    elif type == "rfi":
-        rfi_types = ["RFI", "Sources Sought", "Special Notice", "Pre-Solicitation"]
-        query = query.filter(Opportunity.opportunity_type.in_(rfi_types))
-
-    rows = query.order_by(Opportunity.response_deadline.asc()).all()
+#     # Base query: decision truth from OpportunityState
+#     query = (
+#         db.query(
+#             Opportunity,
+#             UserOpportunity,
+#             func.coalesce(func.sum(case((Vote.vote == "UP", 1), else_=0)), 0).label("up"),
+#             func.coalesce(func.sum(case((Vote.vote == "DOWN", 1), else_=0)), 0).label("down"),
+#         )
+#         .join(
+#             OpportunityState,
+#             and_(
+#                 OpportunityState.opp_id == Opportunity.id,
+#                 OpportunityState.org_id == user.organization_id,
+#                 OpportunityState.state == state_value,
+#             ),
+#         )
+#         .outerjoin(
+#             UserOpportunity,
+#             and_(
+#                 UserOpportunity.opportunity_id == Opportunity.id,
+#                 UserOpportunity.user_id == user.id,
+#             ),
+#         )
+#         .outerjoin(
+#             Vote,
+#             and_(
+#                 Vote.opp_id == Opportunity.id,
+#                 Vote.org_id == user.organization_id,
+#             ),
+#         )
+#         .group_by(Opportunity.id, UserOpportunity.id)
+#     )
 
 
-    # Shape results to match template expectations:
-    # item.opportunity, item.notes, item.internal_deadline, item.created_at
-    saved_items = []
-    for opp, user_opp, up, down, pass_ in rows:
-        saved_items.append(
-            SavedItemVM(
-                opportunity=opp,
-                notes=getattr(user_opp, "notes", None) if user_opp else None,
-                internal_deadline=getattr(user_opp, "internal_deadline", None) if user_opp else None,
-                created_at=getattr(user_opp, "created_at", None) if user_opp else None,
+#     # Optional type filter
+#     if type == "solicitation":
+#         solicitation_types = ["Solicitation", "Combined Synopsis/Solicitation", "Award Notice"]
+#         query = query.filter(Opportunity.opportunity_type.in_(solicitation_types))
+#     elif type == "rfi":
+#         rfi_types = ["RFI", "Sources Sought", "Special Notice", "Pre-Solicitation"]
+#         query = query.filter(Opportunity.opportunity_type.in_(rfi_types))
 
-                up_count=int(up),
-                down_count=int(down),
-                pass_count=int(pass_),
-            )
-        )
+#     rows = query.order_by(Opportunity.response_deadline.asc()).all()
 
-    return templates.TemplateResponse("saved.html", {
-        "request": request,
-        "user": user,
-        "saved_items": saved_items,
-        "state_filter": state,   # ← used by tabs + template logic
-        "type_filter": type,
-        "active_page": "saved",
-    })
+
+#     # Shape results to match template expectations:
+#     # item.opportunity, item.notes, item.internal_deadline, item.created_at
+#     saved_items = []
+#     for opp, user_opp, up, down in rows:
+#         saved_items.append(
+#             SavedItemVM(
+#                 opportunity=opp,
+#                 notes=getattr(user_opp, "notes", None) if user_opp else None,
+#                 internal_deadline=getattr(user_opp, "internal_deadline", None) if user_opp else None,
+#                 created_at=getattr(user_opp, "created_at", None) if user_opp else None,
+
+#                 up_count=int(up),
+#                 down_count=int(down),
+#                 pass_count=int(pass_),
+#             )
+#         )
+
+#     return templates.TemplateResponse("saved.html", {
+#         "request": request,
+#         "user": user,
+#         "saved_items": saved_items,
+#         "state_filter": state,   # ← used by tabs + template logic
+#         "type_filter": type,
+#         "active_page": "saved",
+#     })
 
 @router.get("/calendar")
 async def calendar_page(
