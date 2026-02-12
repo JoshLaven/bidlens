@@ -231,16 +231,11 @@ h2 {
 
 .card-actions {
     display: flex;
-    gap: 8px;
+    justify-content: space-between;
+    gap: 12px;
     margin-top: 16px;
-}
-.card-actions {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 16px;
-  align-items: center;
-  flex-wrap: wrap;
+    align-items: center;
+    flex-wrap: wrap;
 }
 
 .actions-left, .actions-right {
@@ -310,6 +305,17 @@ h2 {
 
 .btn-danger:hover {
     background: #fecaca;
+}
+
+.btn-outline-secondary {
+    background: transparent;
+    color: var(--gray-700);
+    border: 1px solid var(--gray-300);
+}
+
+.btn-outline-secondary:hover {
+    background: var(--gray-100);
+    border-color: var(--gray-500);
 }
 
 .btn-sm {
@@ -570,6 +576,16 @@ h2 {
         gap: 8px;
     }
     
+    .card-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .actions-left,
+    .actions-right {
+        justify-content: flex-start;
+    }
+
     .detail-meta {
         grid-template-columns: 1fr;
     }
