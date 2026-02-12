@@ -36,4 +36,3 @@ externalPort = 80
 [userenv]
 
 [userenv.shared]
-AUTOMATION_API_KEY = "bidlens-dev-automation"

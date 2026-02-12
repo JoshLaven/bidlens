@@ -23,8 +23,8 @@ class TransitionIn(BaseModel):
 
 class VoteIn(BaseModel):
     opp_id: int
-    vote: Optional[str] = None  # "UP", "DOWN", or null
-    ui_version: str
+    vote: Optional[str] = None
+    ui_version: Optional[str] = "v1"
 
 def require_user(request: Request, db: Session):
     user = get_current_user(request, db)
@@ -74,30 +74,29 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
 
     v = payload.vote
     if isinstance(v, str):
-        v = v.upper()
-    if v not in ("UP", "DOWN", "PASS", None):
-        raise HTTPException(status_code=400, detail="vote must be UP, DOWN, PASS, or null")
-        
-    v = payload.vote
-    if isinstance(v, str):
-        v = v.upper()
+        v = v.upper().strip()
 
-    # map friendly labels to canonical values
+    # Friendly aliases (optional)
     if v == "PURSUE":
         v = "UP"
+    if v == "SHORTLIST":
+        v = "UP"
+    if v == "PASS":
+        v = "DOWN"  # 👈 key change
 
-    if v not in ("UP", "DOWN", "PASS", None):
-        raise HTTPException(status_code=400, detail="vote must be UP, DOWN, PASS, or null")
+    if v not in ("UP", "DOWN", None):
+        raise HTTPException(status_code=400, detail="vote must be UP, DOWN, or null")
 
     set_vote(
         db,
         org_id=user.organization_id,
         user_id=user.id,
         opp_id=payload.opp_id,
-        vote=v,
+        vote=v,  # None means clear
         ui_version=payload.ui_version,
     )
     return {"ok": True, "opp_id": payload.opp_id, "vote": v}
+
     
 @router.get("/opps/pending_enrichment")
 def pending_enrichment(request: Request, limit: int = 50, db: Session = Depends(get_db)):
@@ -239,3 +238,23 @@ def generate_brief(
     )
 
     return {"ok": True, "status": "pending"}
+    
+@router.get("/opps/{opp_id}")
+def get_opp_for_enrichment(opp_id: int, request: Request, db: Session = Depends(get_db)):
+    caller = require_user_or_automation(request, db)
+    o = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
+    if not o:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    return {
+        "id": o.id,
+        "title": o.title,
+        "agency": o.agency,
+        "opportunity_type": o.opportunity_type,
+        "posted_date": o.posted_date.isoformat() if o.posted_date else None,
+        "response_deadline": o.response_deadline.isoformat() if o.response_deadline else None,
+        "naics": o.naics,
+        "set_aside": o.set_aside,
+        "url": o.sam_url,
+        "text_for_enrichment": (o.description or "").strip()[:20000],
+    }

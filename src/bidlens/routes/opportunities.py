@@ -58,9 +58,14 @@ async def feed(
 
     base = db.query(
         Opportunity,
-        func.coalesce(func.sum(case((Vote.vote == "UP", 1), else_=0)), 0).label("pursue_count"),
-        func.coalesce(func.sum(case((Vote.vote == "PASS", 1), else_=0)), 0).label("pass_count"),
+
+        # Count org signals (UP = Shortlist, DOWN = Pass)
+        func.coalesce(func.sum(case((Vote.vote == "UP", 1), else_=0)), 0).label("shortlist_count"),
+        func.coalesce(func.sum(case((Vote.vote == "DOWN", 1), else_=0)), 0).label("pass_count"),
+
+        # My personal signal
         MyVote.vote.label("my_signal"),
+
         UserOpportunity.watched.label("watched"),
     ).outerjoin(
         OS,
@@ -74,18 +79,17 @@ async def feed(
     ).outerjoin(
         UserOpportunity,
         and_(UserOpportunity.opportunity_id == Opportunity.id, UserOpportunity.user_id == user.id)
-    ).filter(
-        # OPEN = not closed
-        or_(OS.id.is_(None), OS.state.notin_(CLOSED_STATES))
     )
 
+    # ✅ REMOVE these “scatter” filters for the reset:
+    # .filter(or_(OS.id.is_(None), OS.state.notin_(CLOSED_STATES)))
+    # and the “hide my passed unless show_all”
     # Option A: hide items I personally PASSED unless show_all=1
-    if not show_all:
-        base = base.filter(or_(MyVote.vote.is_(None), MyVote.vote != "PASS"))
+    #if not show_all:
+    #    base = base.filter(or_(MyVote.vote.is_(None), MyVote.vote != "PASS"))
 
-    base = base.group_by(
-        Opportunity.id, MyVote.vote, UserOpportunity.watched
-    )
+    base = base.group_by(Opportunity.id, MyVote.vote, UserOpportunity.watched)
+
     # Type tab filter
     if tab == "solicitations":
         base = base.filter(Opportunity.opportunity_type.in_(solicitation_types))
@@ -96,9 +100,9 @@ async def feed(
 
     today = date.today()
     opportunities = []
-    for opp, pursue_count, pass_count, my_signal, watched in rows:
+    for opp, shortlist_count, pass_count, my_signal, watched in rows:
         opp.days_until_due = (opp.response_deadline - today).days
-        opp.pursue_count = int(pursue_count)
+        opp.pursue_count = int(shortlist_count)
         opp.pass_count = int(pass_count)
         opp.my_signal = my_signal  # "UP" | "PASS" | None
         opp.watched = bool(watched) if watched is not None else False
@@ -570,9 +574,10 @@ async def org_watchlist(
         or_(OS.id.is_(None), OS.state.notin_(CLOSED_STATES))
     ).group_by(
         Opportunity.id, MyVote.vote, UserOpportunity.watched
-    ).having(
-        pursue_sum >= 1
+    ).filter(
+        UserOpportunity.watched.is_(True)
     )
+
 
     if tab == "solicitations":
         q = q.filter(Opportunity.opportunity_type.in_(solicitation_types))
@@ -583,9 +588,9 @@ async def org_watchlist(
 
     today = date.today()
     opportunities = []
-    for opp, pursue_count, pass_count, my_signal, watched in rows:
+    for opp, shortlist_count, pass_count, my_signal, watched in rows:
         opp.days_until_due = (opp.response_deadline - today).days
-        opp.pursue_count = int(pursue_count)
+        opp.pursue_count = int(shortlist_count)
         opp.pass_count = int(pass_count)
         opp.my_signal = my_signal
         opp.watched = bool(watched) if watched is not None else False
@@ -653,9 +658,9 @@ async def decisions(
 
     today = date.today()
     opportunities = []
-    for opp, pursue_count, pass_count, my_signal, watched in rows:
+    for opp, shortlist_count, pass_count, my_signal, watched in rows:
         opp.days_until_due = (opp.response_deadline - today).days
-        opp.pursue_count = int(pursue_count)
+        opp.pursue_count = int(shortlist_count)
         opp.pass_count = int(pass_count)
         opp.my_signal = my_signal
         opp.watched = bool(watched) if watched is not None else False

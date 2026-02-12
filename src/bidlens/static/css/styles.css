@@ -234,6 +234,42 @@ h2 {
     gap: 8px;
     margin-top: 16px;
 }
+.card-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.actions-left, .actions-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.signal-btn .signal-dot {
+  opacity: 0.6;
+}
+
+.signal-btn.is-selected {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+}
+
+.details-link {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: none;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+
+.details-link:hover {
+  background: #eff6ff;
+}
 
 .btn {
     display: inline-flex;

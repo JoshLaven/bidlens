@@ -162,6 +162,15 @@
       </div>
 
 <script>
+const SIGNAL_LABEL = {
+  up: "Shortlist",
+  down: "Pass",
+};
+
+const SIGNAL_PAST_TENSE = {
+  up: "Shortlisted",
+  down: "Passed",
+};
 async function transitionOpp(oppId, toState) {
   const res = await fetch('/api/transition', {
     method: 'POST',
@@ -183,9 +192,10 @@ async function voteOpp(oppId, vote) {
   };
 
   // Only include vote if UP/DOWN; omitting vote = clear
-  if (vote === "UP" || vote === "DOWN" || vote === "PASS") {
+  if (vote === "UP" || vote === "DOWN") {
     payload.vote = vote;
   }
+
 
   const res = await fetch('/api/vote', {
     method: 'POST',
