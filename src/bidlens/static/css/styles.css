@@ -496,6 +496,42 @@ h2 {
     font-size: 0.9375rem;
     line-height: 1.7;
 }
+.accordion {
+  background: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.accordion-summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 16px 18px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.accordion-summary::-webkit-details-marker {
+  display: none;
+}
+
+.accordion-summary::after {
+  content: "▾";
+  color: var(--gray-500);
+  font-size: 0.9rem;
+}
+
+details[open] .accordion-summary::after {
+  content: "▴";
+}
+
+.accordion-body {
+  padding: 0 18px 18px 18px;
+  border-top: 1px solid var(--gray-200);
+}
 
 .key-info-title {
     font-size: 1rem;
