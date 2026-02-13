@@ -118,7 +118,7 @@ async def feed(
     })
 
 @router.get("/shortlist")
-async def my_shortlist(
+async def shortlist(
     request: Request,
     tab: str = "solicitations",
     db: Session = Depends(get_db)
@@ -131,44 +131,72 @@ async def my_shortlist(
     rfi_types = ["RFI", "Sources Sought", "Special Notice", "Pre-Solicitation"]
 
     OS = aliased(OpportunityState)
+
+    # My vote row (force match)
     MyVote = aliased(Vote)
 
-    base = db.query(
-        Opportunity,
-        func.coalesce(func.sum(case((Vote.vote == "UP", 1), else_=0)), 0).label("shortlist_count"),
-        func.coalesce(func.sum(case((Vote.vote == "DOWN", 1), else_=0)), 0).label("pass_count"),
-        MyVote.vote.label("my_signal"),
-        UserOpportunity.watched.label("watched"),
-    ).outerjoin(
-        OS, and_(OS.opp_id == Opportunity.id, OS.org_id == user.organization_id)
-    ).outerjoin(
-        Vote, and_(Vote.opp_id == Opportunity.id, Vote.org_id == user.organization_id)
-    ).outerjoin(
-        MyVote, and_(MyVote.opp_id == Opportunity.id, MyVote.org_id == user.organization_id, MyVote.user_id == user.id)
-    ).outerjoin(
-        UserOpportunity, and_(UserOpportunity.opportunity_id == Opportunity.id, UserOpportunity.user_id == user.id)
-    ).filter(
-        # open only (not BID/NO_BID)
-        or_(OS.id.is_(None), OS.state.notin_(CLOSED_STATES)),
-        # Option A: My shortlist
-        MyVote.vote == "UP",
-    ).group_by(
-        Opportunity.id, MyVote.vote, UserOpportunity.watched
+    # Org counts (separate alias so the sum doesn't get constrained by MyVote join)
+    OrgVote = aliased(Vote)
+
+    shortlist_count = func.coalesce(func.sum(case((OrgVote.vote == "UP", 1), else_=0)), 0)
+    pass_count = func.coalesce(func.sum(case((OrgVote.vote.in_(["DOWN", "PASS"]), 1), else_=0)), 0)
+
+    q = (
+        db.query(
+            Opportunity,
+            shortlist_count.label("shortlist_count"),
+            pass_count.label("pass_count"),
+            MyVote.vote.label("my_signal"),
+            UserOpportunity.watched.label("watched"),
+        )
+        # .outerjoin(
+        #     OS,
+        #     and_(OS.opp_id == Opportunity.id, OS.org_id == user.organization_id)
+        # )
+        # # optional: hide closed
+        # .filter(or_(OS.id.is_(None), OS.state.notin_(CLOSED_STATES)))
+
+        # ✅ THIS is the definition of "Shortlist"
+        .join(
+            MyVote,
+            and_(
+                MyVote.opp_id == Opportunity.id,
+                MyVote.org_id == user.organization_id,
+                MyVote.user_id == user.id,
+                MyVote.vote == "UP",
+            ),
+        )
+
+        .outerjoin(
+            OrgVote,
+            and_(
+                OrgVote.opp_id == Opportunity.id,
+                OrgVote.org_id == user.organization_id,
+            ),
+        )
+        .outerjoin(
+            UserOpportunity,
+            and_(
+                UserOpportunity.opportunity_id == Opportunity.id,
+                UserOpportunity.user_id == user.id,
+            ),
+        )
+        .group_by(Opportunity.id, MyVote.vote, UserOpportunity.watched)
     )
 
     if tab == "solicitations":
-        base = base.filter(Opportunity.opportunity_type.in_(solicitation_types))
+        q = q.filter(Opportunity.opportunity_type.in_(solicitation_types))
     else:
-        base = base.filter(Opportunity.opportunity_type.in_(rfi_types))
+        q = q.filter(Opportunity.opportunity_type.in_(rfi_types))
 
-    rows = base.order_by(Opportunity.response_deadline.asc()).limit(50).all()
+    rows = q.order_by(Opportunity.response_deadline.asc()).all()
 
     today = date.today()
     opportunities = []
-    for opp, shortlist_count, pass_count, my_signal, watched in rows:
+    for opp, sc, pc, my_signal, watched in rows:
         opp.days_until_due = (opp.response_deadline - today).days
-        opp.pursue_count = int(shortlist_count)
-        opp.pass_count = int(pass_count)
+        opp.pursue_count = int(sc)
+        opp.pass_count = int(pc)
         opp.my_signal = my_signal
         opp.watched = bool(watched) if watched is not None else False
         opportunities.append(opp)
@@ -616,7 +644,7 @@ async def org_watchlist(
     q = db.query(
         Opportunity,
         pursue_sum.label("pursue_count"),
-        func.coalesce(func.sum(case((Vote.vote == "PASS", 1), else_=0)), 0).label("pass_count"),
+        func.coalesce(func.sum(case((Vote.vote.in_(["DOWN", "PASS"]), 1), else_=0)), 0).label("pass_count"),
         MyVote.vote.label("my_signal"),
         UserOpportunity.watched.label("watched"),
     ).outerjoin(

@@ -11,7 +11,8 @@
         {{ opportunity.opportunity_type }}
       </span>
     </div>
-
+    
+    <!-- If want to add Bid/No-Bid later:
     <div class="detail-badges">
       {% if opportunity.set_aside %}
         <span class="badge badge-setaside">{{ opportunity.set_aside }}</span>
@@ -24,21 +25,24 @@
       {% elif decision_state == "NO_BID" %}
         <span class="badge badge-status-dropped">No Bid</span>
       {% endif %}
-    </div>
+    </div> -->
     <div class="card-actions" style="margin-bottom: 16px;">
       <div class="actions-left">
+
         <button type="button"
                 class="btn btn-primary btn-sm {% if my_vote == 'UP' %}is-selected{% endif %}"
                 onclick="voteOpp('{{ opportunity.id }}', 'UP', '{{ my_vote or '' }}')">
-          Shortlist {% if my_vote == "UP" %}✓{% endif %}
+          Shortlist ({{ up_count }})
         </button>
 
         <button type="button"
                 class="btn btn-secondary btn-sm {% if my_vote == 'DOWN' %}is-selected{% endif %}"
                 onclick="voteOpp('{{ opportunity.id }}', 'DOWN', '{{ my_vote or '' }}')">
-          Pass {% if my_vote == "DOWN" %}✓{% endif %}
+          Pass ({{ down_count }})
         </button>
       </div>
+    </div>
+
 
       <div class="actions-right">
         <form method="POST" action="/opportunity/{{ opportunity.id }}/watch" style="display:inline;">
@@ -48,11 +52,9 @@
         </form>
       </div>
     </div>
-
   </div>
 
   <div class="detail-primary">
-
     <!-- Key Info -->
     <details open class="accordion">
       <summary class="accordion-summary">Key Info</summary>
@@ -231,18 +233,13 @@ async function transitionOpp(oppId, toState) {
   window.location.reload();
 }
 
+<script>
 async function voteOpp(oppId, voteValue, currentVote) {
   const payload = {
     opp_id: Number(oppId),
-    ui_version: "v1"
+    ui_version: "v1",
+    vote: (currentVote === voteValue) ? null : voteValue
   };
-
-  // toggle off if clicking the same vote again
-  if (currentVote === voteValue) {
-    payload.vote = null;
-  } else {
-    payload.vote = voteValue; // "UP" or "DOWN"
-  }
 
   const res = await fetch('/api/vote', {
     method: 'POST',
@@ -258,6 +255,8 @@ async function voteOpp(oppId, voteValue, currentVote) {
 
   window.location.reload();
 }
+
+
 
 
 async function generateBrief(oppId) {

@@ -68,7 +68,7 @@
             <div class="actions-right">
               <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
                 <button class="btn btn-outline-secondary btn-sm" type="submit">
-                  {% if opp.watched %}Bookmarked{% else %}Bookmark{% endif %}
+                  {% if opp.watched %}★{% else %}☆Bookmark{% endif %}
                 </button>
               </form>
 
