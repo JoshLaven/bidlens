@@ -1,8 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ opportunity.title }} - BidLens{% endblock %}
+
 {% block content %}
 <div class="detail-page">
-  <a href="/" class="btn btn-secondary btn-sm" style="margin-bottom: 24px;">&larr; Back to Feed</a>
+
+  <a href="/" class="btn btn-secondary btn-sm" style="margin-bottom: 24px;">
+    &larr; Back to Feed
+  </a>
 
   <div class="detail-header">
     <div class="detail-title-row">
@@ -11,24 +15,9 @@
         {{ opportunity.opportunity_type }}
       </span>
     </div>
-    
-    <!-- If want to add Bid/No-Bid later:
-    <div class="detail-badges">
-      {% if opportunity.set_aside %}
-        <span class="badge badge-setaside">{{ opportunity.set_aside }}</span>
-      {% endif %}
 
-      {% if decision_state == "SAVED" %}
-        <span class="badge badge-status-saved">Shortlisted</span>
-      {% elif decision_state == "BID" %}
-        <span class="badge badge-status-in_progress">Go Bid</span>
-      {% elif decision_state == "NO_BID" %}
-        <span class="badge badge-status-dropped">No Bid</span>
-      {% endif %}
-    </div> -->
     <div class="card-actions" style="margin-bottom: 16px;">
       <div class="actions-left">
-
         <button type="button"
                 class="btn btn-primary btn-sm {% if my_vote == 'UP' %}is-selected{% endif %}"
                 onclick="voteOpp('{{ opportunity.id }}', 'UP', '{{ my_vote or '' }}')">
@@ -41,12 +30,10 @@
           Pass ({{ down_count }})
         </button>
       </div>
-    </div>
-
 
       <div class="actions-right">
         <form method="POST" action="/opportunity/{{ opportunity.id }}/watch" style="display:inline;">
-          <button class="btn btn-outline-secondary btn-sm" type="submit">
+          <button class="btn btn-outline-secondary btn-sm" type="submit" title="Bookmark">
             {% if user_opp and user_opp.watched %}★{% else %}☆{% endif %}
           </button>
         </form>
@@ -55,6 +42,7 @@
   </div>
 
   <div class="detail-primary">
+
     <!-- Key Info -->
     <details open class="accordion">
       <summary class="accordion-summary">Key Info</summary>
@@ -213,26 +201,12 @@
         </div>
       </details>
     {% endif %}
+
   </div>
 </div>
+{% endblock %}
 
-
-<script>
-async function transitionOpp(oppId, toState) {
-  const res = await fetch('/api/transition', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({
-      opp_id: Number(oppId),
-      to_state: toState,
-      ui_version: "v1"
-    })
-  });
-  const data = await res.json();
-  if (!res.ok) { alert(data.detail || 'Error'); return; }
-  window.location.reload();
-}
-
+{% block scripts %}
 <script>
 async function voteOpp(oppId, voteValue, currentVote) {
   const payload = {
@@ -255,9 +229,6 @@ async function voteOpp(oppId, voteValue, currentVote) {
 
   window.location.reload();
 }
-
-
-
 
 async function generateBrief(oppId) {
   await fetch(`/api/opps/${oppId}/generate_brief`, { method: "POST" });

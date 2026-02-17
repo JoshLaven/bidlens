@@ -114,7 +114,8 @@ async def feed(
         "opportunities": opportunities,
         "current_tab": tab,
         "show_all": show_all,
-        "active_page": "feed"
+        "active_page": "feed",
+        "sidebar": get_sidebar(db, user)
     })
 
 @router.get("/shortlist")
@@ -207,6 +208,7 @@ async def shortlist(
         "opportunities": opportunities,
         "current_tab": tab,
         "active_page": "shortlist",
+        "sidebar": get_sidebar(db, user)
     })
 
 @router.get("/opportunity/{opp_id}")
@@ -292,7 +294,8 @@ async def opportunity_detail(
         "show_votes": True,
         "brief": brief,
         "brief_status": brief_status,
-        "brief_error": brief_error
+        "brief_error": brief_error,
+        "sidebar": get_sidebar(db, user),
     })
 
 @router.post("/opportunity/{opp_id}/save")
@@ -459,6 +462,56 @@ async def update_opportunity(
     db.commit()
 
     return RedirectResponse(url=f"/opportunity/{opp_id}", status_code=303)
+
+def get_sidebar(db: Session, user: User, limit_each: int = 8):
+    MyVote = aliased(Vote)
+    OrgVote = aliased(Vote)
+
+    shortlist_count = func.coalesce(func.sum(case((OrgVote.vote == "UP", 1), else_=0)), 0)
+    pass_count = func.coalesce(func.sum(case((OrgVote.vote.in_(["DOWN", "PASS"]), 1), else_=0)), 0)
+
+    # My Shortlisted = my vote == UP
+    my_shortlisted_rows = (
+        db.query(Opportunity, shortlist_count.label("shortlist_count"), pass_count.label("pass_count"))
+        .join(
+            MyVote,
+            and_(
+                MyVote.opp_id == Opportunity.id,
+                MyVote.org_id == user.organization_id,
+                MyVote.user_id == user.id,
+                MyVote.vote == "UP",
+            ),
+        )
+        .outerjoin(OrgVote, and_(OrgVote.opp_id == Opportunity.id, OrgVote.org_id == user.organization_id))
+        .group_by(Opportunity.id)
+        .order_by(Opportunity.response_deadline.asc())
+        .limit(limit_each)
+        .all()
+    )
+
+    # Bookmarks = watched true
+    bookmarks = (
+        db.query(Opportunity)
+        .join(UserOpportunity, and_(UserOpportunity.opportunity_id == Opportunity.id, UserOpportunity.user_id == user.id))
+        .filter(UserOpportunity.watched.is_(True))
+        .order_by(Opportunity.response_deadline.asc())
+        .limit(limit_each)
+        .all()
+    )
+
+    today = date.today()
+
+    my_shortlisted = []
+    for opp, sc, pc in my_shortlisted_rows:
+        opp.days_until_due = (opp.response_deadline - today).days
+        opp.shortlist_count = int(sc)
+        opp.pass_count = int(pc)
+        my_shortlisted.append(opp)
+
+    for opp in bookmarks:
+        opp.days_until_due = (opp.response_deadline - today).days
+
+    return {"my_shortlisted": my_shortlisted, "bookmarks": bookmarks}
 
 
 # @router.get("/saved")
@@ -644,7 +697,7 @@ async def org_watchlist(
     q = db.query(
         Opportunity,
         pursue_sum.label("pursue_count"),
-        func.coalesce(func.sum(case((Vote.vote.in_(["DOWN", "PASS"]), 1), else_=0)), 0).label("pass_count"),
+        func.coalesce(func.sum(case((Vote.vote.in_(["DOWN", "PASS"]), 1), else_=0), 0)).label("pass_count"),
         MyVote.vote.label("my_signal"),
         UserOpportunity.watched.label("watched"),
     ).outerjoin(
@@ -691,7 +744,8 @@ async def org_watchlist(
         "user": user,
         "opportunities": opportunities,
         "current_tab": tab,
-        "active_page": "watchlist"
+        "active_page": "watchlist",
+        "sidebar": get_sidebar(db, user),
     })
 
 @router.get("/decisions")
@@ -762,7 +816,8 @@ async def decisions(
         "opportunities": opportunities,
         "state_filter": state,     # "bid" | "no_bid"
         "current_tab": tab,
-        "active_page": "decisions"
+        "active_page": "decisions",
+        "sidebar": get_sidebar(db, user)
     })
 
 # @router.get("/saved_for_later")

@@ -11,4 +11,7 @@ dependencies = [
     "python-multipart>=0.0.21",
     "sqlalchemy>=2.0.46",
     "uvicorn>=0.40.0",
+    "requests>=2.31.0",
+    "apscheduler>=3.10.4",
 ]
+

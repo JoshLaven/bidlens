@@ -45,7 +45,6 @@ def require_user_or_automation(request: Request, db: Session):
 
 
 
-
 @router.post("/transition")
 def api_transition(payload: TransitionIn, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)

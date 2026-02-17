@@ -13,7 +13,7 @@
             <div class="nav-links">
                 {% if user %}
                     <a href="/" class="{{ 'active' if active_page == 'feed' else '' }}">Feed</a>
-                    <a href="/shortlist" class="{{ 'active' if active_page == 'shortlist' else '' }}">Shortlist</a>
+                    <a href="/shortlist" class="{{ 'active' if active_page == 'shortlist' else '' }}">Org Shortlist</a>
                     <a href="/settings" class="{{ 'active' if active_page == 'settings' else '' }}">Settings</a>
 
 
@@ -27,13 +27,60 @@
         </div>
     </nav>
     <main>
-        <div class="container">
-            {% if message %}
-                <div class="alert alert-success">{{ message }}</div>
-            {% endif %}
-            {% block content %}{% endblock %}
+      <div class="container layout">
+        <div class="layout-main">
+          {% if message %}
+            <div class="alert alert-success">{{ message }}</div>
+          {% endif %}
+          {% block content %}{% endblock %}
         </div>
+
+        {% if user %}
+          <aside class="layout-side">
+            <div class="side-card">
+              <div class="side-card-title">My Shortlisted</div>
+
+              {% if sidebar and sidebar.my_shortlisted and sidebar.my_shortlisted|length > 0 %}
+                <div class="side-list">
+                  {% for opp in sidebar.my_shortlisted %}
+                    <a class="side-item" href="/opportunity/{{ opp.id }}">
+                      <div class="side-item-title">{{ opp.title }}</div>
+                      <div class="side-item-meta">
+                        <span class="side-pill">▲ {{ opp.shortlist_count or 0 }}</span>
+                        <span class="side-pill">▼ {{ opp.pass_count or 0 }}</span>
+                        <span class="side-muted">{{ opp.days_until_due }}d</span>
+                      </div>
+                    </a>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="side-empty">Nothing yet. Click <b>Shortlist</b> on an opportunity.</div>
+              {% endif %}
+            </div>
+
+            <div class="side-card">
+              <div class="side-card-title">Bookmarks</div>
+
+              {% if sidebar and sidebar.bookmarks and sidebar.bookmarks|length > 0 %}
+                <div class="side-list">
+                  {% for opp in sidebar.bookmarks %}
+                    <a class="side-item" href="/opportunity/{{ opp.id }}">
+                      <div class="side-item-title">{{ opp.title }}</div>
+                      <div class="side-item-meta">
+                        <span class="side-muted">{{ opp.days_until_due }}d</span>
+                      </div>
+                    </a>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="side-empty">No bookmarks yet.</div>
+              {% endif %}
+            </div>
+          </aside>
+        {% endif %}
+      </div>
     </main>
+
     {% block scripts %}{% endblock %}
 </body>
 </html>

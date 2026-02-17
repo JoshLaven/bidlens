@@ -19,6 +19,7 @@ class Opportunity(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     sam_notice_id = Column(String, unique=True, nullable=False, index=True)
+    #organization_name=Column(String, nullable=True)
     title = Column(String, nullable=False)
     agency = Column(String, nullable=False)
     opportunity_type = Column(String, nullable=False)
@@ -30,8 +31,11 @@ class Opportunity(Base):
     sam_url = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
     user_opportunities = relationship("UserOpportunity", back_populates="opportunity")
+    # store original record for future enrichment without re-pulling
+    #raw_json = Column(Text, nullable=True)
+
+#Index("ix_opps_notice_id", Opportunity.notice_id)
 
 class OpportunityBrief(Base):
     __tablename__ = "opportunity_briefs"

@@ -4,6 +4,8 @@ from .database import engine, Base
 from .routes import auth, opportunities, api, settings
 import os
 from . import models
+from .routes import sam
+from .scheduler import start_scheduler
 
 
 print("DATABASE_URL =", os.getenv("DATABASE_URL"))
@@ -16,3 +18,7 @@ app.include_router(auth.router)
 app.include_router(opportunities.router)
 app.include_router(api.router)
 app.include_router(settings.router)
+app.include_router(sam.router)
+@app.on_event("startup")
+def _startup():
+    start_scheduler()
