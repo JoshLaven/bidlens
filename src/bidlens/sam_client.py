@@ -57,10 +57,15 @@ def search_opportunities(
             return r.json()
 
         except requests.RequestException as e:
+            print("[SAM_CLIENT EXC]", type(e).__name__, str(e))
             last_exc = e
             time.sleep(backoff)
             backoff = min(backoff * 2, 30)
 
     # If we exhausted retries, raise the last exception
-    raise last_exc or RuntimeError("SAM request failed")
-
+    if last_exc is not None and getattr(last_exc, "response", None) is not None:
+        resp = last_exc.response
+        raise RuntimeError(
+            f"SAM request failed after retries: status={resp.status_code} url={resp.url} body={resp.text[:800]}"
+        )
+    raise RuntimeError(f"SAM request failed after retries: {repr(last_exc)}")

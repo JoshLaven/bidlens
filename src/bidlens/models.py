@@ -7,7 +7,10 @@ from sqlalchemy import UniqueConstraint
 from sqlalchemy import JSON, func
 from pydantic import BaseModel
 from typing import Optional
-from sqlalchemy import Boolean
+from sqlalchemy import BigInteger
+import uuid
+from sqlalchemy.dialects.postgresql import UUID
+
 
 class OpportunityStatus(str, enum.Enum):
     SAVED = "saved"
@@ -16,10 +19,21 @@ class OpportunityStatus(str, enum.Enum):
 
 class Opportunity(Base):
     __tablename__ = "opportunities"
-    
+
+    # internal DB PK (keep)
     id = Column(Integer, primary_key=True, index=True)
+
+    # platform/public ID (new)
+    bidlens_id = Column(
+        UUID(as_uuid=True),
+        default=uuid.uuid4,
+        unique=True,
+        nullable=False,
+        index=True
+    )
+
     sam_notice_id = Column(String, unique=True, nullable=False, index=True)
-    #organization_name=Column(String, nullable=True)
+
     title = Column(String, nullable=False)
     agency = Column(String, nullable=False)
     opportunity_type = Column(String, nullable=False)
@@ -31,11 +45,8 @@ class Opportunity(Base):
     sam_url = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    user_opportunities = relationship("UserOpportunity", back_populates="opportunity")
-    # store original record for future enrichment without re-pulling
-    #raw_json = Column(Text, nullable=True)
 
-#Index("ix_opps_notice_id", Opportunity.notice_id)
+    user_opportunities = relationship("UserOpportunity", back_populates="opportunity")
 
 class OpportunityBrief(Base):
     __tablename__ = "opportunity_briefs"
@@ -70,6 +81,20 @@ class OpportunityState(Base):
     updated_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
 
+class IngestionRun(Base):
+    __tablename__ = "ingestion_runs"
+
+    id = Column(BigInteger, primary_key=True, index=True)
+    source = Column(String, nullable=False, default="sam.gov")
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+    inserted_count = Column(Integer, nullable=False, default=0)
+    skipped_count = Column(Integer, nullable=False, default=0)
+    filtered_count = Column(Integer, nullable=False, default=0)
+    error_count = Column(Integer, nullable=False, default=0)
+
+    notes = Column(Text, nullable=True)
 class Vote(Base):
     __tablename__ = "votes"
     __table_args__ = (UniqueConstraint("org_id", "opp_id", "user_id", name="uq_vote"),)
@@ -123,7 +148,10 @@ class OrgProfile(Base):
 
     id = Column(Integer, primary_key=True)
     org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
-
+    
+    sam_naics_codes = Column(Text, nullable=True)       # comma-separated, V1
+    sam_days_back = Column(Integer, nullable=True)      # default fallback in code
+    sam_allowed_types = Column(Text, nullable=True)     # comma-separated, V1
     include_keywords = Column(Text, nullable=True)   # comma-separated for V1
     exclude_keywords = Column(Text, nullable=True)
     include_agencies = Column(Text, nullable=True)

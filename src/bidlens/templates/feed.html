@@ -2,6 +2,29 @@
 {% block title %}Feed - BidLens{% endblock %}
 {% block content %}
 <h1>Feed</h1>
+<!--Details about what is being pulled into feed-->
+<div class="feed-context">
+  <div class="context-row">
+    <span class="context-label">Types:</span>
+    <span class="context-value">
+      {% if active_tab == "solicitations" %}
+        Solicitation, Combined Synopsis/Solicitation
+      {% elif active_tab == "RFIs" %}
+        Sources Sought, RFI, Special Notice, Presolicitation
+      {% endif %}
+    </span>
+  </div>
+
+  <div class="context-row">
+    <span class="context-label">NAICS:</span>
+    <span class="context-value">541611, 541690</span>
+  </div>
+
+  <div class="context-row">
+    <span class="context-label">Window:</span>
+    <span class="context-value">Last 7 days</span>
+  </div>
+</div>
 
 <div class="tabs">
   <a href="/?tab=solicitations" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>

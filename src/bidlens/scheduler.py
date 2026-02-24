@@ -1,11 +1,14 @@
 import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-
+import datetime as dt
 from .database import SessionLocal
 from .ingest_sam import ingest_sam
 
+print("[SCHEDULER] scheduler.py imported")
+
 def run_sam_ingest():
+    print("[SCHEDULER] run_sam_ingest fired at", dt.datetime.utcnow().isoformat(), "UTC")
     naics_env = os.getenv("SAM_NAICS", "541611,541690")
     naics_list = [x.strip() for x in naics_env.split(",") if x.strip()]
 
@@ -19,6 +22,7 @@ def run_sam_ingest():
         db.close()
 
 def start_scheduler():
+    print("[SCHEDULER] start_scheduler() called")
     sched = BackgroundScheduler(timezone="UTC")
 
     # 2x per day example: 13:00 and 01:00 UTC
