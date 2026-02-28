@@ -1,11 +1,11 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Request, Form, Depends
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from collections import OrderedDict
 from ..database import get_db
-from ..models import Opportunity, User, UserOpportunity, OpportunityStatus
+from ..models import Opportunity, User, UserOpportunity, OpportunityStatus, OrgProfile
 from ..auth import get_current_user
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import aliased
@@ -20,6 +20,55 @@ from ..models import OpportunityBrief
 router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
 CLOSED_STATES = ("BID", "NO_BID")
+
+
+def _parse_csv(text: str | None) -> list[str]:
+    """Split comma-separated OrgProfile field into a cleaned list."""
+    if not text:
+        return []
+    return [s.strip() for s in text.split(",") if s.strip()]
+
+
+def apply_org_filters(query, db: Session, user):
+    """Apply OrgProfile keyword/agency/deadline filters to an Opportunity query."""
+    profile = db.query(OrgProfile).filter(OrgProfile.org_id == user.organization_id).first()
+    if not profile:
+        return query
+
+    # --- Keyword filters (match against title, case-insensitive) ---
+    include_kw = _parse_csv(profile.include_keywords)
+    exclude_kw = _parse_csv(profile.exclude_keywords)
+
+    if include_kw:
+        # Show only opps where title matches at least one include keyword
+        conditions = [Opportunity.title.ilike(f"%{kw}%") for kw in include_kw]
+        query = query.filter(or_(*conditions))
+
+    if exclude_kw:
+        # Hide opps where title matches any exclude keyword
+        for kw in exclude_kw:
+            query = query.filter(~Opportunity.title.ilike(f"%{kw}%"))
+
+    # --- Agency filters ---
+    include_ag = _parse_csv(profile.include_agencies)
+    exclude_ag = _parse_csv(profile.exclude_agencies)
+
+    if include_ag:
+        conditions = [Opportunity.agency.ilike(f"%{ag}%") for ag in include_ag]
+        query = query.filter(or_(*conditions))
+
+    if exclude_ag:
+        for ag in exclude_ag:
+            query = query.filter(~Opportunity.agency.ilike(f"%{ag}%"))
+
+    # --- Deadline window (days out from today) ---
+    today = date.today()
+    if profile.min_days_out is not None:
+        query = query.filter(Opportunity.response_deadline >= today + timedelta(days=profile.min_days_out))
+    if profile.max_days_out is not None:
+        query = query.filter(Opportunity.response_deadline <= today + timedelta(days=profile.max_days_out))
+
+    return query
 
 def require_user(request: Request, db: Session):
     user = get_current_user(request, db)
@@ -95,6 +144,9 @@ async def feed(
         base = base.filter(Opportunity.opportunity_type.in_(solicitation_types))
     else:
         base = base.filter(Opportunity.opportunity_type.in_(rfi_types))
+
+    # Apply org-level keyword/agency/deadline filters from Settings
+    base = apply_org_filters(base, db, user)
 
     rows = base.order_by(Opportunity.response_deadline.asc()).limit(50).all()
 
