@@ -38,6 +38,7 @@ def search_opportunities(
     for attempt in range(max_retries):
         try:
             r = requests.get(SAM_BASE, params=params, timeout=30)
+            print("[SAM_CLIENT]", "attempt=", attempt + 1, "status=", r.status_code)
 
             if r.status_code == 429:
                 retry_after = r.headers.get("Retry-After")

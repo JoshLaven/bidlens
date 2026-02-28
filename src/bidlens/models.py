@@ -45,6 +45,7 @@ class Opportunity(Base):
     sam_url = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    upserted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
     user_opportunities = relationship("UserOpportunity", back_populates="opportunity")
 

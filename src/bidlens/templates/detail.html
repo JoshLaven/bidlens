@@ -14,6 +14,9 @@
       <span class="badge {{ 'badge-rfi' if opportunity.opportunity_type in ['RFI', 'Sources Sought'] else 'badge-type' }}">
         {{ opportunity.opportunity_type }}
       </span>
+      <div class="meta">
+        <small class="muted">Upserted: {{ opportunity.upserted_at.strftime("%Y-%m-%d %H:%M") if opportunity.upserted_at else "—" }}</small>
+      </div>
     </div>
 
     <div class="card-actions" style="margin-bottom: 16px;">

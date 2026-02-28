@@ -235,8 +235,9 @@ def pull_sam_into_db(
                 else:
                     skipped += 1
 
-            except Exception:
+            except Exception as e:
                 errors += 1
+                print("[RECORD ERROR]", "naics=", naics, "sam_notice_id=", rec.get("noticeId"), "err=", repr(e))
                 # Keep going; we want ingestion to be resilient
 
         # Commit per page (good balance of safety + speed)
