@@ -9,7 +9,29 @@ from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy import BigInteger
 import uuid
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import TypeDecorator
+import platform
+
+# Use native PG UUID when available, fallback to String(36) for SQLite
+class PortableUUID(TypeDecorator):
+    impl = String
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+            return dialect.type_descriptor(PG_UUID(as_uuid=True))
+        return dialect.type_descriptor(String(36))
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            return str(value)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            return uuid.UUID(value) if not isinstance(value, uuid.UUID) else value
+        return value
 
 
 class OpportunityStatus(str, enum.Enum):
@@ -25,7 +47,7 @@ class Opportunity(Base):
 
     # platform/public ID (new)
     bidlens_id = Column(
-        UUID(as_uuid=True),
+        PortableUUID(),
         default=uuid.uuid4,
         unique=True,
         nullable=False,
@@ -85,7 +107,7 @@ class OpportunityState(Base):
 class IngestionRun(Base):
     __tablename__ = "ingestion_runs"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     source = Column(String, nullable=False, default="sam.gov")
     started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     finished_at = Column(DateTime, nullable=True)
