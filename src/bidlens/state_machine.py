@@ -10,9 +10,9 @@ class OppState(StrEnum):
 
 
 ALLOWED_TRANSITIONS: Dict[OppState, Set[OppState]] = {
-    OppState.INBOX: {OppState.SHORTLISTED, OppState.ARCHIVED},
-    OppState.SHORTLISTED: {OppState.INBOX, OppState.ARCHIVED},
-    OppState.ARCHIVED: {OppState.INBOX, OppState.SHORTLISTED},
+    OppState.INBOX: {OppState.SHORTLISTED},
+    OppState.SHORTLISTED: {OppState.ARCHIVED},
+    OppState.ARCHIVED: set(),  # terminal sink — no way back in MVP
 }
 
 

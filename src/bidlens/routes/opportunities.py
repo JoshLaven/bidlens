@@ -7,6 +7,7 @@ from collections import OrderedDict
 from ..database import get_db
 from ..models import Opportunity, User, UserOpportunity, OpportunityStatus, OrgProfile
 from ..auth import get_current_user
+from ..services import get_vote_counts, get_user_votes
 from sqlalchemy import and_, or_
 from dataclasses import dataclass
 from typing import Optional
@@ -81,8 +82,8 @@ def _apply_type_tab(query, tab: str):
         return query.filter(Opportunity.opportunity_type.in_(RFI_TYPES))
 
 
-def _enrich_opps(rows, watched_col=True):
-    """Add computed fields to opportunity rows for templates."""
+def _enrich_opps(rows, db, user, watched_col=True):
+    """Add computed fields (days, vote counts, user vote) to opportunity rows."""
     today = date.today()
     opportunities = []
     for row in rows:
@@ -94,6 +95,17 @@ def _enrich_opps(rows, watched_col=True):
             opp.watched = False
         opp.days_until_due = (opp.response_deadline - today).days
         opportunities.append(opp)
+
+    opp_ids = [o.id for o in opportunities]
+    counts = get_vote_counts(db, opp_ids)
+    user_votes = get_user_votes(db, user.id, opp_ids)
+
+    for opp in opportunities:
+        c = counts.get(opp.id, {"pursue": 0, "pass": 0})
+        opp.pursue_count = c["pursue"]
+        opp.pass_count = c["pass"]
+        opp.user_vote = user_votes.get(opp.id)
+
     return opportunities
 
 
@@ -133,7 +145,7 @@ async def feed(
     return templates.TemplateResponse("feed.html", {
         "request": request,
         "user": user,
-        "opportunities": _enrich_opps(rows),
+        "opportunities": _enrich_opps(rows, db, user),
         "current_tab": tab,
         "active_page": "feed",
         "sidebar": get_sidebar(db, user),
@@ -155,10 +167,13 @@ async def shortlist(
     q = _opp_list_query(db, user, "SHORTLISTED", tab)
     rows = q.order_by(Opportunity.response_deadline.asc()).all()
 
+    opps = _enrich_opps(rows, db, user)
+    opps.sort(key=lambda o: o.pursue_count, reverse=True)
+
     return templates.TemplateResponse("shortlist.html", {
         "request": request,
         "user": user,
-        "opportunities": _enrich_opps(rows),
+        "opportunities": opps,
         "current_tab": tab,
         "active_page": "shortlist",
         "sidebar": get_sidebar(db, user),
@@ -183,7 +198,7 @@ async def archive(
     return templates.TemplateResponse("archive.html", {
         "request": request,
         "user": user,
-        "opportunities": _enrich_opps(rows),
+        "opportunities": _enrich_opps(rows, db, user),
         "current_tab": tab,
         "active_page": "archive",
         "sidebar": get_sidebar(db, user),
@@ -222,6 +237,10 @@ async def opportunity_detail(
     today = date.today()
     days_until_due = (opportunity.response_deadline - today).days
 
+    counts = get_vote_counts(db, [opp_id])
+    c = counts.get(opp_id, {"pursue": 0, "pass": 0})
+    user_votes = get_user_votes(db, user.id, [opp_id])
+
     return templates.TemplateResponse("detail.html", {
         "request": request,
         "user": user,
@@ -229,6 +248,9 @@ async def opportunity_detail(
         "user_opp": user_opp,
         "decision_state": opportunity.decision_state,
         "days_until_due": days_until_due,
+        "pursue_count": c["pursue"],
+        "pass_count": c["pass"],
+        "user_vote": user_votes.get(opp_id),
         "active_page": None,
         "brief": brief,
         "brief_status": brief_status,

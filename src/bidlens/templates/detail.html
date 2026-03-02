@@ -15,6 +15,13 @@
         {{ opportunity.opportunity_type }}
       </span>
       <span class="badge">{{ decision_state }}</span>
+      {% if pursue_count or pass_count %}
+        <span class="badge" style="margin-left: 4px;">
+          {% if pursue_count %}Shortlist: {{ pursue_count }}{% endif %}
+          {% if pursue_count and pass_count %} · {% endif %}
+          {% if pass_count %}Pass: {{ pass_count }}{% endif %}
+        </span>
+      {% endif %}
       <div class="meta">
         <small class="muted">Upserted: {{ opportunity.upserted_at.strftime("%Y-%m-%d %H:%M") if opportunity.upserted_at else "—" }}</small>
       </div>
@@ -22,33 +29,26 @@
 
     <div class="card-actions" style="margin-bottom: 16px;">
       <div class="actions-left">
-        {% if decision_state == 'INBOX' %}
-          <button type="button" class="btn btn-primary btn-sm"
-                  onclick="transitionOpp('{{ opportunity.id }}', 'SHORTLISTED')">
-            Pursue
+        {% if decision_state in ['INBOX', 'SHORTLISTED'] %}
+          <button type="button"
+                  class="btn btn-sm {{ 'btn-primary' if user_vote != 'PURSUE' else 'btn-success' }}"
+                  onclick="voteOpp('{{ opportunity.id }}', 'PURSUE')">
+            Shortlist{% if pursue_count %} ({{ pursue_count }}){% endif %}
           </button>
-          <button type="button" class="btn btn-secondary btn-sm"
-                  onclick="transitionOpp('{{ opportunity.id }}', 'ARCHIVED')">
+          <button type="button"
+                  class="btn btn-sm {{ 'btn-secondary' if user_vote != 'PASS' else 'btn-warning' }}"
+                  onclick="voteOpp('{{ opportunity.id }}', 'PASS')">
+            Pass{% if pass_count %} ({{ pass_count }}){% endif %}
+          </button>
+        {% endif %}
+        {% if decision_state == 'SHORTLISTED' %}
+          <button type="button" class="btn btn-outline-danger btn-sm"
+                  onclick="archiveOpp('{{ opportunity.id }}')">
             Archive
           </button>
-        {% elif decision_state == 'SHORTLISTED' %}
-          <button type="button" class="btn btn-secondary btn-sm"
-                  onclick="transitionOpp('{{ opportunity.id }}', 'INBOX')">
-            Back to Inbox
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm"
-                  onclick="transitionOpp('{{ opportunity.id }}', 'ARCHIVED')">
-            Archive
-          </button>
-        {% elif decision_state == 'ARCHIVED' %}
-          <button type="button" class="btn btn-secondary btn-sm"
-                  onclick="transitionOpp('{{ opportunity.id }}', 'INBOX')">
-            Back to Inbox
-          </button>
-          <button type="button" class="btn btn-primary btn-sm"
-                  onclick="transitionOpp('{{ opportunity.id }}', 'SHORTLISTED')">
-            Pursue
-          </button>
+        {% endif %}
+        {% if decision_state == 'ARCHIVED' %}
+          <span class="badge" style="padding: 6px 12px;">Archived (read-only)</span>
         {% endif %}
       </div>
 
@@ -229,13 +229,31 @@
 
 {% block scripts %}
 <script>
-async function transitionOpp(oppId, toState) {
+async function voteOpp(oppId, vote) {
+  const res = await fetch('/api/vote', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      opp_id: Number(oppId),
+      vote: vote,
+      ui_version: "v1"
+    })
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert(data.detail || 'Error');
+    return;
+  }
+  window.location.reload();
+}
+
+async function archiveOpp(oppId) {
   const res = await fetch('/api/transition', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({
       opp_id: Number(oppId),
-      to_state: toState,
+      to_state: "ARCHIVED",
       ui_version: "v1"
     })
   });

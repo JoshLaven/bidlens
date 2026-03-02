@@ -5,7 +5,7 @@ from typing import Optional
 from ..database import get_db
 from ..auth import get_current_user
 from ..state_machine import OppState
-from ..services import transition_state
+from ..services import transition_state, cast_vote
 from ..models import Opportunity, OpportunityBrief
 from sqlalchemy import or_
 from datetime import datetime
@@ -62,6 +62,32 @@ def api_transition(payload: TransitionIn, request: Request, db: Session = Depend
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+class VoteIn(BaseModel):
+    opp_id: int
+    vote: str  # "PURSUE" or "PASS"
+    ui_version: str = "v1"
+
+
+@router.post("/vote")
+def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+
+    if payload.vote not in ("PURSUE", "PASS"):
+        raise HTTPException(status_code=400, detail="vote must be PURSUE or PASS")
+
+    try:
+        result = cast_vote(
+            db,
+            org_id=user.organization_id,
+            user_id=user.id,
+            opp_id=payload.opp_id,
+            vote=payload.vote,
+            ui_version=payload.ui_version,
+        )
+        return {"ok": True, **result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/opps/pending_enrichment")

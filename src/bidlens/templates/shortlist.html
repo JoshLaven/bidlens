@@ -36,12 +36,20 @@
             </div>
           <div class="card-actions">
             <div class="actions-left">
-              <button type="button" class="btn btn-secondary btn-sm"
-                      onclick="transitionOpp('{{ opp.id }}', 'INBOX')">
-                Back to Inbox
+              <button type="button"
+                      class="btn btn-sm {{ 'btn-primary' if opp.user_vote != 'PURSUE' else 'btn-success' }}"
+                      onclick="voteOpp('{{ opp.id }}', 'PURSUE')"
+                      title="{{ 'You shortlisted this' if opp.user_vote == 'PURSUE' else 'Shortlist this opportunity' }}">
+                Shortlist{% if opp.pursue_count %} ({{ opp.pursue_count }}){% endif %}
               </button>
-              <button type="button" class="btn btn-secondary btn-sm"
-                      onclick="transitionOpp('{{ opp.id }}', 'ARCHIVED')">
+              <button type="button"
+                      class="btn btn-sm {{ 'btn-secondary' if opp.user_vote != 'PASS' else 'btn-warning' }}"
+                      onclick="voteOpp('{{ opp.id }}', 'PASS')"
+                      title="{{ 'You passed on this' if opp.user_vote == 'PASS' else 'Pass on this opportunity' }}">
+                Pass{% if opp.pass_count %} ({{ opp.pass_count }}){% endif %}
+              </button>
+              <button type="button" class="btn btn-outline-danger btn-sm"
+                      onclick="archiveOpp('{{ opp.id }}')">
                 Archive
               </button>
             </div>
@@ -60,19 +68,37 @@
 {% else %}
     <div class="empty-state">
         <h2>No shortlisted opportunities</h2>
-        <p>Click "Pursue" on an opportunity in the feed to move it here.</p>
+        <p>Click <strong>Shortlist</strong> on an opportunity in the feed to move it here.</p>
     </div>
 {% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
-async function transitionOpp(oppId, toState) {
+async function voteOpp(oppId, vote) {
+  const res = await fetch('/api/vote', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      opp_id: Number(oppId),
+      vote: vote,
+      ui_version: "v1"
+    })
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert(data.detail || 'Error');
+    return;
+  }
+  window.location.reload();
+}
+
+async function archiveOpp(oppId) {
   const res = await fetch('/api/transition', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({
       opp_id: Number(oppId),
-      to_state: toState,
+      to_state: "ARCHIVED",
       ui_version: "v1"
     })
   });
