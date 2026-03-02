@@ -14,6 +14,7 @@
       <span class="badge {{ 'badge-rfi' if opportunity.opportunity_type in ['RFI', 'Sources Sought'] else 'badge-type' }}">
         {{ opportunity.opportunity_type }}
       </span>
+      <span class="badge">{{ decision_state }}</span>
       <div class="meta">
         <small class="muted">Upserted: {{ opportunity.upserted_at.strftime("%Y-%m-%d %H:%M") if opportunity.upserted_at else "—" }}</small>
       </div>
@@ -21,17 +22,34 @@
 
     <div class="card-actions" style="margin-bottom: 16px;">
       <div class="actions-left">
-        <button type="button"
-                class="btn btn-primary btn-sm {% if my_vote == 'UP' %}is-selected{% endif %}"
-                onclick="voteOpp('{{ opportunity.id }}', 'UP', '{{ my_vote or '' }}')">
-          Shortlist ({{ up_count }})
-        </button>
-
-        <button type="button"
-                class="btn btn-secondary btn-sm {% if my_vote == 'DOWN' %}is-selected{% endif %}"
-                onclick="voteOpp('{{ opportunity.id }}', 'DOWN', '{{ my_vote or '' }}')">
-          Pass ({{ down_count }})
-        </button>
+        {% if decision_state == 'INBOX' %}
+          <button type="button" class="btn btn-primary btn-sm"
+                  onclick="transitionOpp('{{ opportunity.id }}', 'SHORTLISTED')">
+            Pursue
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm"
+                  onclick="transitionOpp('{{ opportunity.id }}', 'ARCHIVED')">
+            Archive
+          </button>
+        {% elif decision_state == 'SHORTLISTED' %}
+          <button type="button" class="btn btn-secondary btn-sm"
+                  onclick="transitionOpp('{{ opportunity.id }}', 'INBOX')">
+            Back to Inbox
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm"
+                  onclick="transitionOpp('{{ opportunity.id }}', 'ARCHIVED')">
+            Archive
+          </button>
+        {% elif decision_state == 'ARCHIVED' %}
+          <button type="button" class="btn btn-secondary btn-sm"
+                  onclick="transitionOpp('{{ opportunity.id }}', 'INBOX')">
+            Back to Inbox
+          </button>
+          <button type="button" class="btn btn-primary btn-sm"
+                  onclick="transitionOpp('{{ opportunity.id }}', 'SHORTLISTED')">
+            Pursue
+          </button>
+        {% endif %}
       </div>
 
       <div class="actions-right">
@@ -187,7 +205,7 @@
             {% elif brief_status == "failed" %}
               <p><strong>Brief failed:</strong> {{ brief_error or "unknown error" }}</p>
             {% else %}
-              <p><em>No brief yet. Click “Generate AI Brief” to create one.</em></p>
+              <p><em>No brief yet. Click "Generate AI Brief" to create one.</em></p>
             {% endif %}
           {% endif %}
         </div>
@@ -211,25 +229,21 @@
 
 {% block scripts %}
 <script>
-async function voteOpp(oppId, voteValue, currentVote) {
-  const payload = {
-    opp_id: Number(oppId),
-    ui_version: "v1",
-    vote: (currentVote === voteValue) ? null : voteValue
-  };
-
-  const res = await fetch('/api/vote', {
+async function transitionOpp(oppId, toState) {
+  const res = await fetch('/api/transition', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(payload)
+    body: JSON.stringify({
+      opp_id: Number(oppId),
+      to_state: toState,
+      ui_version: "v1"
+    })
   });
-
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    alert(data.detail || "Error saving vote");
+    alert(data.detail || 'Error');
     return;
   }
-
   window.location.reload();
 }
 

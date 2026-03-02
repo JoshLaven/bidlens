@@ -69,6 +69,9 @@ class Opportunity(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     upserted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
+    # Org-level decision state: INBOX → SHORTLISTED or ARCHIVED
+    decision_state = Column(String, nullable=False, default="INBOX", server_default="INBOX", index=True)
+
     user_opportunities = relationship("UserOpportunity", back_populates="opportunity")
 
 class OpportunityBrief(Base):

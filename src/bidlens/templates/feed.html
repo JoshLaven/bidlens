@@ -2,46 +2,11 @@
 {% block title %}Feed - BidLens{% endblock %}
 {% block content %}
 <h1>Feed</h1>
-<!--Details about what is being pulled into feed-->
-<div class="feed-context">
-  <div class="context-row">
-    <span class="context-label">Types:</span>
-    <span class="context-value">
-      {% if active_tab == "solicitations" %}
-        Solicitation, Combined Synopsis/Solicitation
-      {% elif active_tab == "RFIs" %}
-        Sources Sought, RFI, Special Notice, Presolicitation
-      {% endif %}
-    </span>
-  </div>
-
-  <div class="context-row">
-    <span class="context-label">NAICS:</span>
-    <span class="context-value">541611, 541690</span>
-  </div>
-
-  <div class="context-row">
-    <span class="context-label">Window:</span>
-    <span class="context-value">Last 7 days</span>
-  </div>
-</div>
 
 <div class="tabs">
   <a href="/?tab=solicitations" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
   <a href="/?tab=rfi" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
 </div>
-
-<!-- For secondary tabs inside Feed
-<div class="tabs">
-  <a href="/" class="tab {{ 'active' if active_page == 'feed' else '' }}">Feed</a>
-  <div class="filters">
-    <a href="/" class="filter active">All</a>
-    <a href="/?filter=shortlisted" class="filter">Shortlisted</a>
-    <a href="/?filter=watchlist" class="filter">My Watchlist</a>
-  </div>
-
-</div> -->
-
 
 {% if opportunities %}
     {% for opp in opportunities %}
@@ -71,46 +36,36 @@
             </div>
           <div class="card-actions">
             <div class="actions-left">
-              <button
-                type="button"
-                class="btn btn-primary btn-sm {% if opp.my_signal == 'UP' %}is-selected{% endif %}"
-                onclick="castVote('{{ opp.id }}', 'UP', '{{ opp.my_signal or '' }}')"
-              >
-                Shortlist ({{ opp.pursue_count }})
+              <button type="button" class="btn btn-primary btn-sm"
+                      onclick="transitionOpp('{{ opp.id }}', 'SHORTLISTED')">
+                Pursue
               </button>
-
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm {% if opp.my_signal == 'DOWN' %}is-selected{% endif %}"
-                onclick="castVote('{{ opp.id }}', 'DOWN', '{{ opp.my_signal or '' }}')"
-              >
-                Pass ({{ opp.pass_count }})
+              <button type="button" class="btn btn-secondary btn-sm"
+                      onclick="transitionOpp('{{ opp.id }}', 'ARCHIVED')">
+                Archive
               </button>
             </div>
 
             <div class="actions-right">
               <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
                 <button class="btn btn-outline-secondary btn-sm" type="submit">
-                  {% if opp.watched %}★{% else %}☆Bookmark{% endif %}
+                  {% if opp.watched %}★{% else %}☆{% endif %}
                 </button>
               </form>
-
               <a href="/opportunity/{{ opp.id }}" class="details-link">Details →</a>
             </div>
           </div>
-
         </div>
     {% endfor %}
 {% else %}
     <div class="empty-state">
-        <h2>No opportunities found</h2>
-        <p>Check back later for new {{ 'solicitations' if current_tab == 'solicitations' else 'RFIs and Sources Sought' }}.</p>
+        <h2>No opportunities in inbox</h2>
+        <p>New opportunities from SAM.gov will appear here.</p>
     </div>
 {% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
-const SIGNAL_LABEL = { UP: "Shortlist", DOWN: "Pass" };
 async function transitionOpp(oppId, toState) {
   const res = await fetch('/api/transition', {
     method: 'POST',
@@ -121,25 +76,6 @@ async function transitionOpp(oppId, toState) {
       ui_version: "v1"
     })
   });
-
-  const data = await res.json();
-  if (!res.ok) {
-    alert(data.detail || 'Error');
-    return;
-  }
-  window.location.reload();
-}
-
-async function castVote(oppId, voteValue, currentSignal) {
-  const payload = { opp_id: Number(oppId), ui_version: "v1" };
-  payload.vote = (currentSignal === voteValue) ? null : voteValue;
-
-  const res = await fetch('/api/vote', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(payload)
-  });
-
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     alert(data.detail || 'Error');
@@ -147,9 +83,5 @@ async function castVote(oppId, voteValue, currentSignal) {
   }
   window.location.reload();
 }
-
-
-
 </script>
 {% endblock %}
-

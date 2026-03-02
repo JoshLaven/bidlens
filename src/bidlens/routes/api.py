@@ -1,12 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Header
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
 from typing import Optional
 from ..database import get_db
 from ..auth import get_current_user
 from ..state_machine import OppState
-from ..services import transition_state, set_vote
+from ..services import transition_state
 from ..models import Opportunity, OpportunityBrief
 from sqlalchemy import or_
 from datetime import datetime
@@ -21,10 +20,6 @@ class TransitionIn(BaseModel):
     to_state: str
     ui_version: str = "v1"
 
-class VoteIn(BaseModel):
-    opp_id: int
-    vote: Optional[str] = None
-    ui_version: Optional[str] = "v1"
 
 def require_user(request: Request, db: Session):
     user = get_current_user(request, db)
@@ -67,36 +62,8 @@ def api_transition(payload: TransitionIn, request: Request, db: Session = Depend
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/vote")
-def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
-    user = require_user(request, db)
 
-    v = payload.vote
-    if isinstance(v, str):
-        v = v.upper().strip()
 
-    # Friendly aliases (optional)
-    if v == "PURSUE":
-        v = "UP"
-    if v == "SHORTLIST":
-        v = "UP"
-    if v == "PASS":
-        v = "DOWN"  # 👈 key change
-
-    if v not in ("UP", "DOWN", None):
-        raise HTTPException(status_code=400, detail="vote must be UP, DOWN, or null")
-
-    set_vote(
-        db,
-        org_id=user.organization_id,
-        user_id=user.id,
-        opp_id=payload.opp_id,
-        vote=v,  # None means clear
-        ui_version=payload.ui_version,
-    )
-    return {"ok": True, "opp_id": payload.opp_id, "vote": v}
-
-    
 @router.get("/opps/pending_enrichment")
 def pending_enrichment(request: Request, limit: int = 50, db: Session = Depends(get_db)):
     caller = require_user_or_automation(request, db)

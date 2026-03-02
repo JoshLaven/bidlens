@@ -6,6 +6,7 @@ import os
 from . import models
 from .routes import sam
 from .scheduler import start_scheduler
+from .middleware import ClientRedirectMiddleware
 
 
 print("DATABASE_URL =", os.getenv("DATABASE_URL"))
@@ -13,6 +14,7 @@ print("DATABASE_URL =", os.getenv("DATABASE_URL"))
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="BidLens")
+app.add_middleware(ClientRedirectMiddleware)
 app.mount("/static", StaticFiles(directory="src/bidlens/static"), name="static")
 app.include_router(auth.router)
 app.include_router(opportunities.router)

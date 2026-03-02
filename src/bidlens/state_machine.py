@@ -2,23 +2,19 @@
 from enum import StrEnum
 from typing import Dict, Set
 
-class OppState(StrEnum):
-    FEED = "FEED"
-    SAVED = "SAVED"
-    BID = "BID"
-    NO_BID = "NO_BID"
 
-TERMINAL_STATES: Set[OppState] = {OppState.BID, OppState.NO_BID}
+class OppState(StrEnum):
+    INBOX = "INBOX"
+    SHORTLISTED = "SHORTLISTED"
+    ARCHIVED = "ARCHIVED"
+
 
 ALLOWED_TRANSITIONS: Dict[OppState, Set[OppState]] = {
-    OppState.FEED: {OppState.SAVED, OppState.NO_BID},
-    OppState.SAVED: {OppState.BID, OppState.NO_BID},
-    OppState.BID: set(),
-    OppState.NO_BID: set(),
+    OppState.INBOX: {OppState.SHORTLISTED, OppState.ARCHIVED},
+    OppState.SHORTLISTED: {OppState.INBOX, OppState.ARCHIVED},
+    OppState.ARCHIVED: {OppState.INBOX, OppState.SHORTLISTED},
 }
 
-def is_terminal(state: OppState) -> bool:
-    return state in TERMINAL_STATES
 
 def validate_transition(from_state: OppState, to_state: OppState) -> None:
     allowed = ALLOWED_TRANSITIONS.get(from_state, set())

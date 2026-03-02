@@ -1,19 +1,10 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
-from .models import OpportunityState, Vote
+from .models import Opportunity, Vote
 from .state_machine import OppState, validate_transition
 from .events import log_event
 
-def get_current_state(db: Session, org_id: int, opp_id: int) -> OppState:
-    row = (
-        db.query(OpportunityState)
-        .filter(and_(OpportunityState.org_id == org_id, OpportunityState.opp_id == opp_id))
-        .first()
-    )
-    if not row:
-        return OppState.FEED
-    return OppState(row.state)
 
 def transition_state(
     db: Session,
@@ -24,27 +15,14 @@ def transition_state(
     to_state: OppState,
     ui_version: str = "v1",
 ) -> OppState:
-    from_state = get_current_state(db, org_id, opp_id)
+    opp = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
+    if not opp:
+        raise ValueError(f"Opportunity {opp_id} not found")
+
+    from_state = OppState(opp.decision_state)
     validate_transition(from_state, to_state)
 
-    row = (
-        db.query(OpportunityState)
-        .filter(and_(OpportunityState.org_id == org_id, OpportunityState.opp_id == opp_id))
-        .first()
-    )
-
-    if not row:
-        row = OpportunityState(
-            org_id=org_id,
-            opp_id=opp_id,
-            state=to_state.value,
-            updated_by_user_id=user_id,
-        )
-        db.add(row)
-    else:
-        row.state = to_state.value
-        row.updated_by_user_id = user_id
-
+    opp.decision_state = to_state.value
     db.commit()
 
     log_event(
@@ -58,6 +36,7 @@ def transition_state(
     )
 
     return to_state
+
 
 def set_vote(
     db: Session,

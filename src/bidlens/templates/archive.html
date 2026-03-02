@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Shortlist - BidLens{% endblock %}
+{% block title %}Archive - BidLens{% endblock %}
 {% block content %}
-<h1>Shortlist</h1>
+<h1>Archive</h1>
 
 <div class="tabs">
-  <a href="/shortlist?tab=solicitations" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
-  <a href="/shortlist?tab=rfi" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
+  <a href="/archive?tab=solicitations" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
+  <a href="/archive?tab=rfi" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
 </div>
 
 {% if opportunities %}
@@ -40,18 +40,13 @@
                       onclick="transitionOpp('{{ opp.id }}', 'INBOX')">
                 Back to Inbox
               </button>
-              <button type="button" class="btn btn-secondary btn-sm"
-                      onclick="transitionOpp('{{ opp.id }}', 'ARCHIVED')">
-                Archive
+              <button type="button" class="btn btn-primary btn-sm"
+                      onclick="transitionOpp('{{ opp.id }}', 'SHORTLISTED')">
+                Pursue
               </button>
             </div>
 
             <div class="actions-right">
-              <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
-                <button class="btn btn-outline-secondary btn-sm" type="submit">
-                  {% if opp.watched %}★{% else %}☆{% endif %}
-                </button>
-              </form>
               <a href="/opportunity/{{ opp.id }}" class="details-link">Details →</a>
             </div>
           </div>
@@ -59,8 +54,8 @@
     {% endfor %}
 {% else %}
     <div class="empty-state">
-        <h2>No shortlisted opportunities</h2>
-        <p>Click "Pursue" on an opportunity in the feed to move it here.</p>
+        <h2>No archived opportunities</h2>
+        <p>Opportunities you pass on will appear here.</p>
     </div>
 {% endif %}
 {% endblock %}
