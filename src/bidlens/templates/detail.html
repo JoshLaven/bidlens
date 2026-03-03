@@ -53,11 +53,15 @@
       </div>
 
       <div class="actions-right">
+        {% if decision_state != 'ARCHIVED' %}
         <form method="POST" action="/opportunity/{{ opportunity.id }}/watch" style="display:inline;">
-          <button class="btn btn-outline-secondary btn-sm" type="submit" title="Bookmark">
-            {% if user_opp and user_opp.watched %}★{% else %}☆{% endif %}
+          <button class="btn btn-sm {{ 'btn-success' if user_opp and user_opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if user_opp and user_opp.watched else 'Follow' }}">
+            {% if user_opp and user_opp.watched %}★ Following{% else %}☆ Follow{% endif %}
           </button>
         </form>
+        {% elif user_opp and user_opp.watched %}
+        <span class="badge" style="padding: 6px 12px;">★ Following</span>
+        {% endif %}
       </div>
     </div>
   </div>

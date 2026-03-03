@@ -38,6 +38,9 @@
             </div>
           <div class="card-actions">
             <div class="actions-right">
+              {% if opp.watched %}
+                <span class="badge" style="padding: 4px 8px;">★ Following</span>
+              {% endif %}
               <a href="/opportunity/{{ opp.id }}" class="details-link">Details →</a>
             </div>
           </div>

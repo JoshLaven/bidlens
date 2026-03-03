@@ -180,6 +180,48 @@ async def shortlist(
     })
 
 
+# ── My Shortlist (SHORTLISTED + following) ───────────────────
+
+@router.get("/my-shortlist")
+async def my_shortlist(
+    request: Request,
+    tab: str = "solicitations",
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    q = (
+        db.query(Opportunity, UserOpportunity.watched.label("watched"))
+        .join(
+            UserOpportunity,
+            and_(
+                UserOpportunity.opportunity_id == Opportunity.id,
+                UserOpportunity.user_id == user.id,
+            ),
+        )
+        .filter(
+            Opportunity.decision_state == "SHORTLISTED",
+            UserOpportunity.watched.is_(True),
+        )
+    )
+    q = _apply_type_tab(q, tab)
+    rows = q.order_by(Opportunity.response_deadline.asc()).all()
+
+    opps = _enrich_opps(rows, db, user)
+    opps.sort(key=lambda o: o.pursue_count, reverse=True)
+
+    return templates.TemplateResponse("my_shortlist.html", {
+        "request": request,
+        "user": user,
+        "opportunities": opps,
+        "current_tab": tab,
+        "active_page": "my_shortlist",
+        "sidebar": get_sidebar(db, user),
+    })
+
+
 # ── Archive (ARCHIVED) ───────────────────────────────────────
 
 @router.get("/archive")
@@ -400,4 +442,4 @@ def get_sidebar(db: Session, user: User, limit_each: int = 8):
     for opp in bookmarks:
         opp.days_until_due = (opp.response_deadline - today).days
 
-    return {"my_shortlisted": shortlisted, "bookmarks": bookmarks}
+    return {"my_shortlisted": shortlisted, "following": bookmarks}

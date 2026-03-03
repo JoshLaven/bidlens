@@ -14,6 +14,7 @@
                 {% if user %}
                     <a href="/" class="{{ 'active' if active_page == 'feed' else '' }}">Feed</a>
                     <a href="/shortlist" class="{{ 'active' if active_page == 'shortlist' else '' }}">Shortlist</a>
+                    <a href="/my-shortlist" class="{{ 'active' if active_page == 'my_shortlist' else '' }}">My Shortlist</a>
                     <a href="/archive" class="{{ 'active' if active_page == 'archive' else '' }}">Archive</a>
                     <a href="/settings" class="{{ 'active' if active_page == 'settings' else '' }}">Settings</a>
                     <span class="nav-user">{{ user.email }}</span>
@@ -50,16 +51,16 @@
                   {% endfor %}
                 </div>
               {% else %}
-                <div class="side-empty">Nothing yet. Click <b>Pursue</b> on an opportunity.</div>
+                <div class="side-empty">Nothing yet. Click <b>Shortlist</b> on an opportunity.</div>
               {% endif %}
             </div>
 
             <div class="side-card">
-              <div class="side-card-title">Bookmarks</div>
+              <div class="side-card-title">Following</div>
 
-              {% if sidebar and sidebar.bookmarks and sidebar.bookmarks|length > 0 %}
+              {% if sidebar and sidebar.following and sidebar.following|length > 0 %}
                 <div class="side-list">
-                  {% for opp in sidebar.bookmarks %}
+                  {% for opp in sidebar.following %}
                     <a class="side-item" href="/opportunity/{{ opp.id }}">
                       <div class="side-item-title">{{ opp.title }}</div>
                       <div class="side-item-meta">
@@ -69,7 +70,7 @@
                   {% endfor %}
                 </div>
               {% else %}
-                <div class="side-empty">No bookmarks yet.</div>
+                <div class="side-empty">Not following any yet.</div>
               {% endif %}
             </div>
           </aside>

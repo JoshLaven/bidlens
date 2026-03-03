@@ -56,8 +56,8 @@
 
             <div class="actions-right">
               <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
-                <button class="btn btn-outline-secondary btn-sm" type="submit">
-                  {% if opp.watched %}★{% else %}☆{% endif %}
+                <button class="btn btn-sm {{ 'btn-success' if opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if opp.watched else 'Follow' }}">
+                  {% if opp.watched %}★ Following{% else %}☆ Follow{% endif %}
                 </button>
               </form>
               <a href="/opportunity/{{ opp.id }}" class="details-link">Details →</a>
