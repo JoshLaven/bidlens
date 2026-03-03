@@ -37,7 +37,7 @@
         {% if user %}
           <aside class="layout-side">
             <div class="side-card">
-              <div class="side-card-title">Shortlisted</div>
+              <div class="side-card-title">My Shortlisted – Due Soon</div>
 
               {% if sidebar and sidebar.my_shortlisted and sidebar.my_shortlisted|length > 0 %}
                 <div class="side-list">
@@ -50,8 +50,9 @@
                     </a>
                   {% endfor %}
                 </div>
+                <a href="/my-shortlist" class="side-view-all" style="display:block; text-align:center; padding:8px; font-size:0.85em; color:#666;">View all →</a>
               {% else %}
-                <div class="side-empty">Nothing yet. Click <b>Shortlist</b> on an opportunity.</div>
+                <div class="side-empty">Follow + Shortlist opps to see them here.</div>
               {% endif %}
             </div>
 

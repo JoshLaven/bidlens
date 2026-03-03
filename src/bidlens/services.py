@@ -14,7 +14,10 @@ def transition_state(
     opp_id: int,
     to_state: OppState,
     ui_version: str = "v1",
+    archive_reason: str | None = None,
 ) -> OppState:
+    from datetime import datetime as _dt
+
     opp = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
     if not opp:
         raise ValueError(f"Opportunity {opp_id} not found")
@@ -23,7 +26,17 @@ def transition_state(
     validate_transition(from_state, to_state)
 
     opp.decision_state = to_state.value
+
+    if to_state == OppState.ARCHIVED:
+        opp.archived_reason = archive_reason
+        opp.archived_at = _dt.utcnow()
+        opp.archived_by = user_id
+
     db.commit()
+
+    payload = {"from": from_state.value, "to": to_state.value}
+    if archive_reason:
+        payload["archive_reason"] = archive_reason
 
     log_event(
         db,
@@ -32,7 +45,7 @@ def transition_state(
         user_id=user_id,
         opp_id=opp_id,
         ui_version=ui_version,
-        payload={"from": from_state.value, "to": to_state.value},
+        payload=payload,
     )
 
     return to_state

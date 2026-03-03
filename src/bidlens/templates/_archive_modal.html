@@ -1,0 +1,92 @@
+<!-- Archive confirmation modal -->
+<div id="archiveModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+  <div style="background:white; border-radius:8px; padding:24px; max-width:420px; width:90%; margin:auto; position:relative; top:50%; transform:translateY(-50%);">
+    <h3 style="margin-top:0;">Archive this opportunity?</h3>
+    <p style="color:#666; margin-bottom:16px;">Why?</p>
+
+    <div id="archiveReasons" style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="radio" name="archive_reason" value="Not a fit / No-go"> Not a fit / No-go
+      </label>
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="radio" name="archive_reason" value="Deadline passed"> Deadline passed
+      </label>
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="radio" name="archive_reason" value="Not enough momentum"> Not enough momentum
+      </label>
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="radio" name="archive_reason" value="Bidding elsewhere"> We are bidding this (tracked elsewhere)
+      </label>
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="radio" name="archive_reason" value="Other"> Other
+      </label>
+    </div>
+
+    <textarea id="archiveOtherText" placeholder="Optional note..." rows="2"
+              style="display:none; width:100%; box-sizing:border-box; margin-bottom:16px; padding:8px; border:1px solid #ddd; border-radius:4px; font-family:inherit;"></textarea>
+
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="closeArchiveModal()">Cancel</button>
+      <button type="button" class="btn btn-outline-danger btn-sm" id="confirmArchiveBtn" onclick="confirmArchive()">Archive</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let _archiveOppId = null;
+
+function showArchiveModal(oppId) {
+  _archiveOppId = oppId;
+  document.getElementById('archiveModal').style.display = 'flex';
+  // Reset form
+  document.querySelectorAll('input[name="archive_reason"]').forEach(r => r.checked = false);
+  document.getElementById('archiveOtherText').style.display = 'none';
+  document.getElementById('archiveOtherText').value = '';
+}
+
+function closeArchiveModal() {
+  _archiveOppId = null;
+  document.getElementById('archiveModal').style.display = 'none';
+}
+
+// Show/hide "Other" textarea
+document.querySelectorAll('input[name="archive_reason"]').forEach(radio => {
+  radio.addEventListener('change', function() {
+    document.getElementById('archiveOtherText').style.display =
+      this.value === 'Other' ? 'block' : 'none';
+  });
+});
+
+// Close modal on backdrop click
+document.getElementById('archiveModal').addEventListener('click', function(e) {
+  if (e.target === this) closeArchiveModal();
+});
+
+async function confirmArchive() {
+  if (!_archiveOppId) return;
+
+  const selected = document.querySelector('input[name="archive_reason"]:checked');
+  let reason = selected ? selected.value : null;
+  if (reason === 'Other') {
+    const otherText = document.getElementById('archiveOtherText').value.trim();
+    reason = otherText ? 'Other: ' + otherText : 'Other';
+  }
+
+  const res = await fetch('/api/transition', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      opp_id: Number(_archiveOppId),
+      to_state: "ARCHIVED",
+      ui_version: "v1",
+      archive_reason: reason
+    })
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert(data.detail || 'Error');
+    return;
+  }
+  window.location.reload();
+}
+</script>

@@ -72,6 +72,11 @@ class Opportunity(Base):
     # Org-level decision state: INBOX → SHORTLISTED or ARCHIVED
     decision_state = Column(String, nullable=False, default="INBOX", server_default="INBOX", index=True)
 
+    # Archive metadata (populated when decision_state moves to ARCHIVED)
+    archived_reason = Column(String, nullable=True)
+    archived_at = Column(DateTime, nullable=True)
+    archived_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
     user_opportunities = relationship("UserOpportunity", back_populates="opportunity")
 
 class OpportunityBrief(Base):

@@ -49,7 +49,7 @@
                 Pass{% if opp.pass_count %} ({{ opp.pass_count }}){% endif %}
               </button>
               <button type="button" class="btn btn-outline-danger btn-sm"
-                      onclick="archiveOpp('{{ opp.id }}')">
+                      onclick="showArchiveModal('{{ opp.id }}')">
                 Archive
               </button>
             </div>
@@ -72,6 +72,7 @@
     </div>
 {% endif %}
 {% endblock %}
+{% include "_archive_modal.html" %}
 {% block scripts %}
 <script>
 async function voteOpp(oppId, vote) {
@@ -81,24 +82,6 @@ async function voteOpp(oppId, vote) {
     body: JSON.stringify({
       opp_id: Number(oppId),
       vote: vote,
-      ui_version: "v1"
-    })
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    alert(data.detail || 'Error');
-    return;
-  }
-  window.location.reload();
-}
-
-async function archiveOpp(oppId) {
-  const res = await fetch('/api/transition', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({
-      opp_id: Number(oppId),
-      to_state: "ARCHIVED",
       ui_version: "v1"
     })
   });

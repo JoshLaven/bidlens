@@ -19,6 +19,7 @@ class TransitionIn(BaseModel):
     opp_id: int
     to_state: str
     ui_version: str = "v1"
+    archive_reason: Optional[str] = None
 
 
 def require_user(request: Request, db: Session):
@@ -57,6 +58,7 @@ def api_transition(payload: TransitionIn, request: Request, db: Session = Depend
             opp_id=payload.opp_id,
             to_state=to_state,
             ui_version=payload.ui_version,
+            archive_reason=payload.archive_reason,
         )
         return {"ok": True, "opp_id": payload.opp_id, "state": new_state.value}
     except ValueError as e:

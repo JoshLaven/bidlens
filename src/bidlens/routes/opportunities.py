@@ -207,10 +207,9 @@ async def my_shortlist(
         )
     )
     q = _apply_type_tab(q, tab)
-    rows = q.order_by(Opportunity.response_deadline.asc()).all()
+    rows = q.order_by(Opportunity.response_deadline.asc().nullslast()).all()
 
     opps = _enrich_opps(rows, db, user)
-    opps.sort(key=lambda o: o.pursue_count, reverse=True)
 
     return templates.TemplateResponse("my_shortlist.html", {
         "request": request,
@@ -409,19 +408,31 @@ async def calendar_page(
 
 # ── Sidebar ───────────────────────────────────────────────────
 
-def get_sidebar(db: Session, user: User, limit_each: int = 8):
-    """Sidebar: shortlisted opps + bookmarks."""
+def get_sidebar(db: Session, user: User):
+    """Sidebar: My Shortlisted – Due Soon + Following."""
     today = date.today()
 
-    shortlisted = (
+    # My Shortlisted – Due Soon: SHORTLISTED + user is following, sorted by deadline
+    my_shortlisted = (
         db.query(Opportunity)
-        .filter(Opportunity.decision_state == "SHORTLISTED")
+        .join(
+            UserOpportunity,
+            and_(
+                UserOpportunity.opportunity_id == Opportunity.id,
+                UserOpportunity.user_id == user.id,
+            ),
+        )
+        .filter(
+            Opportunity.decision_state == "SHORTLISTED",
+            UserOpportunity.watched.is_(True),
+        )
         .order_by(Opportunity.response_deadline.asc())
-        .limit(limit_each)
+        .limit(5)
         .all()
     )
 
-    bookmarks = (
+    # Following: all opps user follows (any state)
+    following = (
         db.query(Opportunity)
         .join(
             UserOpportunity,
@@ -432,14 +443,14 @@ def get_sidebar(db: Session, user: User, limit_each: int = 8):
         )
         .filter(UserOpportunity.watched.is_(True))
         .order_by(Opportunity.response_deadline.asc())
-        .limit(limit_each)
+        .limit(8)
         .all()
     )
 
-    for opp in shortlisted:
+    for opp in my_shortlisted:
         opp.days_until_due = (opp.response_deadline - today).days
 
-    for opp in bookmarks:
+    for opp in following:
         opp.days_until_due = (opp.response_deadline - today).days
 
-    return {"my_shortlisted": shortlisted, "following": bookmarks}
+    return {"my_shortlisted": my_shortlisted, "following": following}
