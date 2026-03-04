@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from .database import engine, Base
@@ -7,6 +9,7 @@ from . import models
 from .routes import sam
 from .scheduler import start_scheduler
 from .middleware import ClientRedirectMiddleware
+
 
 
 print("DATABASE_URL =", os.getenv("DATABASE_URL"))
@@ -21,6 +24,10 @@ app.include_router(opportunities.router)
 app.include_router(api.router)
 app.include_router(settings.router)
 app.include_router(sam.router)
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 @app.on_event("startup")
 def _startup():
     start_scheduler()
