@@ -24,3 +24,4 @@ tzlocal==5.3.1
 urllib3==2.6.3
 uv==0.10.7
 uvicorn==0.40.0
+alembic

@@ -94,6 +94,7 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
 
 @router.get("/opps/pending_enrichment")
 def pending_enrichment(request: Request, limit: int = 50, db: Session = Depends(get_db)):
+    require_user_or_automation(request, db)
     caller = require_user_or_automation(request, db)
     if isinstance(caller, dict) and caller.get("automation") is True:
         pass
@@ -140,6 +141,7 @@ class BriefIn(BaseModel):
 
 @router.post("/opps/{opp_id}/enrichment")
 def save_enrichment(opp_id: int, payload: BriefIn, request: Request, db: Session = Depends(get_db)):
+    require_user_or_automation(request, db)
     caller = require_user_or_automation(request, db)
     opp = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
     if not opp:
@@ -162,6 +164,7 @@ def save_enrichment(opp_id: int, payload: BriefIn, request: Request, db: Session
     
 @router.post("/opps/{opp_id}/enrichment/reset")
 def reset_enrichment(opp_id: int, request: Request, db: Session = Depends(get_db)):
+    require_user_or_automation(request, db)
     caller = require_user_or_automation(request, db)
 
     row = db.query(OpportunityBrief).filter(OpportunityBrief.opportunity_id == opp_id).first()
@@ -235,6 +238,7 @@ def generate_brief(
     
 @router.get("/opps/{opp_id}")
 def get_opp_for_enrichment(opp_id: int, request: Request, db: Session = Depends(get_db)):
+    require_user_or_automation(request, db)
     caller = require_user_or_automation(request, db)
     o = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
     if not o:
