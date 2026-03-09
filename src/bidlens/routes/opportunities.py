@@ -136,6 +136,7 @@ async def feed(
     date_filter: str = "",
     date_from: str = "",
     date_to: str = "",
+    show_passed: str = "",
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -144,6 +145,16 @@ async def feed(
 
     q = _opp_list_query(db, user, "INBOX", tab)
     q = apply_org_filters(q, db, user)
+
+    # By default, hide items the current user voted PASS on.
+    # ?show_passed=1 reveals them.
+    if show_passed != "1":
+        passed_opp_ids = (
+            db.query(Vote.opp_id)
+            .filter(Vote.user_id == user.id, Vote.vote == "PASS")
+            .subquery()
+        )
+        q = q.filter(~Opportunity.id.in_(passed_opp_ids))
 
     # Date filtering on upserted_at
     today = date.today()
@@ -187,6 +198,7 @@ async def feed(
         "date_filter": date_filter,
         "date_from": date_from,
         "date_to": date_to,
+        "show_passed": show_passed,
         "now": datetime.utcnow(),
     })
 

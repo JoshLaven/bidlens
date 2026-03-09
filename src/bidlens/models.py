@@ -5,8 +5,6 @@ import enum
 from .database import Base
 from sqlalchemy import UniqueConstraint
 from sqlalchemy import JSON, func
-from pydantic import BaseModel
-from typing import Optional
 from sqlalchemy import BigInteger
 import uuid
 from sqlalchemy import TypeDecorator
@@ -98,20 +96,6 @@ class OpportunityBrief(Base):
 
 
 
-class OpportunityState(Base):
-    __tablename__ = "opportunity_states"
-    __table_args__ = (UniqueConstraint("org_id", "opp_id", name="uq_org_opp_state"),)
-
-    id = Column(Integer, primary_key=True)
-    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
-    opp_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
-
-    state = Column(String, nullable=False, default="FEED", index=True)
-
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    updated_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
-
-
 class IngestionRun(Base):
     __tablename__ = "ingestion_runs"
 
@@ -135,14 +119,9 @@ class Vote(Base):
     opp_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
 
-    vote = Column(String, nullable=True, index=True)  # "UP", "DOWN", or null
+    vote = Column(String, nullable=True, index=True)  # "PURSUE", "PASS", or null
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-
-class VoteIn(BaseModel):
-    opp_id: int
-    vote: Optional[str] = None  # "UP", "DOWN", or null
-    ui_version: str
 
 class Event(Base):
     __tablename__ = "events"

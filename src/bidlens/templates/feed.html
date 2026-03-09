@@ -26,6 +26,11 @@
     <button type="submit" class="btn btn-sm btn-outline-secondary">Apply</button>
   </form>
 
+  <label style="margin-left:12px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
+    <input type="checkbox" onchange="togglePassed(this)" {{ 'checked' if show_passed == '1' else '' }}>
+    <span>Show passed</span>
+  </label>
+
   <span style="margin-left:auto; font-weight:600;">Sort:</span>
   <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=newest" class="btn btn-sm {{ 'btn-primary' if sort == 'newest' else 'btn-outline-secondary' }}">Newest</a>
   <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=deadline" class="btn btn-sm {{ 'btn-primary' if sort == 'deadline' else 'btn-outline-secondary' }}">Deadline</a>
@@ -117,22 +122,15 @@
 {% endblock %}
 {% block scripts %}
 <script>
-async function voteOpp(oppId, vote) {
-  const res = await fetch('/api/vote', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({
-      opp_id: Number(oppId),
-      vote: vote,
-      ui_version: "v1"
-    })
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    alert(data.detail || 'Error');
-    return;
+function togglePassed(cb) {
+  const url = new URL(window.location);
+  if (cb.checked) {
+    url.searchParams.set('show_passed', '1');
+  } else {
+    url.searchParams.delete('show_passed');
   }
-  window.location.reload();
+  window.location = url.toString();
 }
+
 </script>
 {% endblock %}

@@ -234,24 +234,6 @@
 {% include "_archive_modal.html" %}
 {% block scripts %}
 <script>
-async function voteOpp(oppId, vote) {
-  const res = await fetch('/api/vote', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({
-      opp_id: Number(oppId),
-      vote: vote,
-      ui_version: "v1"
-    })
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    alert(data.detail || 'Error');
-    return;
-  }
-  window.location.reload();
-}
-
 async function generateBrief(oppId) {
   await fetch(`/api/opps/${oppId}/generate_brief`, { method: "POST" });
   window.location.reload();
