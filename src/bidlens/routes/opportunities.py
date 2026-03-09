@@ -132,6 +132,10 @@ def _opp_list_query(db: Session, user, decision_state: str, tab: str):
 async def feed(
     request: Request,
     tab: str = "solicitations",
+    sort: str = "newest",
+    date_filter: str = "",
+    date_from: str = "",
+    date_to: str = "",
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -140,7 +144,37 @@ async def feed(
 
     q = _opp_list_query(db, user, "INBOX", tab)
     q = apply_org_filters(q, db, user)
-    rows = q.order_by(Opportunity.response_deadline.asc()).limit(50).all()
+
+    # Date filtering on upserted_at
+    today = date.today()
+    if date_filter == "today":
+        q = q.filter(func.date(Opportunity.upserted_at) >= today)
+    elif date_filter == "7d":
+        q = q.filter(func.date(Opportunity.upserted_at) >= today - timedelta(days=7))
+    elif date_filter == "30d":
+        q = q.filter(func.date(Opportunity.upserted_at) >= today - timedelta(days=30))
+    elif date_filter == "custom" and date_from:
+        try:
+            d_from = date.fromisoformat(date_from)
+            q = q.filter(func.date(Opportunity.upserted_at) >= d_from)
+        except ValueError:
+            pass
+        if date_to:
+            try:
+                d_to = date.fromisoformat(date_to)
+                q = q.filter(func.date(Opportunity.upserted_at) <= d_to)
+            except ValueError:
+                pass
+
+    # Sort
+    if sort == "deadline":
+        q = q.order_by(Opportunity.response_deadline.asc())
+    elif sort == "posted":
+        q = q.order_by(Opportunity.posted_date.desc())
+    else:  # "newest" — default
+        q = q.order_by(Opportunity.upserted_at.desc())
+
+    rows = q.limit(50).all()
 
     return templates.TemplateResponse("feed.html", {
         "request": request,
@@ -149,6 +183,11 @@ async def feed(
         "current_tab": tab,
         "active_page": "feed",
         "sidebar": get_sidebar(db, user),
+        "sort": sort,
+        "date_filter": date_filter,
+        "date_from": date_from,
+        "date_to": date_to,
+        "now": datetime.utcnow(),
     })
 
 
