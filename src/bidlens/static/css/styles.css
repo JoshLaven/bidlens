@@ -30,9 +30,9 @@ body {
 }
 
 .container {
-    max-width: 900px;
+    max-width: 1200px;
     margin: 0 auto;
-    padding: 0 20px;
+    padding: 0 24px;
 }
 
 nav {
@@ -52,14 +52,16 @@ nav .container {
 /* Layout with persistent sidebar */
 .layout {
   display: grid;
-  grid-template-columns: 1fr 320px;
-  gap: 24px;
+  grid-template-columns: 1fr 280px;
+  gap: 40px;
   align-items: start;
 }
 
 .layout-side {
   position: sticky;
   top: 96px; /* below nav */
+  border-left: 1px solid var(--gray-200);
+  padding-left: 24px;
 }
 
 .side-card {
@@ -133,12 +135,17 @@ nav .container {
 }
 
 /* Mobile: sidebar stacks below content */
-@media (max-width: 900px) {
+@media (max-width: 960px) {
   .layout {
     grid-template-columns: 1fr;
+    gap: 24px;
   }
   .layout-side {
     position: static;
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid var(--gray-200);
+    padding-top: 24px;
   }
 }
 
@@ -326,6 +333,8 @@ h2 {
     justify-content: space-between;
     gap: 12px;
     margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--gray-100);
     align-items: center;
     flex-wrap: wrap;
 }
@@ -335,6 +344,43 @@ h2 {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+/* Card vote state indicators */
+.card--voted-pursue {
+  border-left: 3px solid var(--success);
+}
+
+.card--voted-pass {
+  border-left: 3px solid var(--warning);
+}
+
+/* Status pills in card header */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.status-pill--pursue {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.status-pill--pass {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.status-pill--following {
+  background: #dbeafe;
+  color: #1e40af;
 }
 
 .signal-btn .signal-dot {

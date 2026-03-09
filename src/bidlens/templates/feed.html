@@ -34,13 +34,25 @@
 
 {% if opportunities %}
     {% for opp in opportunities %}
-        <div class="card">
+        <div class="card {{ 'card--voted-pursue' if opp.user_vote == 'PURSUE' else 'card--voted-pass' if opp.user_vote == 'PASS' else '' }}">
             <div class="card-header">
-                <a href="/opportunity/{{ opp.id }}" class="card-title">{{ opp.title }}</a>
-                <span class="badge {{ 'badge-rfi' if opp.opportunity_type in ['RFI', 'Sources Sought'] else 'badge-type' }}">{{ opp.opportunity_type }}</span>
-                {% if opp.upserted_at and (now - opp.upserted_at).total_seconds() < 86400 %}
-                  <span class="badge" style="background:#28a745; color:#fff; font-size:0.7rem; padding:2px 6px; margin-left:4px;">New</span>
-                {% endif %}
+                <div style="flex:1; min-width:0;">
+                  <a href="/opportunity/{{ opp.id }}" class="card-title">{{ opp.title }}</a>
+                  <div style="display:flex; gap:6px; margin-top:4px; flex-wrap:wrap;">
+                    <span class="badge {{ 'badge-rfi' if opp.opportunity_type in ['RFI', 'Sources Sought'] else 'badge-type' }}">{{ opp.opportunity_type }}</span>
+                    {% if opp.upserted_at and (now - opp.upserted_at).total_seconds() < 86400 %}
+                      <span class="badge" style="background:#28a745; color:#fff; font-size:0.7rem; padding:2px 6px;">New</span>
+                    {% endif %}
+                    {% if opp.user_vote == 'PURSUE' %}
+                      <span class="status-pill status-pill--pursue">Shortlisted</span>
+                    {% elif opp.user_vote == 'PASS' %}
+                      <span class="status-pill status-pill--pass">Passed</span>
+                    {% endif %}
+                    {% if opp.watched %}
+                      <span class="status-pill status-pill--following">Following</span>
+                    {% endif %}
+                  </div>
+                </div>
             </div>
             <div class="card-meta">
                 <span class="card-agency">{{ opp.agency }}</span>
@@ -55,40 +67,40 @@
                 <span class="due-date {{ 'due-urgent' if opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due <= 14 else '' }}">
                     Due: {{ opp.response_deadline.strftime('%b %d, %Y') }}
                     {% if opp.days_until_due >= 0 %}
-                        ({{ opp.days_until_due }} days)
+                        ({{ opp.days_until_due }}d)
                     {% else %}
                         (past due)
                     {% endif %}
                 </span>
-                <span style="color:#888; font-size:0.8rem; margin-left:12px;">
-                    Pulled: {{ opp.upserted_at.strftime('%b %d, %Y %H:%M') if opp.upserted_at else 'N/A' }}
+                <span style="color:#999; font-size:0.8rem;">
+                    Pulled {{ opp.upserted_at.strftime('%b %d') if opp.upserted_at else 'N/A' }}
                 </span>
                 {% if opp.posted_date %}
-                <span style="color:#888; font-size:0.8rem; margin-left:8px;">
-                    Posted: {{ opp.posted_date.strftime('%b %d, %Y') }}
+                <span style="color:#999; font-size:0.8rem;">
+                    Posted {{ opp.posted_date.strftime('%b %d') }}
                 </span>
                 {% endif %}
             </div>
           <div class="card-actions">
             <div class="actions-left">
               <button type="button"
-                      class="btn btn-sm {{ 'btn-primary' if opp.user_vote != 'PURSUE' else 'btn-success' }}"
+                      class="btn btn-sm {{ 'btn-success' if opp.user_vote == 'PURSUE' else 'btn-primary' }}"
                       onclick="voteOpp('{{ opp.id }}', 'PURSUE')"
                       title="{{ 'You shortlisted this' if opp.user_vote == 'PURSUE' else 'Shortlist this opportunity' }}">
-                Shortlist{% if opp.pursue_count %} ({{ opp.pursue_count }}){% endif %}
+                {% if opp.user_vote == 'PURSUE' %}✓ {% endif %}Shortlist{% if opp.pursue_count %} ({{ opp.pursue_count }}){% endif %}
               </button>
               <button type="button"
-                      class="btn btn-sm {{ 'btn-secondary' if opp.user_vote != 'PASS' else 'btn-warning' }}"
+                      class="btn btn-sm {{ 'btn-warning' if opp.user_vote == 'PASS' else 'btn-outline-secondary' }}"
                       onclick="voteOpp('{{ opp.id }}', 'PASS')"
                       title="{{ 'You passed on this' if opp.user_vote == 'PASS' else 'Pass on this opportunity' }}">
-                Pass{% if opp.pass_count %} ({{ opp.pass_count }}){% endif %}
+                {% if opp.user_vote == 'PASS' %}✓ {% endif %}Pass{% if opp.pass_count %} ({{ opp.pass_count }}){% endif %}
               </button>
             </div>
 
             <div class="actions-right">
               <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
                 <button class="btn btn-sm {{ 'btn-success' if opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if opp.watched else 'Follow' }}">
-                  {% if opp.watched %}★ Following{% else %}☆ Follow{% endif %}
+                  {% if opp.watched %}★{% else %}☆{% endif %}
                 </button>
               </form>
               <a href="/opportunity/{{ opp.id }}" class="details-link">Details →</a>
