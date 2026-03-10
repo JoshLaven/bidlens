@@ -7,7 +7,7 @@ from collections import OrderedDict
 from ..database import get_db
 from ..models import Opportunity, User, UserOpportunity, OpportunityStatus, OrgProfile
 from ..auth import get_current_user
-from ..services import get_vote_counts, get_user_votes
+from ..services import get_vote_counts, get_user_votes, get_last_activity
 from sqlalchemy import and_, or_
 from dataclasses import dataclass
 from typing import Optional
@@ -203,12 +203,16 @@ async def feed(
     })
 
 
+REVIEW_STAGES = ["Team Review", "Director Review", "Approved"]
+
+
 # ── Shortlist (SHORTLISTED) ──────────────────────────────────
 
 @router.get("/shortlist")
 async def shortlist(
     request: Request,
     tab: str = "solicitations",
+    sort: str = "pursue",
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -219,7 +223,25 @@ async def shortlist(
     rows = q.order_by(Opportunity.response_deadline.asc()).all()
 
     opps = _enrich_opps(rows, db, user)
-    opps.sort(key=lambda o: o.pursue_count, reverse=True)
+
+    # Attach last_activity timestamp per opp
+    opp_ids = [o.id for o in opps]
+    activity_map = get_last_activity(db, opp_ids)
+    for opp in opps:
+        opp.last_activity = activity_map.get(opp.id)
+        if not opp.review_stage:
+            opp.review_stage = "Team Review"
+
+    # Sort
+    if sort == "deadline":
+        opps.sort(key=lambda o: o.response_deadline)
+    elif sort == "stage":
+        stage_order = {s: i for i, s in enumerate(REVIEW_STAGES)}
+        opps.sort(key=lambda o: stage_order.get(o.review_stage, 99))
+    elif sort == "activity":
+        opps.sort(key=lambda o: o.last_activity or datetime.min, reverse=True)
+    else:  # "pursue" — default
+        opps.sort(key=lambda o: o.pursue_count, reverse=True)
 
     return templates.TemplateResponse("shortlist.html", {
         "request": request,
@@ -228,6 +250,8 @@ async def shortlist(
         "current_tab": tab,
         "active_page": "shortlist",
         "sidebar": get_sidebar(db, user),
+        "sort": sort,
+        "review_stages": REVIEW_STAGES,
     })
 
 

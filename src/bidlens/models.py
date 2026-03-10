@@ -70,6 +70,9 @@ class Opportunity(Base):
     # Org-level decision state: INBOX → SHORTLISTED or ARCHIVED
     decision_state = Column(String, nullable=False, default="INBOX", server_default="INBOX", index=True)
 
+    # Review stage within SHORTLISTED (Team Review → Director Review → Approved)
+    review_stage = Column(String, nullable=True, default=None)
+
     # Archive metadata (populated when decision_state moves to ARCHIVED)
     archived_reason = Column(String, nullable=True)
     archived_at = Column(DateTime, nullable=True)

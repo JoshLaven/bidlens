@@ -92,6 +92,34 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+REVIEW_STAGES = ["Team Review", "Director Review", "Approved"]
+
+
+class StageIn(BaseModel):
+    opp_id: int
+    stage: str
+
+
+@router.post("/stage")
+def api_set_stage(payload: StageIn, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+
+    if payload.stage not in REVIEW_STAGES:
+        raise HTTPException(status_code=400, detail=f"Invalid stage. Must be one of: {REVIEW_STAGES}")
+
+    opp = db.query(Opportunity).filter(Opportunity.id == payload.opp_id).first()
+    if not opp:
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+
+    if opp.decision_state != "SHORTLISTED":
+        raise HTTPException(status_code=400, detail="Stage only applies to shortlisted opportunities")
+
+    opp.review_stage = payload.stage
+    db.commit()
+
+    return {"ok": True, "opp_id": payload.opp_id, "stage": payload.stage}
+
+
 @router.get("/opps/pending_enrichment")
 def pending_enrichment(request: Request, limit: int = 50, db: Session = Depends(get_db)):
     caller = require_user_or_automation(request, db)

@@ -93,6 +93,8 @@ def cast_vote(
     promoted = False
     if vote == "PURSUE" and opp.decision_state == "INBOX":
         opp.decision_state = OppState.SHORTLISTED.value
+        if not opp.review_stage:
+            opp.review_stage = "Team Review"
         promoted = True
 
     db.commit()
@@ -166,3 +168,21 @@ def get_user_votes(db: Session, user_id: int, opp_ids: list[int]) -> dict[int, s
     )
 
     return {opp_id: vote for opp_id, vote in rows}
+
+
+def get_last_activity(db: Session, opp_ids: list[int]) -> dict[int, "datetime"]:
+    """Get the most recent vote timestamp for each opportunity.
+
+    Returns {opp_id: datetime}.
+    """
+    if not opp_ids:
+        return {}
+
+    rows = (
+        db.query(Vote.opp_id, func.max(Vote.updated_at).label("last_at"))
+        .filter(Vote.opp_id.in_(opp_ids))
+        .group_by(Vote.opp_id)
+        .all()
+    )
+
+    return {opp_id: last_at for opp_id, last_at in rows if last_at}

@@ -3,87 +3,84 @@
 {% block content %}
 <h1>Shortlist</h1>
 
-<div class="tabs">
-  <a href="/shortlist?tab=solicitations" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
-  <a href="/shortlist?tab=rfi" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
+<div class="tabs" style="margin-bottom:12px;">
+  <a href="/shortlist?tab=solicitations&sort={{ sort }}" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
+  <a href="/shortlist?tab=rfi&sort={{ sort }}" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
 </div>
 
 {% if opportunities %}
+<div style="overflow-x:auto;">
+<table class="dash-table">
+  <thead>
+    <tr>
+      <th style="min-width:280px;">
+        <a href="/shortlist?tab={{ current_tab }}&sort=pursue" class="{{ 'sort-active' if sort == 'pursue' else '' }}">Opportunity</a>
+      </th>
+      <th style="width:60px; text-align:center;">
+        <a href="/shortlist?tab={{ current_tab }}&sort=pursue" class="{{ 'sort-active' if sort == 'pursue' else '' }}" title="Pursue votes">+</a>
+      </th>
+      <th style="width:60px; text-align:center;">
+        <a href="/shortlist?tab={{ current_tab }}&sort=pursue" class="{{ 'sort-active' if sort == 'pursue' else '' }}" title="Pass votes">−</a>
+      </th>
+      <th style="width:150px;">
+        <a href="/shortlist?tab={{ current_tab }}&sort=stage" class="{{ 'sort-active' if sort == 'stage' else '' }}">Stage</a>
+      </th>
+      <th style="width:110px;">
+        <a href="/shortlist?tab={{ current_tab }}&sort=deadline" class="{{ 'sort-active' if sort == 'deadline' else '' }}">Deadline</a>
+      </th>
+      <th style="width:100px;">
+        <a href="/shortlist?tab={{ current_tab }}&sort=activity" class="{{ 'sort-active' if sort == 'activity' else '' }}">Last Activity</a>
+      </th>
+      <th style="width:120px;"></th>
+    </tr>
+  </thead>
+  <tbody>
     {% for opp in opportunities %}
-        <div class="card {{ 'card--voted-pursue' if opp.user_vote == 'PURSUE' else 'card--voted-pass' if opp.user_vote == 'PASS' else '' }}">
-            <div class="card-header">
-                <div style="flex:1; min-width:0;">
-                  <a href="/opportunity/{{ opp.id }}" class="card-title">{{ opp.title }}</a>
-                  <div style="display:flex; gap:6px; margin-top:4px; flex-wrap:wrap;">
-                    <span class="badge {{ 'badge-rfi' if opp.opportunity_type in ['RFI', 'Sources Sought'] else 'badge-type' }}">{{ opp.opportunity_type }}</span>
-                    {% if opp.user_vote == 'PURSUE' %}
-                      <span class="status-pill status-pill--pursue">Shortlisted</span>
-                    {% elif opp.user_vote == 'PASS' %}
-                      <span class="status-pill status-pill--pass">Passed</span>
-                    {% endif %}
-                    {% if opp.watched %}
-                      <span class="status-pill status-pill--following">Following</span>
-                    {% endif %}
-                  </div>
-                </div>
-            </div>
-            <div class="card-meta">
-                <span class="card-agency">{{ opp.agency }}</span>
-                {% if opp.set_aside %}
-                    <span class="badge badge-setaside">{{ opp.set_aside }}</span>
-                {% endif %}
-                {% if opp.naics %}
-                    <span>NAICS: {{ opp.naics }}</span>
-                {% endif %}
-            </div>
-            <div class="card-meta">
-                <span class="due-date {{ 'due-urgent' if opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due <= 14 else '' }}">
-                    Due: {{ opp.response_deadline.strftime('%b %d, %Y') }}
-                    {% if opp.days_until_due >= 0 %}
-                        ({{ opp.days_until_due }}d)
-                    {% else %}
-                        (past due)
-                    {% endif %}
-                </span>
-                {% if opp.pursue_count or opp.pass_count %}
-                  <span style="color:#666; font-size:0.8rem;">
-                    {% if opp.pursue_count %}{{ opp.pursue_count }} shortlist{% endif %}
-                    {% if opp.pursue_count and opp.pass_count %} · {% endif %}
-                    {% if opp.pass_count %}{{ opp.pass_count }} pass{% endif %}
-                  </span>
-                {% endif %}
-            </div>
-          <div class="card-actions">
-            <div class="actions-left">
-              <button type="button"
-                      class="btn btn-sm {{ 'btn-success' if opp.user_vote == 'PURSUE' else 'btn-primary' }}"
-                      onclick="voteOpp('{{ opp.id }}', 'PURSUE')"
-                      title="{{ 'You shortlisted this' if opp.user_vote == 'PURSUE' else 'Shortlist this opportunity' }}">
-                {% if opp.user_vote == 'PURSUE' %}✓ {% endif %}Shortlist{% if opp.pursue_count %} ({{ opp.pursue_count }}){% endif %}
-              </button>
-              <button type="button"
-                      class="btn btn-sm {{ 'btn-warning' if opp.user_vote == 'PASS' else 'btn-outline-secondary' }}"
-                      onclick="voteOpp('{{ opp.id }}', 'PASS')"
-                      title="{{ 'You passed on this' if opp.user_vote == 'PASS' else 'Pass on this opportunity' }}">
-                {% if opp.user_vote == 'PASS' %}✓ {% endif %}Pass{% if opp.pass_count %} ({{ opp.pass_count }}){% endif %}
-              </button>
-              <button type="button" class="btn btn-outline-danger btn-sm"
-                      onclick="showArchiveModal('{{ opp.id }}')">
-                Archive
-              </button>
-            </div>
-
-            <div class="actions-right">
-              <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
-                <button class="btn btn-sm {{ 'btn-success' if opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if opp.watched else 'Follow' }}">
-                  {% if opp.watched %}★{% else %}☆{% endif %}
-                </button>
-              </form>
-              <a href="/opportunity/{{ opp.id }}" class="details-link">Details →</a>
-            </div>
-          </div>
-        </div>
+    <tr>
+      <td>
+        <a href="/opportunity/{{ opp.id }}" style="font-weight:500; color:#1a1a1a; text-decoration:none;">{{ opp.title }}</a>
+        <div style="font-size:0.8rem; color:#888; margin-top:2px;">{{ opp.agency }}</div>
+      </td>
+      <td style="text-align:center; font-weight:600; color:#2e7d32;">{{ opp.pursue_count or 0 }}</td>
+      <td style="text-align:center; font-weight:600; color:#c62828;">{{ opp.pass_count or 0 }}</td>
+      <td>
+        <select class="stage-select"
+                data-opp-id="{{ opp.id }}"
+                onchange="setStage(this)">
+          {% for stage in review_stages %}
+            <option value="{{ stage }}" {{ 'selected' if opp.review_stage == stage else '' }}>{{ stage }}</option>
+          {% endfor %}
+        </select>
+      </td>
+      <td>
+        <span class="{{ 'due-urgent' if opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due <= 14 else '' }}" style="font-size:0.85rem;">
+          {{ opp.response_deadline.strftime('%b %d') }}
+          <span style="color:#999;">({{ opp.days_until_due }}d)</span>
+        </span>
+      </td>
+      <td style="font-size:0.8rem; color:#888;">
+        {% if opp.last_activity %}
+          {{ opp.last_activity.strftime('%b %d, %H:%M') }}
+        {% else %}
+          —
+        {% endif %}
+      </td>
+      <td style="text-align:right;">
+        <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
+          <button class="btn btn-sm {{ 'btn-success' if opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if opp.watched else 'Follow' }}" style="padding:2px 6px;">
+            {% if opp.watched %}★{% else %}☆{% endif %}
+          </button>
+        </form>
+        <button type="button" class="btn btn-outline-danger btn-sm" style="padding:2px 6px;"
+                onclick="showArchiveModal('{{ opp.id }}')" title="Archive">
+          ✕
+        </button>
+      </td>
+    </tr>
     {% endfor %}
+  </tbody>
+</table>
+</div>
 {% else %}
     <div class="empty-state">
         <h2>No shortlisted opportunities</h2>
@@ -92,3 +89,75 @@
 {% endif %}
 {% endblock %}
 {% include "_archive_modal.html" %}
+{% block scripts %}
+<script>
+async function setStage(el) {
+  const oppId = el.dataset.oppId;
+  const stage = el.value;
+  const res = await fetch('/api/stage', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ opp_id: Number(oppId), stage: stage })
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert(data.detail || 'Error');
+    window.location.reload();
+  }
+}
+</script>
+
+<style>
+.dash-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.dash-table thead th {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 2px solid #e0e0e0;
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.dash-table thead th a {
+  color: #666;
+  text-decoration: none;
+}
+.dash-table thead th a:hover {
+  color: #1a1a1a;
+}
+.dash-table thead th a.sort-active {
+  color: #1a1a1a;
+  border-bottom: 2px solid #1a1a1a;
+  padding-bottom: 2px;
+}
+.dash-table tbody tr {
+  border-bottom: 1px solid #f0f0f0;
+}
+.dash-table tbody tr:hover {
+  background: #fafafa;
+}
+.dash-table tbody td {
+  padding: 10px 10px;
+  vertical-align: middle;
+}
+.stage-select {
+  font-size: 0.8rem;
+  padding: 3px 6px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+}
+.stage-select:focus {
+  outline: none;
+  border-color: #999;
+}
+</style>
+{% endblock %}
