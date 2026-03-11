@@ -94,6 +94,13 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
 
 REVIEW_STAGES = ["Team Review", "Director Review", "Approved"]
 
+# Allowed stage transitions: current_stage -> set of valid next stages
+STAGE_TRANSITIONS = {
+    "Team Review":     {"Director Review"},
+    "Director Review": {"Approved", "Team Review"},  # can approve or return
+    "Approved":        set(),                         # terminal
+}
+
 
 class StageIn(BaseModel):
     opp_id: int
@@ -114,7 +121,14 @@ def api_set_stage(payload: StageIn, request: Request, db: Session = Depends(get_
     if opp.decision_state != "SHORTLISTED":
         raise HTTPException(status_code=400, detail="Stage only applies to shortlisted opportunities")
 
+    current = opp.review_stage or "Team Review"
+    allowed = STAGE_TRANSITIONS.get(current, set())
+    if payload.stage not in allowed:
+        raise HTTPException(status_code=400, detail=f"Cannot move from '{current}' to '{payload.stage}'")
+
     opp.review_stage = payload.stage
+    opp.stage_changed_at = datetime.utcnow()
+    opp.stage_changed_by = user.id
     db.commit()
 
     return {"ok": True, "opp_id": payload.opp_id, "stage": payload.stage}

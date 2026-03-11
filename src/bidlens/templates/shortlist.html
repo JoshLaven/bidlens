@@ -44,13 +44,20 @@
       <td style="text-align:center; font-weight:600; color:#2e7d32;">{{ opp.pursue_count or 0 }}</td>
       <td style="text-align:center; font-weight:600; color:#c62828;">{{ opp.pass_count or 0 }}</td>
       <td>
-        <select class="stage-select"
-                data-opp-id="{{ opp.id }}"
-                onchange="setStage(this)">
-          {% for stage in review_stages %}
-            <option value="{{ stage }}" {{ 'selected' if opp.review_stage == stage else '' }}>{{ stage }}</option>
-          {% endfor %}
-        </select>
+        <span class="stage-badge stage-badge--{{ opp.review_stage|lower|replace(' ', '-') }}">{{ opp.review_stage }}</span>
+        <div style="margin-top:4px; display:flex; gap:4px;">
+          {% if opp.review_stage == 'Team Review' %}
+            <button class="btn btn-sm btn-primary" style="padding:2px 8px; font-size:0.75rem;"
+                    onclick="advanceStage('{{ opp.id }}', 'Director Review')">Send to Director</button>
+          {% elif opp.review_stage == 'Director Review' %}
+            <button class="btn btn-sm btn-success" style="padding:2px 8px; font-size:0.75rem;"
+                    onclick="advanceStage('{{ opp.id }}', 'Approved')">Approve</button>
+            <button class="btn btn-sm btn-outline-secondary" style="padding:2px 8px; font-size:0.75rem;"
+                    onclick="advanceStage('{{ opp.id }}', 'Team Review')">Return to Team</button>
+          {% elif opp.review_stage == 'Approved' %}
+            <span style="font-size:0.75rem; color:var(--success);">✓ Done</span>
+          {% endif %}
+        </div>
       </td>
       <td>
         <span class="{{ 'due-urgent' if opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due <= 14 else '' }}" style="font-size:0.85rem;">
@@ -91,9 +98,7 @@
 {% include "_archive_modal.html" %}
 {% block scripts %}
 <script>
-async function setStage(el) {
-  const oppId = el.dataset.oppId;
-  const stage = el.value;
+async function advanceStage(oppId, stage) {
   const res = await fetch('/api/stage', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
@@ -102,8 +107,8 @@ async function setStage(el) {
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     alert(data.detail || 'Error');
-    window.location.reload();
   }
+  window.location.reload();
 }
 </script>
 
@@ -146,18 +151,26 @@ async function setStage(el) {
   padding: 10px 10px;
   vertical-align: middle;
 }
-.stage-select {
-  font-size: 0.8rem;
-  padding: 3px 6px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  background: #fff;
-  color: #333;
-  cursor: pointer;
+.stage-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
-.stage-select:focus {
-  outline: none;
-  border-color: #999;
+.stage-badge--team-review {
+  background: #dbeafe;
+  color: #1e40af;
+}
+.stage-badge--director-review {
+  background: #fef3c7;
+  color: #92400e;
+}
+.stage-badge--approved {
+  background: #d1fae5;
+  color: #065f46;
 }
 </style>
 {% endblock %}

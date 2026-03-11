@@ -72,6 +72,8 @@ class Opportunity(Base):
 
     # Review stage within SHORTLISTED (Team Review → Director Review → Approved)
     review_stage = Column(String, nullable=True, default=None)
+    stage_changed_at = Column(DateTime, nullable=True)
+    stage_changed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     # Archive metadata (populated when decision_state moves to ARCHIVED)
     archived_reason = Column(String, nullable=True)
