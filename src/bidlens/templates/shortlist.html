@@ -12,7 +12,6 @@
   <span style="font-weight:600; color:#666;">Sort:</span>
   <a href="/shortlist?tab={{ current_tab }}&sort=pursue" class="btn btn-sm {{ 'btn-primary' if sort == 'pursue' else 'btn-outline-secondary' }}">Votes</a>
   <a href="/shortlist?tab={{ current_tab }}&sort=deadline" class="btn btn-sm {{ 'btn-primary' if sort == 'deadline' else 'btn-outline-secondary' }}">Deadline</a>
-  <a href="/shortlist?tab={{ current_tab }}&sort=stage" class="btn btn-sm {{ 'btn-primary' if sort == 'stage' else 'btn-outline-secondary' }}">Stage</a>
   <a href="/shortlist?tab={{ current_tab }}&sort=activity" class="btn btn-sm {{ 'btn-primary' if sort == 'activity' else 'btn-outline-secondary' }}">Activity</a>
 </div>
 
@@ -20,80 +19,55 @@
     {% for opp in opportunities %}
         {% set total_votes = (opp.pursue_count or 0) + (opp.pass_count or 0) %}
         {% set pursue_pct = ((opp.pursue_count or 0) / total_votes * 100) if total_votes > 0 else 100 %}
-        <details class="sl-card">
-          <summary class="sl-summary">
-            <div class="sl-summary-main">
-              <div class="sl-title-row">
-                <a href="/opportunity/{{ opp.id }}" class="card-title" onclick="event.stopPropagation()">{{ opp.title }}</a>
-              </div>
-              <div class="sl-meta-row">
-                <span class="card-agency">{{ opp.agency }}</span>
-                <span class="stage-badge stage-badge--{{ opp.review_stage|lower|replace(' ', '-') }}">{{ opp.review_stage }}</span>
-                {% if opp.watched %}
-                  <span class="status-pill status-pill--following">Following</span>
-                {% endif %}
-              </div>
-            </div>
-            <div class="sl-summary-right">
-              {% if total_votes > 0 %}
-              <div class="signal-pill" title="{{ opp.pursue_count or 0 }} shortlist · {{ opp.pass_count or 0 }} pass">
-                <div class="signal-fill signal-fill--pursue" style="width:{{ pursue_pct }}%;"></div>
-                <div class="signal-fill signal-fill--pass" style="width:{{ 100 - pursue_pct }}%;"></div>
-              </div>
-              {% else %}
-              <div class="signal-pill signal-pill--empty" title="No votes yet"></div>
-              {% endif %}
-              <span class="sl-deadline {{ 'due-urgent' if opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due <= 14 else '' }}">
-                {{ opp.response_deadline.strftime('%b %d') }}
-                <span class="sl-days">({{ opp.days_until_due }}d)</span>
-              </span>
-            </div>
-          </summary>
-
-          <div class="sl-expanded">
-            <div class="sl-detail-row">
-              <span class="sl-vote-detail">{{ opp.pursue_count or 0 }} shortlist · {{ opp.pass_count or 0 }} pass</span>
-              {% if opp.set_aside %}
-                <span class="badge badge-setaside">{{ opp.set_aside }}</span>
-              {% endif %}
-              {% if opp.naics %}
-                <span style="color:#999; font-size:0.8rem;">NAICS: {{ opp.naics }}</span>
-              {% endif %}
-              {% if opp.last_activity %}
-                <span style="color:#999; font-size:0.8rem;">
-                  Activity {{ opp.last_activity.strftime('%b %d, %H:%M') }}
-                </span>
-              {% endif %}
-            </div>
-
-            <div class="card-actions">
-              <div class="actions-left">
-                {% if opp.review_stage == 'Team Review' %}
-                  <button class="btn btn-sm btn-primary"
-                          onclick="advanceStage('{{ opp.id }}', 'Director Review')">Send to Director</button>
-                {% elif opp.review_stage == 'Director Review' %}
-                  <button class="btn btn-sm btn-success"
-                          onclick="advanceStage('{{ opp.id }}', 'Approved')">Approve</button>
-                  <button class="btn btn-sm btn-outline-secondary"
-                          onclick="advanceStage('{{ opp.id }}', 'Team Review')">Return to Team</button>
-                {% elif opp.review_stage == 'Approved' %}
-                  <span style="font-size:0.85rem; color:var(--success); font-weight:600;">✓ Approved</span>
-                {% endif %}
-              </div>
-
-              <div class="actions-right">
-                <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
-                  <button class="btn btn-sm {{ 'btn-success' if opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if opp.watched else 'Follow' }}">
-                    {% if opp.watched %}★{% else %}☆{% endif %}
-                  </button>
-                </form>
-                <button type="button" class="btn btn-sm btn-outline-secondary"
-                        onclick="showArchiveModal('{{ opp.id }}')" title="Archive">Archive</button>
-                <a href="/opportunity/{{ opp.id }}" class="details-link">Details →</a>
-              </div>
-            </div>
+        <div class="sl-card">
+          <a href="/opportunity/{{ opp.id }}" class="sl-title">{{ opp.title }}</a>
+          <div class="sl-agency">
+            {{ opp.agency }}
+            {% if opp.watched %}
+              <span class="sl-follow-icon" title="Following">★</span>
+            {% endif %}
           </div>
-        </details>
+
+          <div class="sl-signal-row">
+            {% if total_votes > 0 %}
+            <div class="signal-pill" title="{{ opp.pursue_count or 0 }} shortlist · {{ opp.pass_count or 0 }} pass">
+              <div class="signal-fill signal-fill--pursue" style="width:{{ pursue_pct }}%;"></div>
+              <div class="signal-fill signal-fill--pass" style="width:{{ 100 - pursue_pct }}%;"></div>
+            </div>
+            <span class="sl-vote-counts">{{ opp.pursue_count or 0 }} shortlist · {{ opp.pass_count or 0 }} pass</span>
+            {% else %}
+            <div class="signal-pill signal-pill--empty" title="No votes yet"></div>
+            <span class="sl-vote-counts sl-vote-counts--empty">No votes</span>
+            {% endif %}
+          </div>
+
+          <div class="sl-meta">
+            <span class="sl-deadline {{ 'due-urgent' if opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due <= 14 else '' }}">
+              Due {{ opp.response_deadline.strftime('%b %d') }}
+              <span class="sl-days">({{ opp.days_until_due }}d)</span>
+            </span>
+            {% if opp.naics %}
+              <span class="sl-naics">NAICS {{ opp.naics }}</span>
+            {% endif %}
+            {% if opp.set_aside %}
+              <span class="sl-naics">{{ opp.set_aside }}</span>
+            {% endif %}
+            {% if opp.last_activity %}
+              <span class="sl-naics">Active {{ opp.last_activity.strftime('%b %d') }}</span>
+            {% endif %}
+          </div>
+
+          <div class="sl-actions">
+            <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
+              <button class="btn btn-sm {{ 'btn-success' if opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if opp.watched else 'Follow' }}">
+                {% if opp.watched %}★{% else %}☆{% endif %}
+              </button>
+            </form>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    onclick="showArchiveModal('{{ opp.id }}')" title="Archive">Archive</button>
+            <a href="/opportunity/{{ opp.id }}" class="details-link">Details →</a>
+          </div>
+        </div>
     {% endfor %}
 {% else %}
     <div class="empty-state">
@@ -104,77 +78,54 @@
 {% endblock %}
 {% include "_archive_modal.html" %}
 {% block scripts %}
-<script>
-async function advanceStage(oppId, stage) {
-  const res = await fetch('/api/stage', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ opp_id: Number(oppId), stage: stage })
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    alert(data.detail || 'Error');
-  }
-  window.location.reload();
-}
-</script>
-
 <style>
-/* Shortlist card as accordion */
 .sl-card {
   background: white;
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   margin-bottom: 12px;
   border-left: 3px solid var(--success);
+  padding: 16px 20px;
   transition: box-shadow 0.2s;
 }
 .sl-card:hover {
   box-shadow: var(--shadow-lg);
 }
-.sl-card[open] {
-  box-shadow: var(--shadow-lg);
-}
 
-.sl-summary {
-  list-style: none;
-  cursor: pointer;
-  padding: 16px 20px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-.sl-summary::-webkit-details-marker { display: none; }
-
-.sl-summary-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.sl-title-row {
-  margin-bottom: 4px;
-}
-.sl-title-row .card-title {
+.sl-title {
   font-size: 1rem;
+  font-weight: 600;
+  color: var(--gray-900);
+  text-decoration: none;
+  display: block;
+  margin-bottom: 2px;
+}
+.sl-title:hover {
+  color: var(--primary);
 }
 
-.sl-meta-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  flex-wrap: wrap;
+.sl-agency {
   font-size: 0.8rem;
   color: var(--gray-500);
-}
-
-.sl-summary-right {
+  margin-bottom: 10px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
+  gap: 6px;
 }
 
-/* Signal pill */
+.sl-follow-icon {
+  color: var(--success);
+  font-size: 0.75rem;
+}
+
+/* Signal row — bar + counts on same line */
+.sl-signal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
 .signal-pill {
   width: 48px;
   height: 6px;
@@ -182,19 +133,19 @@ async function advanceStage(oppId, stage) {
   display: flex;
   overflow: hidden;
   background: var(--gray-200);
+  flex-shrink: 0;
 }
 .signal-pill--empty {
   opacity: 0.4;
 }
 .signal-fill--pursue {
-  background: #86efac; /* subtle green */
+  background: #86efac;
   border-radius: 3px 0 0 3px;
 }
 .signal-fill--pass {
-  background: #fca5a5; /* subtle red */
+  background: #fca5a5;
   border-radius: 0 3px 3px 0;
 }
-/* When 100% one color, round both sides */
 .signal-fill--pursue:only-child,
 .signal-fill--pursue[style*="width:100"] {
   border-radius: 3px;
@@ -204,57 +155,46 @@ async function advanceStage(oppId, stage) {
   border-radius: 3px;
 }
 
-.sl-deadline {
+.sl-vote-counts {
+  font-size: 0.75rem;
+  color: var(--gray-600);
+  font-weight: 500;
+}
+.sl-vote-counts--empty {
+  color: var(--gray-400);
+}
+
+/* Meta row — deadline, NAICS, activity */
+.sl-meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
   font-size: 0.8rem;
+  margin-bottom: 10px;
+}
+
+.sl-deadline {
   font-weight: 600;
-  white-space: nowrap;
 }
 .sl-days {
   color: var(--gray-500);
   font-weight: 400;
 }
+.sl-naics {
+  color: var(--gray-400);
+}
 
-/* Expanded section */
-.sl-expanded {
-  padding: 0 20px 16px;
+/* Actions row */
+.sl-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding-top: 8px;
   border-top: 1px solid var(--gray-100);
 }
-
-.sl-detail-row {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  flex-wrap: wrap;
-  padding: 12px 0 0;
-  font-size: 0.85rem;
-}
-
-.sl-vote-detail {
-  font-weight: 600;
-  color: var(--gray-700);
-}
-
-/* Stage badges */
-.stage-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-.stage-badge--team-review {
-  background: #dbeafe;
-  color: #1e40af;
-}
-.stage-badge--director-review {
-  background: #fef3c7;
-  color: #92400e;
-}
-.stage-badge--approved {
-  background: #d1fae5;
-  color: #065f46;
+.sl-actions .details-link {
+  margin-left: auto;
 }
 </style>
 {% endblock %}

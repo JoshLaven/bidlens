@@ -229,15 +229,10 @@ async def shortlist(
     activity_map = get_last_activity(db, opp_ids)
     for opp in opps:
         opp.last_activity = activity_map.get(opp.id)
-        if not opp.review_stage:
-            opp.review_stage = "Team Review"
 
     # Sort
     if sort == "deadline":
         opps.sort(key=lambda o: o.response_deadline)
-    elif sort == "stage":
-        stage_order = {s: i for i, s in enumerate(REVIEW_STAGES)}
-        opps.sort(key=lambda o: stage_order.get(o.review_stage, 99))
     elif sort == "activity":
         opps.sort(key=lambda o: o.last_activity or datetime.min, reverse=True)
     else:  # "pursue" — default
@@ -251,7 +246,6 @@ async def shortlist(
         "active_page": "shortlist",
         "sidebar": get_sidebar(db, user),
         "sort": sort,
-        "review_stages": REVIEW_STAGES,
     })
 
 
