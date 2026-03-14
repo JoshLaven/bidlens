@@ -8,86 +8,82 @@
   <a href="/shortlist?tab=rfi&sort={{ sort }}" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
 </div>
 
-{% if opportunities %}
-<div style="overflow-x:auto;">
-<table class="dash-table">
-  <thead>
-    <tr>
-      <th style="min-width:280px;">
-        <a href="/shortlist?tab={{ current_tab }}&sort=pursue" class="{{ 'sort-active' if sort == 'pursue' else '' }}">Opportunity</a>
-      </th>
-      <th style="width:60px; text-align:center;">
-        <a href="/shortlist?tab={{ current_tab }}&sort=pursue" class="{{ 'sort-active' if sort == 'pursue' else '' }}" title="Pursue votes">+</a>
-      </th>
-      <th style="width:60px; text-align:center;">
-        <a href="/shortlist?tab={{ current_tab }}&sort=pursue" class="{{ 'sort-active' if sort == 'pursue' else '' }}" title="Pass votes">−</a>
-      </th>
-      <th style="width:150px;">
-        <a href="/shortlist?tab={{ current_tab }}&sort=stage" class="{{ 'sort-active' if sort == 'stage' else '' }}">Stage</a>
-      </th>
-      <th style="width:110px;">
-        <a href="/shortlist?tab={{ current_tab }}&sort=deadline" class="{{ 'sort-active' if sort == 'deadline' else '' }}">Deadline</a>
-      </th>
-      <th style="width:100px;">
-        <a href="/shortlist?tab={{ current_tab }}&sort=activity" class="{{ 'sort-active' if sort == 'activity' else '' }}">Last Activity</a>
-      </th>
-      <th style="width:120px;"></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for opp in opportunities %}
-    <tr>
-      <td>
-        <a href="/opportunity/{{ opp.id }}" style="font-weight:500; color:#1a1a1a; text-decoration:none;">{{ opp.title }}</a>
-        <div style="font-size:0.8rem; color:#888; margin-top:2px;">{{ opp.agency }}</div>
-      </td>
-      <td style="text-align:center; font-weight:600; color:#2e7d32;">{{ opp.pursue_count or 0 }}</td>
-      <td style="text-align:center; font-weight:600; color:#c62828;">{{ opp.pass_count or 0 }}</td>
-      <td>
-        <span class="stage-badge stage-badge--{{ opp.review_stage|lower|replace(' ', '-') }}">{{ opp.review_stage }}</span>
-        <div style="margin-top:4px; display:flex; gap:4px;">
-          {% if opp.review_stage == 'Team Review' %}
-            <button class="btn btn-sm btn-primary" style="padding:2px 8px; font-size:0.75rem;"
-                    onclick="advanceStage('{{ opp.id }}', 'Director Review')">Send to Director</button>
-          {% elif opp.review_stage == 'Director Review' %}
-            <button class="btn btn-sm btn-success" style="padding:2px 8px; font-size:0.75rem;"
-                    onclick="advanceStage('{{ opp.id }}', 'Approved')">Approve</button>
-            <button class="btn btn-sm btn-outline-secondary" style="padding:2px 8px; font-size:0.75rem;"
-                    onclick="advanceStage('{{ opp.id }}', 'Team Review')">Return to Team</button>
-          {% elif opp.review_stage == 'Approved' %}
-            <span style="font-size:0.75rem; color:var(--success);">✓ Done</span>
-          {% endif %}
-        </div>
-      </td>
-      <td>
-        <span class="{{ 'due-urgent' if opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due <= 14 else '' }}" style="font-size:0.85rem;">
-          {{ opp.response_deadline.strftime('%b %d') }}
-          <span style="color:#999;">({{ opp.days_until_due }}d)</span>
-        </span>
-      </td>
-      <td style="font-size:0.8rem; color:#888;">
-        {% if opp.last_activity %}
-          {{ opp.last_activity.strftime('%b %d, %H:%M') }}
-        {% else %}
-          —
-        {% endif %}
-      </td>
-      <td style="text-align:right;">
-        <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
-          <button class="btn btn-sm {{ 'btn-success' if opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if opp.watched else 'Follow' }}" style="padding:2px 6px;">
-            {% if opp.watched %}★{% else %}☆{% endif %}
-          </button>
-        </form>
-        <button type="button" class="btn btn-outline-danger btn-sm" style="padding:2px 6px;"
-                onclick="showArchiveModal('{{ opp.id }}')" title="Archive">
-          ✕
-        </button>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div style="display:flex; gap:8px; margin-bottom:16px; font-size:0.85rem; align-items:center;">
+  <span style="font-weight:600; color:#666;">Sort:</span>
+  <a href="/shortlist?tab={{ current_tab }}&sort=pursue" class="btn btn-sm {{ 'btn-primary' if sort == 'pursue' else 'btn-outline-secondary' }}">Votes</a>
+  <a href="/shortlist?tab={{ current_tab }}&sort=deadline" class="btn btn-sm {{ 'btn-primary' if sort == 'deadline' else 'btn-outline-secondary' }}">Deadline</a>
+  <a href="/shortlist?tab={{ current_tab }}&sort=stage" class="btn btn-sm {{ 'btn-primary' if sort == 'stage' else 'btn-outline-secondary' }}">Stage</a>
+  <a href="/shortlist?tab={{ current_tab }}&sort=activity" class="btn btn-sm {{ 'btn-primary' if sort == 'activity' else 'btn-outline-secondary' }}">Activity</a>
 </div>
+
+{% if opportunities %}
+    {% for opp in opportunities %}
+        <div class="card card--voted-pursue">
+            <div class="card-header">
+                <div style="flex:1; min-width:0;">
+                  <a href="/opportunity/{{ opp.id }}" class="card-title">{{ opp.title }}</a>
+                  <div style="display:flex; gap:6px; margin-top:4px; flex-wrap:wrap; align-items:center;">
+                    <span class="stage-badge stage-badge--{{ opp.review_stage|lower|replace(' ', '-') }}">{{ opp.review_stage }}</span>
+                    {% if opp.watched %}
+                      <span class="status-pill status-pill--following">Following</span>
+                    {% endif %}
+                  </div>
+                </div>
+            </div>
+            <div class="card-meta">
+                <span class="card-agency">{{ opp.agency }}</span>
+                {% if opp.set_aside %}
+                    <span class="badge badge-setaside">{{ opp.set_aside }}</span>
+                {% endif %}
+                {% if opp.naics %}
+                    <span>NAICS: {{ opp.naics }}</span>
+                {% endif %}
+            </div>
+            <div class="card-meta">
+                <span class="due-date {{ 'due-urgent' if opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due <= 14 else '' }}">
+                    Due: {{ opp.response_deadline.strftime('%b %d, %Y') }}
+                    {% if opp.days_until_due >= 0 %}
+                        ({{ opp.days_until_due }}d)
+                    {% else %}
+                        (past due)
+                    {% endif %}
+                </span>
+                <span style="color:#2e7d32; font-weight:600; font-size:0.85rem;">+{{ opp.pursue_count or 0 }}</span>
+                <span style="color:#c62828; font-weight:600; font-size:0.85rem;">−{{ opp.pass_count or 0 }}</span>
+                {% if opp.last_activity %}
+                  <span style="color:#999; font-size:0.8rem;">
+                    Activity {{ opp.last_activity.strftime('%b %d, %H:%M') }}
+                  </span>
+                {% endif %}
+            </div>
+          <div class="card-actions">
+            <div class="actions-left">
+              {% if opp.review_stage == 'Team Review' %}
+                <button class="btn btn-sm btn-primary"
+                        onclick="advanceStage('{{ opp.id }}', 'Director Review')">Send to Director</button>
+              {% elif opp.review_stage == 'Director Review' %}
+                <button class="btn btn-sm btn-success"
+                        onclick="advanceStage('{{ opp.id }}', 'Approved')">Approve</button>
+                <button class="btn btn-sm btn-outline-secondary"
+                        onclick="advanceStage('{{ opp.id }}', 'Team Review')">Return to Team</button>
+              {% elif opp.review_stage == 'Approved' %}
+                <span style="font-size:0.85rem; color:var(--success); font-weight:600;">✓ Approved</span>
+              {% endif %}
+            </div>
+
+            <div class="actions-right">
+              <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
+                <button class="btn btn-sm {{ 'btn-success' if opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if opp.watched else 'Follow' }}">
+                  {% if opp.watched %}★{% else %}☆{% endif %}
+                </button>
+              </form>
+              <button type="button" class="btn btn-sm btn-outline-secondary"
+                      onclick="showArchiveModal('{{ opp.id }}')" title="Archive">Archive</button>
+              <a href="/opportunity/{{ opp.id }}" class="details-link">Details →</a>
+            </div>
+          </div>
+        </div>
+    {% endfor %}
 {% else %}
     <div class="empty-state">
         <h2>No shortlisted opportunities</h2>
@@ -113,44 +109,6 @@ async function advanceStage(oppId, stage) {
 </script>
 
 <style>
-.dash-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-.dash-table thead th {
-  text-align: left;
-  padding: 8px 10px;
-  border-bottom: 2px solid #e0e0e0;
-  font-weight: 600;
-  font-size: 0.8rem;
-  color: #666;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  white-space: nowrap;
-}
-.dash-table thead th a {
-  color: #666;
-  text-decoration: none;
-}
-.dash-table thead th a:hover {
-  color: #1a1a1a;
-}
-.dash-table thead th a.sort-active {
-  color: #1a1a1a;
-  border-bottom: 2px solid #1a1a1a;
-  padding-bottom: 2px;
-}
-.dash-table tbody tr {
-  border-bottom: 1px solid #f0f0f0;
-}
-.dash-table tbody tr:hover {
-  background: #fafafa;
-}
-.dash-table tbody td {
-  padding: 10px 10px;
-  vertical-align: middle;
-}
 .stage-badge {
   display: inline-block;
   padding: 2px 8px;
