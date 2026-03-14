@@ -18,71 +18,82 @@
 
 {% if opportunities %}
     {% for opp in opportunities %}
-        <div class="card card--voted-pursue">
-            <div class="card-header">
-                <div style="flex:1; min-width:0;">
-                  <a href="/opportunity/{{ opp.id }}" class="card-title">{{ opp.title }}</a>
-                  <div style="display:flex; gap:6px; margin-top:4px; flex-wrap:wrap; align-items:center;">
-                    <span class="stage-badge stage-badge--{{ opp.review_stage|lower|replace(' ', '-') }}">{{ opp.review_stage }}</span>
-                    {% if opp.watched %}
-                      <span class="status-pill status-pill--following">Following</span>
-                    {% endif %}
-                  </div>
-                </div>
-            </div>
-            <div class="card-meta">
+        {% set total_votes = (opp.pursue_count or 0) + (opp.pass_count or 0) %}
+        {% set pursue_pct = ((opp.pursue_count or 0) / total_votes * 100) if total_votes > 0 else 100 %}
+        <details class="sl-card">
+          <summary class="sl-summary">
+            <div class="sl-summary-main">
+              <div class="sl-title-row">
+                <a href="/opportunity/{{ opp.id }}" class="card-title" onclick="event.stopPropagation()">{{ opp.title }}</a>
+              </div>
+              <div class="sl-meta-row">
                 <span class="card-agency">{{ opp.agency }}</span>
-                {% if opp.set_aside %}
-                    <span class="badge badge-setaside">{{ opp.set_aside }}</span>
+                <span class="stage-badge stage-badge--{{ opp.review_stage|lower|replace(' ', '-') }}">{{ opp.review_stage }}</span>
+                {% if opp.watched %}
+                  <span class="status-pill status-pill--following">Following</span>
                 {% endif %}
-                {% if opp.naics %}
-                    <span>NAICS: {{ opp.naics }}</span>
-                {% endif %}
+              </div>
             </div>
-            <div class="card-meta">
-                <span class="due-date {{ 'due-urgent' if opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due <= 14 else '' }}">
-                    Due: {{ opp.response_deadline.strftime('%b %d, %Y') }}
-                    {% if opp.days_until_due >= 0 %}
-                        ({{ opp.days_until_due }}d)
-                    {% else %}
-                        (past due)
-                    {% endif %}
+            <div class="sl-summary-right">
+              {% if total_votes > 0 %}
+              <div class="signal-pill" title="{{ opp.pursue_count or 0 }} shortlist · {{ opp.pass_count or 0 }} pass">
+                <div class="signal-fill signal-fill--pursue" style="width:{{ pursue_pct }}%;"></div>
+                <div class="signal-fill signal-fill--pass" style="width:{{ 100 - pursue_pct }}%;"></div>
+              </div>
+              {% else %}
+              <div class="signal-pill signal-pill--empty" title="No votes yet"></div>
+              {% endif %}
+              <span class="sl-deadline {{ 'due-urgent' if opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due <= 14 else '' }}">
+                {{ opp.response_deadline.strftime('%b %d') }}
+                <span class="sl-days">({{ opp.days_until_due }}d)</span>
+              </span>
+            </div>
+          </summary>
+
+          <div class="sl-expanded">
+            <div class="sl-detail-row">
+              <span class="sl-vote-detail">{{ opp.pursue_count or 0 }} shortlist · {{ opp.pass_count or 0 }} pass</span>
+              {% if opp.set_aside %}
+                <span class="badge badge-setaside">{{ opp.set_aside }}</span>
+              {% endif %}
+              {% if opp.naics %}
+                <span style="color:#999; font-size:0.8rem;">NAICS: {{ opp.naics }}</span>
+              {% endif %}
+              {% if opp.last_activity %}
+                <span style="color:#999; font-size:0.8rem;">
+                  Activity {{ opp.last_activity.strftime('%b %d, %H:%M') }}
                 </span>
-                <span style="color:#2e7d32; font-weight:600; font-size:0.85rem;">+{{ opp.pursue_count or 0 }}</span>
-                <span style="color:#c62828; font-weight:600; font-size:0.85rem;">−{{ opp.pass_count or 0 }}</span>
-                {% if opp.last_activity %}
-                  <span style="color:#999; font-size:0.8rem;">
-                    Activity {{ opp.last_activity.strftime('%b %d, %H:%M') }}
-                  </span>
-                {% endif %}
-            </div>
-          <div class="card-actions">
-            <div class="actions-left">
-              {% if opp.review_stage == 'Team Review' %}
-                <button class="btn btn-sm btn-primary"
-                        onclick="advanceStage('{{ opp.id }}', 'Director Review')">Send to Director</button>
-              {% elif opp.review_stage == 'Director Review' %}
-                <button class="btn btn-sm btn-success"
-                        onclick="advanceStage('{{ opp.id }}', 'Approved')">Approve</button>
-                <button class="btn btn-sm btn-outline-secondary"
-                        onclick="advanceStage('{{ opp.id }}', 'Team Review')">Return to Team</button>
-              {% elif opp.review_stage == 'Approved' %}
-                <span style="font-size:0.85rem; color:var(--success); font-weight:600;">✓ Approved</span>
               {% endif %}
             </div>
 
-            <div class="actions-right">
-              <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
-                <button class="btn btn-sm {{ 'btn-success' if opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if opp.watched else 'Follow' }}">
-                  {% if opp.watched %}★{% else %}☆{% endif %}
-                </button>
-              </form>
-              <button type="button" class="btn btn-sm btn-outline-secondary"
-                      onclick="showArchiveModal('{{ opp.id }}')" title="Archive">Archive</button>
-              <a href="/opportunity/{{ opp.id }}" class="details-link">Details →</a>
+            <div class="card-actions">
+              <div class="actions-left">
+                {% if opp.review_stage == 'Team Review' %}
+                  <button class="btn btn-sm btn-primary"
+                          onclick="advanceStage('{{ opp.id }}', 'Director Review')">Send to Director</button>
+                {% elif opp.review_stage == 'Director Review' %}
+                  <button class="btn btn-sm btn-success"
+                          onclick="advanceStage('{{ opp.id }}', 'Approved')">Approve</button>
+                  <button class="btn btn-sm btn-outline-secondary"
+                          onclick="advanceStage('{{ opp.id }}', 'Team Review')">Return to Team</button>
+                {% elif opp.review_stage == 'Approved' %}
+                  <span style="font-size:0.85rem; color:var(--success); font-weight:600;">✓ Approved</span>
+                {% endif %}
+              </div>
+
+              <div class="actions-right">
+                <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
+                  <button class="btn btn-sm {{ 'btn-success' if opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if opp.watched else 'Follow' }}">
+                    {% if opp.watched %}★{% else %}☆{% endif %}
+                  </button>
+                </form>
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        onclick="showArchiveModal('{{ opp.id }}')" title="Archive">Archive</button>
+                <a href="/opportunity/{{ opp.id }}" class="details-link">Details →</a>
+              </div>
             </div>
           </div>
-        </div>
+        </details>
     {% endfor %}
 {% else %}
     <div class="empty-state">
@@ -109,11 +120,126 @@ async function advanceStage(oppId, stage) {
 </script>
 
 <style>
+/* Shortlist card as accordion */
+.sl-card {
+  background: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-bottom: 12px;
+  border-left: 3px solid var(--success);
+  transition: box-shadow 0.2s;
+}
+.sl-card:hover {
+  box-shadow: var(--shadow-lg);
+}
+.sl-card[open] {
+  box-shadow: var(--shadow-lg);
+}
+
+.sl-summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.sl-summary::-webkit-details-marker { display: none; }
+
+.sl-summary-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.sl-title-row {
+  margin-bottom: 4px;
+}
+.sl-title-row .card-title {
+  font-size: 1rem;
+}
+
+.sl-meta-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--gray-500);
+}
+
+.sl-summary-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* Signal pill */
+.signal-pill {
+  width: 48px;
+  height: 6px;
+  border-radius: 3px;
+  display: flex;
+  overflow: hidden;
+  background: var(--gray-200);
+}
+.signal-pill--empty {
+  opacity: 0.4;
+}
+.signal-fill--pursue {
+  background: #86efac; /* subtle green */
+  border-radius: 3px 0 0 3px;
+}
+.signal-fill--pass {
+  background: #fca5a5; /* subtle red */
+  border-radius: 0 3px 3px 0;
+}
+/* When 100% one color, round both sides */
+.signal-fill--pursue:only-child,
+.signal-fill--pursue[style*="width:100"] {
+  border-radius: 3px;
+}
+.signal-fill--pass:only-child,
+.signal-fill--pass[style*="width:100"] {
+  border-radius: 3px;
+}
+
+.sl-deadline {
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.sl-days {
+  color: var(--gray-500);
+  font-weight: 400;
+}
+
+/* Expanded section */
+.sl-expanded {
+  padding: 0 20px 16px;
+  border-top: 1px solid var(--gray-100);
+}
+
+.sl-detail-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 12px 0 0;
+  font-size: 0.85rem;
+}
+
+.sl-vote-detail {
+  font-weight: 600;
+  color: var(--gray-700);
+}
+
+/* Stage badges */
 .stage-badge {
   display: inline-block;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
