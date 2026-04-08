@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_opp_card.html" import opp_card %}
 {% block title %}Archive - BidLens{% endblock %}
 {% block content %}
 <h1>Archive</h1>
@@ -10,49 +11,7 @@
 
 {% if opportunities %}
     {% for opp in opportunities %}
-        <div class="card {{ 'card--voted-pursue' if opp.user_vote == 'PURSUE' else 'card--voted-pass' if opp.user_vote == 'PASS' else '' }}" style="opacity: 0.75;">
-            <div class="card-header">
-                <div style="flex:1; min-width:0;">
-                  <a href="/opportunity/{{ opp.id }}" class="card-title">{{ opp.title }}</a>
-                  <div style="display:flex; gap:6px; margin-top:4px; flex-wrap:wrap;">
-                    <span class="badge {{ 'badge-rfi' if opp.opportunity_type in ['RFI', 'Sources Sought'] else 'badge-type' }}">{{ opp.opportunity_type }}</span>
-                    <span class="status-pill" style="background:#666; color:#fff;">Archived</span>
-                    {% if opp.watched %}
-                      <span class="status-pill status-pill--following">Following</span>
-                    {% endif %}
-                  </div>
-                </div>
-            </div>
-            <div class="card-meta">
-                <span class="card-agency">{{ opp.agency }}</span>
-                {% if opp.set_aside %}
-                    <span class="badge badge-setaside">{{ opp.set_aside }}</span>
-                {% endif %}
-                {% if opp.naics %}
-                    <span>NAICS: {{ opp.naics }}</span>
-                {% endif %}
-            </div>
-            <div class="card-meta">
-                <span class="due-date">
-                    Due: {{ opp.response_deadline.strftime('%b %d, %Y') }}
-                </span>
-                {% if opp.pursue_count or opp.pass_count %}
-                  <span style="color:#666; font-size:0.8rem;">
-                    {% if opp.pursue_count %}{{ opp.pursue_count }} shortlist{% endif %}
-                    {% if opp.pursue_count and opp.pass_count %} · {% endif %}
-                    {% if opp.pass_count %}{{ opp.pass_count }} pass{% endif %}
-                  </span>
-                {% endif %}
-            </div>
-          <div class="card-actions">
-            <div class="actions-right">
-              {% if opp.watched %}
-                <span class="badge" style="padding: 4px 8px;">★ Following</span>
-              {% endif %}
-              <a href="/opportunity/{{ opp.id }}" class="details-link">Details →</a>
-            </div>
-          </div>
-        </div>
+        {{ opp_card(opp, view='archive') }}
     {% endfor %}
 {% else %}
     <div class="empty-state">

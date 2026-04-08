@@ -888,3 +888,140 @@ details[open] .accordion-summary::after {
       text-align: left;
     }
 }
+
+/* ── Unified opportunity card ─────────────────────────────── */
+.opp-card {
+  background: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px 20px;
+  margin-bottom: 12px;
+  transition: box-shadow 0.2s;
+}
+.opp-card:hover {
+  box-shadow: var(--shadow-lg);
+}
+.opp-card--pursue {
+  border-left: 3px solid var(--success);
+}
+.opp-card--pass {
+  border-left: 3px solid var(--warning);
+}
+.opp-card--archived {
+  opacity: 0.75;
+}
+
+.opp-card-title {
+  display: block;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gray-900);
+  text-decoration: none;
+  line-height: 1.4;
+  margin-bottom: 2px;
+}
+.opp-card-title:hover {
+  color: var(--primary);
+}
+
+.opp-card-agency {
+  font-size: 0.8rem;
+  color: var(--gray-500);
+  margin-bottom: 8px;
+}
+
+.opp-card-deadline {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  margin-bottom: 12px;
+}
+.opp-card-deadline.due-urgent {
+  color: var(--danger);
+}
+.opp-card-deadline.due-soon {
+  color: var(--warning);
+}
+.opp-card-days {
+  font-weight: 400;
+  color: var(--gray-500);
+}
+
+.opp-card-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.opp-card-archived-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--gray-500);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Accordion expand */
+.opp-card-more {
+  margin-top: 8px;
+  border-top: 1px solid var(--gray-100);
+}
+.opp-card-more summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--gray-500);
+  padding: 8px 0 0 0;
+  user-select: none;
+}
+.opp-card-more summary::-webkit-details-marker {
+  display: none;
+}
+.opp-card-more summary::after {
+  content: " ▾";
+}
+.opp-card-more[open] summary::after {
+  content: " ▴";
+}
+
+.opp-card-expanded {
+  padding: 10px 0 4px 0;
+}
+
+.opp-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 4px 0;
+  font-size: 0.8rem;
+}
+.opp-detail-label {
+  color: var(--gray-500);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.7rem;
+}
+.opp-detail-value {
+  color: var(--gray-700);
+  font-weight: 500;
+}
+
+.opp-detail-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding-top: 10px;
+  margin-top: 6px;
+  border-top: 1px solid var(--gray-100);
+}
+.opp-detail-actions .details-link {
+  margin-left: auto;
+}
+
+.opp-detail-badge {
+  font-size: 0.8rem;
+  color: var(--gray-500);
+}

@@ -1,0 +1,120 @@
+{% macro opp_card(opp, view='feed', now=none) %}
+<div class="opp-card{% if view != 'archive' %}{% if opp.user_vote == 'PURSUE' %} opp-card--pursue{% elif opp.user_vote == 'PASS' %} opp-card--pass{% endif %}{% endif %}{% if view == 'archive' %} opp-card--archived{% endif %}">
+
+  {# === DEFAULT VIEW: title, agency, deadline, primary actions === #}
+  <a href="/opportunity/{{ opp.id }}" class="opp-card-title">{{ opp.title }}</a>
+  <div class="opp-card-agency">{{ opp.agency }}</div>
+
+  <div class="opp-card-deadline {{ 'due-urgent' if opp.days_until_due is defined and opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due is defined and opp.days_until_due <= 14 else '' }}">
+    {% if opp.response_deadline %}
+      Due {{ opp.response_deadline.strftime('%b %d, %Y') }}
+      {% if opp.days_until_due is defined and opp.days_until_due >= 0 %}
+        <span class="opp-card-days">({{ opp.days_until_due }}d)</span>
+      {% elif opp.days_until_due is defined %}
+        <span class="opp-card-days">(past due)</span>
+      {% endif %}
+    {% else %}
+      No deadline
+    {% endif %}
+  </div>
+
+  {% if view != 'archive' %}
+  <div class="opp-card-buttons">
+    <button type="button"
+            class="btn btn-sm {{ 'btn-success' if opp.user_vote == 'PURSUE' else 'btn-primary' }}"
+            onclick="voteOpp('{{ opp.id }}', 'PURSUE')">
+      {% if opp.user_vote == 'PURSUE' %}&#10003; {% endif %}Shortlist
+    </button>
+    <button type="button"
+            class="btn btn-sm {{ 'btn-warning' if opp.user_vote == 'PASS' else 'btn-outline-secondary' }}"
+            onclick="voteOpp('{{ opp.id }}', 'PASS')">
+      {% if opp.user_vote == 'PASS' %}&#10003; {% endif %}Pass
+    </button>
+  </div>
+  {% else %}
+  <div class="opp-card-buttons">
+    <span class="opp-card-archived-label">Archived</span>
+  </div>
+  {% endif %}
+
+  {# === EXPANDABLE DETAILS === #}
+  <details class="opp-card-more">
+    <summary>More info</summary>
+    <div class="opp-card-expanded">
+
+      {% if opp.naics %}
+        <div class="opp-detail-row">
+          <span class="opp-detail-label">NAICS</span>
+          <span class="opp-detail-value">{{ opp.naics }}</span>
+        </div>
+      {% endif %}
+
+      {% if opp.set_aside %}
+        <div class="opp-detail-row">
+          <span class="opp-detail-label">Set-Aside</span>
+          <span class="opp-detail-value">{{ opp.set_aside }}</span>
+        </div>
+      {% endif %}
+
+      {% if opp.opportunity_type %}
+        <div class="opp-detail-row">
+          <span class="opp-detail-label">Type</span>
+          <span class="opp-detail-value">{{ opp.opportunity_type }}</span>
+        </div>
+      {% endif %}
+
+      {% if opp.posted_date %}
+        <div class="opp-detail-row">
+          <span class="opp-detail-label">Posted</span>
+          <span class="opp-detail-value">{{ opp.posted_date.strftime('%b %d, %Y') }}</span>
+        </div>
+      {% endif %}
+
+      {% if opp.upserted_at %}
+        <div class="opp-detail-row">
+          <span class="opp-detail-label">Pulled</span>
+          <span class="opp-detail-value">{{ opp.upserted_at.strftime('%b %d, %Y') }}</span>
+        </div>
+      {% endif %}
+
+      {% if opp.last_activity %}
+        <div class="opp-detail-row">
+          <span class="opp-detail-label">Last Activity</span>
+          <span class="opp-detail-value">{{ opp.last_activity.strftime('%b %d, %Y') }}</span>
+        </div>
+      {% endif %}
+
+      {% if (opp.pursue_count or opp.pass_count) %}
+        <div class="opp-detail-row">
+          <span class="opp-detail-label">Signals</span>
+          <span class="opp-detail-value">
+            {% if opp.pursue_count %}{{ opp.pursue_count }} shortlist{% endif %}
+            {% if opp.pursue_count and opp.pass_count %} &middot; {% endif %}
+            {% if opp.pass_count %}{{ opp.pass_count }} pass{% endif %}
+          </span>
+        </div>
+      {% endif %}
+
+      <div class="opp-detail-actions">
+        {% if view != 'archive' %}
+          <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
+            <button class="btn btn-sm {{ 'btn-success' if opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if opp.watched else 'Follow' }}">
+              {% if opp.watched %}&#9733; Following{% else %}&#9734; Follow{% endif %}
+            </button>
+          </form>
+          {% if view in ['shortlist', 'my_shortlist'] %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="showArchiveModal('{{ opp.id }}')" title="Archive">Archive</button>
+          {% endif %}
+        {% else %}
+          {% if opp.watched %}
+            <span class="opp-detail-badge">&#9733; Following</span>
+          {% endif %}
+        {% endif %}
+        <a href="/opportunity/{{ opp.id }}" class="details-link">Details &rarr;</a>
+      </div>
+
+    </div>
+  </details>
+
+</div>
+{% endmacro %}
