@@ -9,15 +9,16 @@
   <a href="/my-shortlist?tab=rfi" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
 </div>
 
+<div id="opportunity-list" data-list-view="my_shortlist">
 {% if opportunities %}
     {% for opp in opportunities %}
         {{ opp_card(opp, view='my_shortlist') }}
     {% endfor %}
-{% else %}
-    <div class="empty-state">
-        <h2>No followed opportunities</h2>
-        <p>Click <strong>Follow</strong> (&#9734;) on a shortlisted opportunity to track it here.</p>
-    </div>
 {% endif %}
+</div>
+<div id="opportunity-empty-state" class="empty-state" {% if opportunities %}hidden{% endif %}>
+    <h2>No shortlisted opportunities yet</h2>
+    <p>Click <strong>Shortlist</strong> on an opportunity to add it here right away.</p>
+</div>
 {% endblock %}
 {% include "_archive_modal.html" %}

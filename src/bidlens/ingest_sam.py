@@ -1,11 +1,16 @@
 import datetime as dt
+import logging
+import threading
 from typing import Any, Dict, Optional, Set
 
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
-from .sam_client import search_opportunities
+from .sam_client import SamRateLimitError, search_opportunities
 from .models import Opportunity, IngestionRun
+
+logger = logging.getLogger(__name__)
+_INGEST_LOCK = threading.Lock()
 
 ALLOWED_TYPES = {
     "Solicitation",
@@ -23,6 +28,10 @@ def parse_allowed_types(s: str | None) -> set[str]:
     return {x.strip() for x in s.split(",") if x.strip()}
 
 
+def sam_ingest_in_progress() -> bool:
+    return _INGEST_LOCK.locked()
+
+
 def ingest_sam(
     db: Session,
     naics_list: list[str],
@@ -31,53 +40,108 @@ def ingest_sam(
 ):
     allowed_types = allowed_types or set()
 
-    # Start run record
-    run = IngestionRun(source="sam.gov")
-    db.add(run)
-    db.commit()
-    db.refresh(run)
+    if not _INGEST_LOCK.acquire(blocking=False):
+        raise RuntimeError("A SAM pull is already in progress")
 
-    inserted = skipped = filtered = errors = 0
-    results: list[dict[str, Any]] = []
+    try:
+        run = IngestionRun(source="sam.gov")
+        db.add(run)
+        db.commit()
+        db.refresh(run)
 
-    for naics in naics_list:
-        try:
-            result = pull_sam_into_db(
-                db,
-                naics=naics,
-                days_back=days_back,
-                allowed_types=allowed_types,
-                ingestion_run_id=run.id,
-            )
+        inserted = updated = skipped = filtered = errors = 0
+        results: list[dict[str, Any]] = []
 
-            inserted += int(result.get("inserted", 0))
-            skipped += int(result.get("skipped", 0))
-            filtered += int(result.get("filtered", 0))
-            errors += int(result.get("errors", 0))
+        logger.info(
+            "Starting SAM ingest run_id=%s naics_count=%s days_back=%s allowed_types=%s",
+            run.id,
+            len(naics_list),
+            days_back,
+            sorted(allowed_types) if allowed_types else "default",
+        )
 
-            results.append(result)
+        for naics in naics_list:
+            try:
+                result = pull_sam_into_db(
+                    db,
+                    naics=naics,
+                    days_back=days_back,
+                    allowed_types=allowed_types,
+                    ingestion_run_id=run.id,
+                )
 
-        except Exception as e:
-            errors += 1
-            results.append({"naics": naics, "error": str(e), "inserted": 0, "skipped": 0, "filtered": 0, "errors": 1})
+                inserted += int(result.get("inserted", 0))
+                updated += int(result.get("updated", 0))
+                skipped += int(result.get("skipped", 0))
+                filtered += int(result.get("filtered", 0))
+                errors += int(result.get("errors", 0))
 
-    # Finish run record
-    run.inserted_count = inserted
-    run.skipped_count = skipped
-    run.filtered_count = filtered
-    run.error_count = errors
-    run.finished_at = dt.datetime.utcnow()  # <-- you had datetime.utcnow() but imported dt
+                results.append(result)
+                logger.info(
+                    "Completed SAM NAICS naics=%s inserted=%s updated=%s skipped=%s filtered=%s errors=%s pulled=%s",
+                    naics,
+                    result.get("inserted", 0),
+                    result.get("updated", 0),
+                    result.get("skipped", 0),
+                    result.get("filtered", 0),
+                    result.get("errors", 0),
+                    result.get("pulled", 0),
+                )
+            except Exception as e:
+                db.rollback()
+                errors += 1
+                retry_after_seconds = e.retry_after_seconds if isinstance(e, SamRateLimitError) else None
+                naics_result = {
+                    "naics": naics,
+                    "error": str(e),
+                    "error_type": "rate_limited" if isinstance(e, SamRateLimitError) else "exception",
+                    "retry_after_seconds": retry_after_seconds,
+                    "inserted": 0,
+                    "updated": 0,
+                    "skipped": 0,
+                    "filtered": 0,
+                    "errors": 1,
+                    "pulled": 0,
+                }
+                results.append(naics_result)
+                logger.exception("SAM NAICS failed naics=%s error=%s", naics, repr(e))
 
-    db.commit()
+        run.inserted_count = inserted + updated
+        run.skipped_count = skipped
+        run.filtered_count = filtered
+        run.error_count = errors
+        run.finished_at = dt.datetime.utcnow()
+        run.notes = (
+            f"inserted={inserted} updated={updated} skipped={skipped} "
+            f"filtered={filtered} errors={errors}"
+        )
 
-    return {
-        "run_id": run.id,
-        "inserted": inserted,
-        "skipped": skipped,
-        "filtered": filtered,
-        "errors": errors,
-        "results": results,
-    }
+        db.commit()
+
+        status = "success" if errors == 0 else "partial_success"
+        logger.info(
+            "Finished SAM ingest run_id=%s status=%s inserted=%s updated=%s skipped=%s filtered=%s errors=%s",
+            run.id,
+            status,
+            inserted,
+            updated,
+            skipped,
+            filtered,
+            errors,
+        )
+
+        return {
+            "status": status,
+            "run_id": run.id,
+            "inserted": inserted,
+            "updated": updated,
+            "skipped": skipped,
+            "filtered": filtered,
+            "errors": errors,
+            "results": results,
+        }
+    finally:
+        _INGEST_LOCK.release()
 
 
 def _parse_date(s: Optional[str]) -> Optional[dt.date]:
@@ -153,12 +217,13 @@ def upsert_opportunity(db: Session, data: Dict[str, Any]) -> str:
     )
 
     if existing is None:
-        db.add(Opportunity(**data, upserted_at=dt.datetime.utcnow()))
         try:
-            db.flush()  # flush so we catch IntegrityError before committing page
+            with db.begin_nested():
+                db.add(Opportunity(**data, upserted_at=dt.datetime.utcnow()))
+                db.flush()
             return "inserted"
         except IntegrityError:
-            db.rollback()
+            logger.info("Skipping duplicate SAM notice sam_notice_id=%s", data["sam_notice_id"])
             return "skipped"
 
     # Update only non-null values (don’t overwrite with None)
@@ -211,12 +276,17 @@ def pull_sam_into_db(
                 offset=offset,
             )
         except Exception as e:
-            print("[SAM ERROR]", "naics=", naics, "offset=", offset, "error=", repr(e))
+            logger.exception("SAM page fetch failed naics=%s offset=%s error=%s", naics, offset, repr(e))
             raise
 
         records = payload.get("opportunitiesData") or payload.get("opportunities") or []
         pulled += len(records)
-        print(f"[SAM] naics={naics} offset={offset} got_records={len(records)} keys={list(payload.keys())[:10]}")
+        logger.info(
+            "Fetched SAM page naics=%s offset=%s records=%s",
+            naics,
+            offset,
+            len(records),
+        )
         if not records:
             break
 
@@ -237,15 +307,24 @@ def pull_sam_into_db(
 
             except Exception as e:
                 errors += 1
-                print("[RECORD ERROR]", "naics=", naics, "sam_notice_id=", rec.get("noticeId"), "err=", repr(e))
-                # Keep going; we want ingestion to be resilient
+                logger.exception(
+                    "SAM record failed naics=%s sam_notice_id=%s error=%s",
+                    naics,
+                    rec.get("noticeId") or rec.get("noticeID") or rec.get("id"),
+                    repr(e),
+                )
 
-        # Commit per page (good balance of safety + speed)
         try:
             db.commit()
-        except Exception:
+        except Exception as e:
             db.rollback()
             errors += 1
+            logger.exception(
+                "SAM page commit failed naics=%s offset=%s error=%s",
+                naics,
+                offset,
+                repr(e),
+            )
 
         offset += limit
 

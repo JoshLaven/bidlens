@@ -1,99 +1,120 @@
 {% macro opp_card(opp, view='feed', now=none) %}
-<div class="opp-card{% if view != 'archive' %}{% if opp.user_vote == 'PURSUE' %} opp-card--pursue{% elif opp.user_vote == 'PASS' %} opp-card--pass{% endif %}{% endif %}{% if view == 'archive' %} opp-card--archived{% endif %}">
-
-  {# === DEFAULT VIEW: title, agency, deadline, primary actions === #}
+{% set pursue_count = opp.pursue_count or 0 %}
+{% set pass_count = opp.pass_count or 0 %}
+{% set total_signals = pursue_count + pass_count %}
+{% set pursue_pct = ((pursue_count / total_signals) * 100) if total_signals else 0 %}
+{% set raw_agency = (opp.agency or '') %}
+{% set agency_parts = raw_agency.split('.') %}
+{% set agency_ns = namespace(display='', fallback='') %}
+{% for part in agency_parts|reverse %}
+  {% set cleaned = part|replace('_', ' ')|trim %}
+  {% set normalized = cleaned|lower %}
+  {% if cleaned and not agency_ns.fallback %}
+    {% set agency_ns.fallback = cleaned %}
+  {% endif %}
+  {% if cleaned and not agency_ns.display and normalized not in ['gov', 'mil', 'us', 'usa', 'department', 'office', 'offices', 'agency'] %}
+    {% set agency_ns.display = cleaned %}
+  {% endif %}
+{% endfor %}
+{% set original_agency = raw_agency|replace('_', ' ')|replace('.', ' ')|trim %}
+{% set candidate_agency = (agency_ns.display or agency_ns.fallback)|title %}
+{% set original_agency_title = original_agency|title %}
+{% set agency_display = candidate_agency if candidate_agency and candidate_agency|length >= 4 and candidate_agency|length <= original_agency_title|length else original_agency_title %}
+<div
+  id="opp-card-{{ opp.id }}"
+  class="opp-card{% if view != 'archive' %}{% if opp.user_vote == 'PURSUE' %} opp-card--pursue{% elif opp.user_vote == 'PASS' %} opp-card--pass{% endif %}{% endif %}{% if view == 'archive' %} opp-card--archived{% endif %}"
+  data-opp-id="{{ opp.id }}"
+  data-card-view="{{ view }}"
+>
   <a href="/opportunity/{{ opp.id }}" class="opp-card-title">{{ opp.title }}</a>
-  <div class="opp-card-agency">{{ opp.agency }}</div>
+  <div class="opp-card-agency" title="{{ agency_display }}">{{ agency_display|truncate(60, False, '…') }}</div>
 
-  <div class="opp-card-deadline {{ 'due-urgent' if opp.days_until_due is defined and opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due is defined and opp.days_until_due <= 14 else '' }}">
-    {% if opp.response_deadline %}
-      Due {{ opp.response_deadline.strftime('%b %d, %Y') }}
-      {% if opp.days_until_due is defined and opp.days_until_due >= 0 %}
-        <span class="opp-card-days">({{ opp.days_until_due }}d)</span>
-      {% elif opp.days_until_due is defined %}
-        <span class="opp-card-days">(past due)</span>
+  <div class="opp-card-row">
+    <div class="opp-card-deadline {{ 'due-urgent' if opp.days_until_due is defined and opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due is defined and opp.days_until_due <= 14 else '' }}">
+      {% if opp.response_deadline %}
+        {{ opp.response_deadline.strftime('%b %d, %Y') }}
+        {% if opp.days_until_due is defined and opp.days_until_due >= 0 %}
+          <span class="opp-card-days">{{ opp.days_until_due }}d</span>
+        {% elif opp.days_until_due is defined %}
+          <span class="opp-card-days">Past due</span>
+        {% endif %}
+      {% else %}
+        No deadline
       {% endif %}
+    </div>
+    {% if view != 'archive' %}
+    <div class="opp-card-buttons">
+      <button type="button"
+              class="btn btn-sm opp-card-button {{ 'btn-success' if opp.user_vote == 'PURSUE' else 'btn-primary' }}"
+              data-vote-button="PURSUE"
+              onclick="voteOpp('{{ opp.id }}', 'PURSUE')">
+        {% if opp.user_vote == 'PURSUE' %}&#10003; {% endif %}Shortlist
+      </button>
+      <button type="button"
+              class="btn btn-sm opp-card-button {{ 'btn-warning' if opp.user_vote == 'PASS' else 'btn-outline-secondary' }}"
+              data-vote-button="PASS"
+              onclick="voteOpp('{{ opp.id }}', 'PASS')">
+        {% if opp.user_vote == 'PASS' %}&#10003; {% endif %}Pass
+      </button>
+    </div>
     {% else %}
-      No deadline
+    <div class="opp-card-buttons">
+      <span class="opp-card-archived-label">Archived</span>
+    </div>
     {% endif %}
   </div>
 
-  {% if view != 'archive' %}
-  <div class="opp-card-buttons">
-    <button type="button"
-            class="btn btn-sm {{ 'btn-success' if opp.user_vote == 'PURSUE' else 'btn-primary' }}"
-            onclick="voteOpp('{{ opp.id }}', 'PURSUE')">
-      {% if opp.user_vote == 'PURSUE' %}&#10003; {% endif %}Shortlist
-    </button>
-    <button type="button"
-            class="btn btn-sm {{ 'btn-warning' if opp.user_vote == 'PASS' else 'btn-outline-secondary' }}"
-            onclick="voteOpp('{{ opp.id }}', 'PASS')">
-      {% if opp.user_vote == 'PASS' %}&#10003; {% endif %}Pass
-    </button>
+  <div class="opp-card-row opp-card-row--signals" {% if not total_signals %}hidden{% endif %}>
+    <div class="opp-signal-bar" aria-label="{{ pursue_count }} shortlist votes and {{ pass_count }} pass votes">
+      <div class="opp-signal-bar-fill" data-signal-fill style="width: {{ '%.1f'|format(pursue_pct) }}%"></div>
+    </div>
+    <div class="opp-signal-summary" data-signal-summary>
+      <span class="opp-signal-count opp-signal-count--pursue" data-pursue-count>{{ pursue_count }} shortlist</span>
+      <span class="opp-signal-divider">/</span>
+      <span class="opp-signal-count opp-signal-count--pass" data-pass-count>{{ pass_count }} pass</span>
+    </div>
   </div>
-  {% else %}
-  <div class="opp-card-buttons">
-    <span class="opp-card-archived-label">Archived</span>
-  </div>
-  {% endif %}
 
   {# === EXPANDABLE DETAILS === #}
   <details class="opp-card-more">
-    <summary>More info</summary>
+    <summary>More Info</summary>
     <div class="opp-card-expanded">
+      <div class="opp-detail-grid">
+        {% if opp.opportunity_type %}
+          <div class="opp-detail-row">
+            <span class="opp-detail-label">Type</span>
+            <span class="opp-detail-value">{{ opp.opportunity_type }}</span>
+          </div>
+        {% endif %}
 
-      {% if opp.naics %}
-        <div class="opp-detail-row">
-          <span class="opp-detail-label">NAICS</span>
-          <span class="opp-detail-value">{{ opp.naics }}</span>
-        </div>
-      {% endif %}
+        {% if opp.set_aside %}
+          <div class="opp-detail-row">
+            <span class="opp-detail-label">Set-Aside</span>
+            <span class="opp-detail-value">{{ opp.set_aside }}</span>
+          </div>
+        {% endif %}
 
-      {% if opp.set_aside %}
-        <div class="opp-detail-row">
-          <span class="opp-detail-label">Set-Aside</span>
-          <span class="opp-detail-value">{{ opp.set_aside }}</span>
-        </div>
-      {% endif %}
+        {% if opp.naics %}
+          <div class="opp-detail-row">
+            <span class="opp-detail-label">NAICS</span>
+            <span class="opp-detail-value">{{ opp.naics }}</span>
+          </div>
+        {% endif %}
 
-      {% if opp.opportunity_type %}
-        <div class="opp-detail-row">
-          <span class="opp-detail-label">Type</span>
-          <span class="opp-detail-value">{{ opp.opportunity_type }}</span>
-        </div>
-      {% endif %}
+        {% if opp.posted_date %}
+          <div class="opp-detail-row">
+            <span class="opp-detail-label">Posted</span>
+            <span class="opp-detail-value">{{ opp.posted_date.strftime('%b %d, %Y') }}</span>
+          </div>
+        {% endif %}
 
-      {% if opp.posted_date %}
-        <div class="opp-detail-row">
-          <span class="opp-detail-label">Posted</span>
-          <span class="opp-detail-value">{{ opp.posted_date.strftime('%b %d, %Y') }}</span>
-        </div>
-      {% endif %}
-
-      {% if opp.upserted_at %}
-        <div class="opp-detail-row">
-          <span class="opp-detail-label">Pulled</span>
-          <span class="opp-detail-value">{{ opp.upserted_at.strftime('%b %d, %Y') }}</span>
-        </div>
-      {% endif %}
-
-      {% if opp.last_activity %}
-        <div class="opp-detail-row">
-          <span class="opp-detail-label">Last Activity</span>
-          <span class="opp-detail-value">{{ opp.last_activity.strftime('%b %d, %Y') }}</span>
-        </div>
-      {% endif %}
-
-      {% if (opp.pursue_count or opp.pass_count) %}
-        <div class="opp-detail-row">
-          <span class="opp-detail-label">Signals</span>
-          <span class="opp-detail-value">
-            {% if opp.pursue_count %}{{ opp.pursue_count }} shortlist{% endif %}
-            {% if opp.pursue_count and opp.pass_count %} &middot; {% endif %}
-            {% if opp.pass_count %}{{ opp.pass_count }} pass{% endif %}
-          </span>
-        </div>
-      {% endif %}
+        {% if opp.last_activity %}
+          <div class="opp-detail-row">
+            <span class="opp-detail-label">Activity</span>
+            <span class="opp-detail-value">{{ opp.last_activity.strftime('%b %d, %Y') }}</span>
+          </div>
+        {% endif %}
+      </div>
 
       <div class="opp-detail-actions">
         {% if view != 'archive' %}

@@ -38,64 +38,212 @@
           <aside class="layout-side">
             <div class="side-card">
               <div class="side-card-title">My Shortlisted – Due Soon</div>
-
-              {% if sidebar and sidebar.my_shortlisted and sidebar.my_shortlisted|length > 0 %}
-                <div class="side-list">
-                  {% for opp in sidebar.my_shortlisted %}
-                    <a class="side-item" href="/opportunity/{{ opp.id }}">
-                      <div class="side-item-title">{{ opp.title }}</div>
-                      <div class="side-item-meta">
-                        <span class="side-muted">{{ opp.days_until_due }}d</span>
-                      </div>
-                    </a>
-                  {% endfor %}
-                </div>
-                <a href="/my-shortlist" class="side-view-all" style="display:block; text-align:center; padding:8px; font-size:0.85em; color:#666;">View all →</a>
-              {% else %}
-                <div class="side-empty">Follow + Shortlist opps to see them here.</div>
-              {% endif %}
+              <div id="sidebar-my-shortlisted-body">
+                {% if sidebar and sidebar.my_shortlisted and sidebar.my_shortlisted|length > 0 %}
+                  <div class="side-list">
+                    {% for opp in sidebar.my_shortlisted %}
+                      <a class="side-item" href="/opportunity/{{ opp.id }}">
+                        <div class="side-item-title">{{ opp.title }}</div>
+                        <div class="side-item-meta">
+                          <span class="side-muted">{{ opp.days_until_due }}d</span>
+                        </div>
+                      </a>
+                    {% endfor %}
+                  </div>
+                  <a href="/my-shortlist" class="side-view-all">View all →</a>
+                {% else %}
+                  <div class="side-empty">Shortlist opps to see them here.</div>
+                {% endif %}
+              </div>
             </div>
 
             <div class="side-card">
               <div class="side-card-title">Following</div>
-
-              {% if sidebar and sidebar.following and sidebar.following|length > 0 %}
-                <div class="side-list">
-                  {% for opp in sidebar.following %}
-                    <a class="side-item" href="/opportunity/{{ opp.id }}">
-                      <div class="side-item-title">{{ opp.title }}</div>
-                      <div class="side-item-meta">
-                        <span class="side-muted">{{ opp.days_until_due }}d</span>
-                      </div>
-                    </a>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <div class="side-empty">Not following any yet.</div>
-              {% endif %}
+              <div id="sidebar-following-body">
+                {% if sidebar and sidebar.following and sidebar.following|length > 0 %}
+                  <div class="side-list">
+                    {% for opp in sidebar.following %}
+                      <a class="side-item" href="/opportunity/{{ opp.id }}">
+                        <div class="side-item-title">{{ opp.title }}</div>
+                        <div class="side-item-meta">
+                          <span class="side-muted">{{ opp.days_until_due }}d</span>
+                        </div>
+                      </a>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <div class="side-empty">Not following any yet.</div>
+                {% endif %}
+              </div>
             </div>
           </aside>
         {% endif %}
       </div>
     </main>
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
     <script>
-    async function voteOpp(oppId, vote) {
-      const res = await fetch('/api/vote', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          opp_id: Number(oppId),
-          vote: vote,
-          ui_version: "v1"
-        })
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(data.detail || 'Error');
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function showToast(message, type = 'success') {
+      const region = document.getElementById('toast-region');
+      if (!region) return;
+
+      const toast = document.createElement('div');
+      toast.className = `toast toast--${type}`;
+      toast.textContent = message;
+      region.appendChild(toast);
+
+      requestAnimationFrame(() => toast.classList.add('is-visible'));
+
+      window.setTimeout(() => {
+        toast.classList.remove('is-visible');
+        window.setTimeout(() => toast.remove(), 220);
+      }, 2500);
+    }
+
+    function renderSidebarSection(containerId, items, emptyText, viewAllHref = null) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+
+      if (!items || items.length === 0) {
+        container.innerHTML = `<div class="side-empty">${escapeHtml(emptyText)}</div>`;
         return;
       }
-      window.location.reload();
+
+      const listHtml = items.map((item) => `
+        <a class="side-item" href="/opportunity/${item.id}">
+          <div class="side-item-title">${escapeHtml(item.title)}</div>
+          <div class="side-item-meta">
+            <span class="side-muted">${item.days_until_due == null ? '—' : `${item.days_until_due}d`}</span>
+          </div>
+        </a>
+      `).join('');
+
+      const viewAllHtml = viewAllHref
+        ? `<a href="${viewAllHref}" class="side-view-all">View all →</a>`
+        : '';
+
+      container.innerHTML = `<div class="side-list">${listHtml}</div>${viewAllHtml}`;
+    }
+
+    function refreshSidebar(sidebar) {
+      if (!sidebar) return;
+      renderSidebarSection('sidebar-my-shortlisted-body', sidebar.my_shortlisted || [], 'Shortlist opps to see them here.', '/my-shortlist');
+      renderSidebarSection('sidebar-following-body', sidebar.following || [], 'Not following any yet.');
+    }
+
+    function updateOpportunityCard(oppId, vote, data) {
+      const card = document.getElementById(`opp-card-${oppId}`);
+      if (!card) return;
+
+      card.classList.remove('opp-card--pursue', 'opp-card--pass');
+      if (vote === 'PURSUE') {
+        card.classList.add('opp-card--pursue');
+      } else if (vote === 'PASS') {
+        card.classList.add('opp-card--pass');
+      }
+
+      const pursueButton = card.querySelector('[data-vote-button="PURSUE"]');
+      const passButton = card.querySelector('[data-vote-button="PASS"]');
+      if (pursueButton) {
+        pursueButton.className = `btn btn-sm opp-card-button ${vote === 'PURSUE' ? 'btn-success' : 'btn-primary'}`;
+        pursueButton.innerHTML = `${vote === 'PURSUE' ? '&#10003; ' : ''}Shortlist`;
+      }
+      if (passButton) {
+        passButton.className = `btn btn-sm opp-card-button ${vote === 'PASS' ? 'btn-warning' : 'btn-outline-secondary'}`;
+        passButton.innerHTML = `${vote === 'PASS' ? '&#10003; ' : ''}Pass`;
+      }
+
+      const pursueCount = Number(data.pursue_count || 0);
+      const passCount = Number(data.pass_count || 0);
+      const total = pursueCount + passCount;
+      const signalRow = card.querySelector('.opp-card-row--signals');
+      const signalFill = card.querySelector('[data-signal-fill]');
+      const pursueCountEl = card.querySelector('[data-pursue-count]');
+      const passCountEl = card.querySelector('[data-pass-count]');
+
+      if (signalRow) {
+        signalRow.hidden = total === 0;
+      }
+      if (signalFill) {
+        signalFill.style.width = `${total === 0 ? 0 : ((pursueCount / total) * 100).toFixed(1)}%`;
+      }
+      if (pursueCountEl) {
+        pursueCountEl.textContent = `${pursueCount} shortlist`;
+      }
+      if (passCountEl) {
+        passCountEl.textContent = `${passCount} pass`;
+      }
+    }
+
+    function updateOpportunityEmptyState() {
+      const list = document.getElementById('opportunity-list');
+      const emptyState = document.getElementById('opportunity-empty-state');
+      if (!list || !emptyState) return;
+      emptyState.hidden = list.querySelectorAll('.opp-card').length > 0;
+    }
+
+    function maybeRemoveOpportunityCard(oppId, vote, data) {
+      const list = document.getElementById('opportunity-list');
+      if (!list) return;
+
+      const card = document.getElementById(`opp-card-${oppId}`);
+      if (!card) return;
+
+      const listView = list.dataset.listView;
+      const showPassed = document.querySelector('.feed-toolbar-checkbox input')?.checked;
+      const shouldRemove =
+        (listView === 'feed' && vote === 'PURSUE') ||
+        (listView === 'feed' && vote === 'PASS' && !showPassed) ||
+        (listView === 'my_shortlist' && !data.in_my_shortlist);
+
+      if (shouldRemove) {
+        card.remove();
+        updateOpportunityEmptyState();
+      }
+    }
+
+    async function voteOpp(oppId, vote) {
+      try {
+        const res = await fetch('/api/vote', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            opp_id: Number(oppId),
+            vote: vote,
+            ui_version: "v1"
+          })
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast(data.detail || 'Action failed', 'error');
+          return;
+        }
+
+        updateOpportunityCard(oppId, vote, data);
+        maybeRemoveOpportunityCard(oppId, vote, data);
+        refreshSidebar(data.sidebar);
+
+        const currentListView = document.getElementById('opportunity-list')?.dataset.listView;
+        const message =
+          vote === 'PURSUE'
+            ? 'Opportunity added to Shortlist'
+            : currentListView === 'my_shortlist'
+              ? 'Removed from Shortlist'
+              : 'Opportunity passed';
+        showToast(message, 'success');
+      } catch (error) {
+        showToast('Action failed', 'error');
+      }
     }
     </script>
     {% block scripts %}{% endblock %}

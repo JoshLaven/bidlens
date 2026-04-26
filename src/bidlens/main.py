@@ -9,7 +9,8 @@ from . import models
 from .routes import sam
 from .scheduler import start_scheduler
 from .middleware import ClientRedirectMiddleware
-
+from dotenv import load_dotenv
+load_dotenv()
 
 
 print("DATABASE_URL =", os.getenv("DATABASE_URL"))

@@ -2,6 +2,16 @@
 {% from "_opp_card.html" import opp_card %}
 {% block title %}Feed - BidLens{% endblock %}
 {% block content %}
+{% set date_filter_label = 'All Dates' %}
+{% if date_filter == 'today' %}
+  {% set date_filter_label = 'Today' %}
+{% elif date_filter == '7d' %}
+  {% set date_filter_label = 'Last 7 Days' %}
+{% elif date_filter == '30d' %}
+  {% set date_filter_label = 'Last 30 Days' %}
+{% elif date_filter == 'custom' %}
+  {% set date_filter_label = 'Custom Range' %}
+{% endif %}
 <h1>Feed</h1>
 
 <div class="tabs">
@@ -9,48 +19,107 @@
   <a href="/?tab=rfi" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
 </div>
 
-<!-- Filter bar -->
-<div class="feed-filters" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:12px 0; padding:10px; background:#f8f9fa; border-radius:6px; font-size:0.85rem;">
-  <span style="font-weight:600; margin-right:4px;">Ingested:</span>
-  <a href="/?tab={{ current_tab }}&sort={{ sort }}" class="btn btn-sm {{ 'btn-primary' if not date_filter else 'btn-outline-secondary' }}">All</a>
-  <a href="/?tab={{ current_tab }}&sort={{ sort }}&date_filter=today" class="btn btn-sm {{ 'btn-primary' if date_filter == 'today' else 'btn-outline-secondary' }}">Today</a>
-  <a href="/?tab={{ current_tab }}&sort={{ sort }}&date_filter=7d" class="btn btn-sm {{ 'btn-primary' if date_filter == '7d' else 'btn-outline-secondary' }}">Last 7 days</a>
-  <a href="/?tab={{ current_tab }}&sort={{ sort }}&date_filter=30d" class="btn btn-sm {{ 'btn-primary' if date_filter == '30d' else 'btn-outline-secondary' }}">Last 30 days</a>
+<div class="feed-toolbar">
+  <div class="feed-toolbar-group">
+    <div class="filter-popover">
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-secondary filter-trigger"
+        onclick="toggleDateFilterPanel()"
+        aria-expanded="false"
+        aria-controls="dateFilterPanel"
+      >
+        Date: {{ date_filter_label }}
+      </button>
+      <div id="dateFilterPanel" class="filter-panel" hidden>
+        <form method="GET" action="/" class="date-filter-form">
+          <input type="hidden" name="tab" value="{{ current_tab }}">
+          <input type="hidden" name="sort" value="{{ sort }}">
 
-  <form method="GET" action="/" style="display:inline-flex; gap:4px; align-items:center; margin-left:8px;">
-    <input type="hidden" name="tab" value="{{ current_tab }}">
-    <input type="hidden" name="sort" value="{{ sort }}">
-    <input type="hidden" name="date_filter" value="custom">
-    <input type="date" name="date_from" value="{{ date_from }}" style="font-size:0.8rem; padding:2px 4px;">
-    <span>to</span>
-    <input type="date" name="date_to" value="{{ date_to }}" style="font-size:0.8rem; padding:2px 4px;">
-    <button type="submit" class="btn btn-sm btn-outline-secondary">Apply</button>
-  </form>
+          <label class="filter-option">
+            <input type="radio" name="date_filter" value="" {{ 'checked' if not date_filter else '' }}>
+            <span>All</span>
+          </label>
+          <label class="filter-option">
+            <input type="radio" name="date_filter" value="today" {{ 'checked' if date_filter == 'today' else '' }}>
+            <span>Today</span>
+          </label>
+          <label class="filter-option">
+            <input type="radio" name="date_filter" value="7d" {{ 'checked' if date_filter == '7d' else '' }}>
+            <span>Last 7 Days</span>
+          </label>
+          <label class="filter-option">
+            <input type="radio" name="date_filter" value="30d" {{ 'checked' if date_filter == '30d' else '' }}>
+            <span>Last 30 Days</span>
+          </label>
+          <label class="filter-option">
+            <input type="radio" name="date_filter" value="custom" {{ 'checked' if date_filter == 'custom' else '' }}>
+            <span>Custom Range</span>
+          </label>
 
-  <label style="margin-left:12px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
+          <div class="filter-date-grid">
+            <label>
+              <span>Start Date</span>
+              <input type="date" name="date_from" value="{{ date_from }}">
+            </label>
+            <label>
+              <span>End Date</span>
+              <input type="date" name="date_to" value="{{ date_to }}">
+            </label>
+          </div>
+
+          <button type="submit" class="btn btn-sm btn-primary">Apply</button>
+        </form>
+      </div>
+    </div>
+
+    <label class="feed-toolbar-checkbox">
     <input type="checkbox" onchange="togglePassed(this)" {{ 'checked' if show_passed == '1' else '' }}>
     <span>Show passed</span>
   </label>
+  </div>
 
-  <span style="margin-left:auto; font-weight:600;">Sort:</span>
-  <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=newest" class="btn btn-sm {{ 'btn-primary' if sort == 'newest' else 'btn-outline-secondary' }}">Newest</a>
-  <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=deadline" class="btn btn-sm {{ 'btn-primary' if sort == 'deadline' else 'btn-outline-secondary' }}">Deadline</a>
-  <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=posted" class="btn btn-sm {{ 'btn-primary' if sort == 'posted' else 'btn-outline-secondary' }}">Posted</a>
+  <div class="feed-toolbar-group feed-toolbar-group--sort">
+    <span class="feed-toolbar-label">Sort</span>
+    <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=newest" class="btn btn-sm {{ 'btn-primary' if sort == 'newest' else 'btn-outline-secondary' }}">Newest</a>
+    <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=deadline" class="btn btn-sm {{ 'btn-primary' if sort == 'deadline' else 'btn-outline-secondary' }}">Deadline</a>
+    <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=posted" class="btn btn-sm {{ 'btn-primary' if sort == 'posted' else 'btn-outline-secondary' }}">Posted</a>
+  </div>
 </div>
 
+<div id="opportunity-list" data-list-view="feed">
 {% if opportunities %}
     {% for opp in opportunities %}
         {{ opp_card(opp, view='feed', now=now) }}
     {% endfor %}
-{% else %}
-    <div class="empty-state">
-        <h2>No opportunities in inbox</h2>
-        <p>New opportunities from SAM.gov will appear here.</p>
-    </div>
 {% endif %}
+</div>
+<div id="opportunity-empty-state" class="empty-state" {% if opportunities %}hidden{% endif %}>
+    <h2>No opportunities in inbox</h2>
+    <p>New opportunities from SAM.gov will appear here.</p>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
+function toggleDateFilterPanel() {
+  const panel = document.getElementById('dateFilterPanel');
+  const trigger = document.querySelector('.filter-trigger');
+  const willOpen = panel.hasAttribute('hidden');
+  panel.toggleAttribute('hidden');
+  trigger?.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+}
+
+document.addEventListener('click', (event) => {
+  const panel = document.getElementById('dateFilterPanel');
+  const popover = document.querySelector('.filter-popover');
+  const trigger = document.querySelector('.filter-trigger');
+  if (!panel || panel.hasAttribute('hidden')) return;
+  if (popover && !popover.contains(event.target)) {
+    panel.setAttribute('hidden', '');
+    trigger?.setAttribute('aria-expanded', 'false');
+  }
+});
+
 function togglePassed(cb) {
   const url = new URL(window.location);
   if (cb.checked) {

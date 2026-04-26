@@ -126,6 +126,31 @@ def _opp_list_query(db: Session, user, decision_state: str, tab: str):
     return q
 
 
+def _my_shortlist_query(db: Session, user, tab: str):
+    """User's personal shortlist: org-shortlisted + this user voted PURSUE."""
+    q = (
+        db.query(Opportunity, UserOpportunity.watched.label("watched"))
+        .join(
+            Vote,
+            and_(
+                Vote.opp_id == Opportunity.id,
+                Vote.user_id == user.id,
+                Vote.vote == "PURSUE",
+            ),
+        )
+        .outerjoin(
+            UserOpportunity,
+            and_(
+                UserOpportunity.opportunity_id == Opportunity.id,
+                UserOpportunity.user_id == user.id,
+            ),
+        )
+        .filter(Opportunity.decision_state == "SHORTLISTED")
+    )
+    q = _apply_type_tab(q, tab)
+    return q
+
+
 # ── Feed (INBOX) ──────────────────────────────────────────────
 
 @router.get("/")
@@ -261,21 +286,7 @@ async def my_shortlist(
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    q = (
-        db.query(Opportunity, UserOpportunity.watched.label("watched"))
-        .join(
-            UserOpportunity,
-            and_(
-                UserOpportunity.opportunity_id == Opportunity.id,
-                UserOpportunity.user_id == user.id,
-            ),
-        )
-        .filter(
-            Opportunity.decision_state == "SHORTLISTED",
-            UserOpportunity.watched.is_(True),
-        )
-    )
-    q = _apply_type_tab(q, tab)
+    q = _my_shortlist_query(db, user, tab)
     rows = q.order_by(Opportunity.response_deadline.asc().nullslast()).all()
 
     opps = _enrich_opps(rows, db, user)
@@ -481,20 +492,18 @@ def get_sidebar(db: Session, user: User):
     """Sidebar: My Shortlisted – Due Soon + Following."""
     today = date.today()
 
-    # My Shortlisted – Due Soon: SHORTLISTED + user is following, sorted by deadline
+    # My Shortlisted – Due Soon: SHORTLISTED + this user voted PURSUE
     my_shortlisted = (
         db.query(Opportunity)
         .join(
-            UserOpportunity,
+            Vote,
             and_(
-                UserOpportunity.opportunity_id == Opportunity.id,
-                UserOpportunity.user_id == user.id,
+                Vote.opp_id == Opportunity.id,
+                Vote.user_id == user.id,
+                Vote.vote == "PURSUE",
             ),
         )
-        .filter(
-            Opportunity.decision_state == "SHORTLISTED",
-            UserOpportunity.watched.is_(True),
-        )
+        .filter(Opportunity.decision_state == "SHORTLISTED")
         .order_by(Opportunity.response_deadline.asc())
         .limit(5)
         .all()

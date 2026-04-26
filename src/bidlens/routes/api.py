@@ -11,6 +11,7 @@ from sqlalchemy import or_
 from datetime import datetime
 import os
 import requests
+from ..services import get_vote_counts
 
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -71,6 +72,23 @@ class VoteIn(BaseModel):
     ui_version: str = "v1"
 
 
+def _serialize_sidebar(sidebar: dict) -> dict:
+    def _serialize_items(items):
+        out = []
+        for opp in items:
+            out.append({
+                "id": opp.id,
+                "title": opp.title,
+                "days_until_due": getattr(opp, "days_until_due", None),
+            })
+        return out
+
+    return {
+        "my_shortlisted": _serialize_items(sidebar.get("my_shortlisted", [])),
+        "following": _serialize_items(sidebar.get("following", [])),
+    }
+
+
 @router.post("/vote")
 def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
@@ -87,7 +105,20 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
             vote=payload.vote,
             ui_version=payload.ui_version,
         )
-        return {"ok": True, **result}
+        counts = get_vote_counts(db, [payload.opp_id]).get(payload.opp_id, {"pursue": 0, "pass": 0})
+        from .opportunities import get_sidebar
+
+        sidebar = get_sidebar(db, user)
+
+        return {
+            "ok": True,
+            **result,
+            "opp_id": payload.opp_id,
+            "pursue_count": counts["pursue"],
+            "pass_count": counts["pass"],
+            "in_my_shortlist": result["state"] == "SHORTLISTED" and result["vote"] == "PURSUE",
+            "sidebar": _serialize_sidebar(sidebar),
+        }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

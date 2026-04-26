@@ -16,15 +16,16 @@
   <a href="/shortlist?tab={{ current_tab }}&sort=activity" class="btn btn-sm {{ 'btn-primary' if sort == 'activity' else 'btn-outline-secondary' }}">Activity</a>
 </div>
 
+<div id="opportunity-list" data-list-view="shortlist">
 {% if opportunities %}
     {% for opp in opportunities %}
         {{ opp_card(opp, view='shortlist') }}
     {% endfor %}
-{% else %}
-    <div class="empty-state">
-        <h2>No shortlisted opportunities</h2>
-        <p>Click <strong>Shortlist</strong> on an opportunity in the feed to move it here.</p>
-    </div>
 {% endif %}
+</div>
+<div id="opportunity-empty-state" class="empty-state" {% if opportunities %}hidden{% endif %}>
+    <h2>No shortlisted opportunities</h2>
+    <p>Click <strong>Shortlist</strong> on an opportunity in the feed to move it here.</p>
+</div>
 {% endblock %}
 {% include "_archive_modal.html" %}
