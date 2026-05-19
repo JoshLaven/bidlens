@@ -1,12 +1,34 @@
 # src/bidlens/routes/sam.py
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..ingest_sam import ingest_sam, parse_allowed_types, sam_ingest_in_progress
-from ..models import OrgProfile
+from ..ingest_sam import (
+    backfill_opportunity_descriptions,
+    ingest_sam,
+    parse_allowed_types,
+    sam_ingest_in_progress,
+)
+from ..models import OrgProfile, User
 from ..auth import get_current_user  # <-- adjust this import to your project
 
 router = APIRouter(prefix="/sam", tags=["sam"])
+
+
+def require_org_admin(user, db: Session):
+    first_user = (
+        db.query(User)
+        .filter(User.organization_id == user.organization_id)
+        .order_by(User.id.asc())
+        .first()
+    )
+    if not first_user or first_user.id != user.id:
+        raise HTTPException(status_code=403, detail="Only the org admin can run this action.")
+    return user
+
+
+class DescriptionBackfillIn(BaseModel):
+    limit: int = 25
 
 @router.post("/pull-now", response_model=None)
 def pull_now(
@@ -67,7 +89,17 @@ def pull_now(
         raise
 
     rate_limited_results = [item for item in result.get("results", []) if item.get("error_type") == "rate_limited"]
-    if rate_limited_results:
+    sam_unavailable_results = [item for item in result.get("results", []) if item.get("error_type") == "sam_unavailable"]
+    if sam_unavailable_results:
+        if result.get("status") == "failed":
+            result["message"] = "SAM.gov is temporarily unavailable. Try again later."
+        else:
+            result["message"] = (
+                f"Pull partially completed: {result['inserted']} inserted, {result['updated']} updated, "
+                f"{result['skipped']} skipped, {result['filtered']} filtered, {result['errors']} errors. "
+                "SAM.gov is temporarily unavailable. Try again later."
+            )
+    elif rate_limited_results:
         waits = [item.get("retry_after_seconds") for item in rate_limited_results if item.get("retry_after_seconds") is not None]
         wait_hint = f" Retry after about {int(round(max(waits)))} seconds." if waits else ""
         result["message"] = (
@@ -80,4 +112,37 @@ def pull_now(
             f"Pull completed with {result['inserted']} inserted, {result['updated']} updated, "
             f"{result['skipped']} skipped, {result['filtered']} filtered, {result['errors']} errors."
         )
+    return result
+
+
+@router.post("/backfill-descriptions", response_model=None)
+def backfill_descriptions(
+    payload: DescriptionBackfillIn,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_org_admin(user, db)
+
+    limit = max(1, min(payload.limit, 100))
+    result = backfill_opportunity_descriptions(db, limit=limit)
+
+    if result["rate_limited"]:
+        waits = [
+            item.get("retry_after_seconds")
+            for item in result["results"]
+            if item.get("status") == "rate_limited" and item.get("retry_after_seconds") is not None
+        ]
+        wait_hint = f" Retry after about {int(round(max(waits)))} seconds." if waits else ""
+        result["status"] = "partial_success"
+        result["message"] = (
+            f"Description backfill partially completed: {result['updated']} updated, "
+            f"{result['skipped']} skipped, {result['errors']} errors.{wait_hint}"
+        )
+    else:
+        result["status"] = "success"
+        result["message"] = (
+            f"Description backfill completed: {result['updated']} updated, "
+            f"{result['skipped']} skipped, {result['errors']} errors."
+        )
+
     return result

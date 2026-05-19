@@ -1,19 +1,16 @@
-from dotenv import load_dotenv
-load_dotenv()
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from .database import engine, Base
 from .routes import auth, opportunities, api, settings
-import os
 from . import models
 from .routes import sam
 from .scheduler import start_scheduler
 from .middleware import ClientRedirectMiddleware
-from dotenv import load_dotenv
-load_dotenv()
+from .config import DATABASE_URL, DOTENV_PATH
 
 
-print("DATABASE_URL =", os.getenv("DATABASE_URL"))
+print("DATABASE_URL =", DATABASE_URL)
+print("DOTENV_PATH =", DOTENV_PATH)
 
 Base.metadata.create_all(bind=engine)
 

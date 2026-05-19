@@ -1,5 +1,19 @@
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+DOTENV_PATH = BASE_DIR / ".env"
+
+# Load the repo-local .env explicitly so app code and maintenance scripts
+# resolve the same environment file regardless of current working directory.
+# `override=True` ensures a stale exported shell value does not beat the
+# project-local SAM_API_KEY after a rotation.
+load_dotenv(DOTENV_PATH, override=True)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bidlens.db")
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
 SESSION_COOKIE_NAME = "bidlens_session"
+SAM_API_KEY = os.getenv("SAM_API_KEY")

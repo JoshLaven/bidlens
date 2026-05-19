@@ -26,8 +26,24 @@ python seed.py
 
 ## Environment Variables
 
+- `SAM_API_KEY`: SAM.gov API key used for opportunity pulls and notice description fetches
 - `DATABASE_URL`: PostgreSQL connection string
 - `SECRET_KEY`: Session encryption key (defaults to dev key)
+
+## Rotating SAM API Key
+
+1. Generate a new SAM.gov API key in your SAM account.
+2. Update `SAM_API_KEY` in the project-root [`.env`](/Users/joshlaven/Desktop/BidLens/bidlens/.env) file.
+3. Run the environment check script:
+
+```bash
+python scripts/check_env.py
+```
+
+4. Restart the BidLens app so the running process picks up the new key.
+5. Optionally verify the new key with `curl` against the SAM.gov API before or after restart.
+
+BidLens reads `SAM_API_KEY` from the project-root `.env` via [src/bidlens/config.py](/Users/joshlaven/Desktop/BidLens/bidlens/src/bidlens/config.py), and the check script only prints a masked version of the key.
 
 ## Project Structure
 

@@ -12,9 +12,21 @@ from datetime import datetime
 import os
 import requests
 from ..services import get_vote_counts
-
-
+from ..sam_client import _is_url_like
 router = APIRouter(prefix="/api", tags=["api"])
+
+
+def _best_description_text(opp: Opportunity) -> str:
+    description_text = (opp.description_text or "").strip()
+    if description_text:
+        return description_text
+
+    description = (opp.description or "").strip()
+    if description and not _is_url_like(description):
+        return description
+
+    return ""
+
 
 class TransitionIn(BaseModel):
     opp_id: int
@@ -76,10 +88,16 @@ def _serialize_sidebar(sidebar: dict) -> dict:
     def _serialize_items(items):
         out = []
         for opp in items:
+            due_date = getattr(opp, "response_deadline", None)
+            days_until_due = getattr(opp, "days_until_due", None)
+            due_label = None
+            if due_date and days_until_due is not None:
+                due_label = f"Due {due_date.strftime('%b')} {due_date.day} ({days_until_due}D)"
             out.append({
                 "id": opp.id,
                 "title": opp.title,
                 "days_until_due": getattr(opp, "days_until_due", None),
+                "due_label": due_label,
             })
         return out
 
@@ -121,6 +139,44 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/opps/{opp_id}/preview")
+def opportunity_preview(
+    opp_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+
+    opp = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
+    if not opp:
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+
+    description = _best_description_text(opp)
+
+    if description:
+        return {
+            "ok": True,
+            "state": "text",
+            "description": description[:400] + ("…" if len(description) > 400 else ""),
+            "sam_url": opp.sam_url,
+        }
+
+    if opp.sam_url:
+        return {
+            "ok": True,
+            "state": "sam_fallback",
+            "description": "Detailed description available on SAM.gov",
+            "sam_url": opp.sam_url,
+        }
+
+    return {
+        "ok": True,
+        "state": "empty",
+        "description": "No description available.",
+        "sam_url": None,
+    }
 
 
 REVIEW_STAGES = ["Team Review", "Director Review", "Approved"]
@@ -192,7 +248,7 @@ def pending_enrichment(request: Request, limit: int = 50, db: Session = Depends(
     out = []
     for o in opps:
         # give n8n the text it needs
-        text_for_enrichment = (o.description or "").strip()
+        text_for_enrichment = _best_description_text(o)
         out.append({
             "id": o.id,
             "title": o.title,
@@ -323,5 +379,5 @@ def get_opp_for_enrichment(opp_id: int, request: Request, db: Session = Depends(
         "naics": o.naics,
         "set_aside": o.set_aside,
         "url": o.sam_url,
-        "text_for_enrichment": (o.description or "").strip()[:20000],
+        "text_for_enrichment": _best_description_text(o)[:20000],
     }

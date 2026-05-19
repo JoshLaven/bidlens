@@ -2,18 +2,23 @@
 {% from "_opp_card.html" import opp_card %}
 {% block title %}Shortlist - BidLens{% endblock %}
 {% block content %}
-<h1>Shortlist</h1>
+<div class="page-header">
+  <h1>Team Queue</h1>
+  <p class="page-subtitle">Shared opportunities the team is carrying forward for closer review.</p>
+</div>
 
 <div class="tabs" style="margin-bottom:12px;">
   <a href="/shortlist?tab=solicitations&sort={{ sort }}" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
   <a href="/shortlist?tab=rfi&sort={{ sort }}" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
 </div>
 
-<div style="display:flex; gap:8px; margin-bottom:16px; font-size:0.85rem; align-items:center;">
-  <span style="font-weight:600; color:#666;">Sort:</span>
-  <a href="/shortlist?tab={{ current_tab }}&sort=pursue" class="btn btn-sm {{ 'btn-primary' if sort == 'pursue' else 'btn-outline-secondary' }}">Votes</a>
-  <a href="/shortlist?tab={{ current_tab }}&sort=deadline" class="btn btn-sm {{ 'btn-primary' if sort == 'deadline' else 'btn-outline-secondary' }}">Deadline</a>
-  <a href="/shortlist?tab={{ current_tab }}&sort=activity" class="btn btn-sm {{ 'btn-primary' if sort == 'activity' else 'btn-outline-secondary' }}">Activity</a>
+<div class="feed-toolbar feed-toolbar--compact">
+  <div class="feed-toolbar-group feed-toolbar-group--sort">
+    <span class="feed-toolbar-label">Sort</span>
+    <a href="/shortlist?tab={{ current_tab }}&sort=pursue" class="btn btn-sm {{ 'btn-primary' if sort == 'pursue' else 'btn-outline-secondary' }}">Votes</a>
+    <a href="/shortlist?tab={{ current_tab }}&sort=deadline" class="btn btn-sm {{ 'btn-primary' if sort == 'deadline' else 'btn-outline-secondary' }}">Deadline</a>
+    <a href="/shortlist?tab={{ current_tab }}&sort=activity" class="btn btn-sm {{ 'btn-primary' if sort == 'activity' else 'btn-outline-secondary' }}">Activity</a>
+  </div>
 </div>
 
 <div id="opportunity-list" data-list-view="shortlist">

@@ -3,9 +3,10 @@ from fastapi import APIRouter, Request, Form, Depends
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import joinedload
 from collections import OrderedDict
 from ..database import get_db
-from ..models import Opportunity, User, UserOpportunity, OpportunityStatus, OrgProfile
+from ..models import Opportunity, User, UserOpportunity, OpportunityStatus, OrgProfile, OpportunityNote
 from ..auth import get_current_user
 from ..services import get_vote_counts, get_user_votes, get_last_activity
 from sqlalchemy import and_, or_
@@ -14,13 +15,18 @@ from typing import Optional
 from sqlalchemy import func, case
 from ..models import Vote
 from ..models import OpportunityBrief
-
-
 router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
 
 SOLICITATION_TYPES = ["Solicitation", "Combined Synopsis/Solicitation", "Award Notice"]
 RFI_TYPES = ["RFI", "Sources Sought", "Special Notice", "Pre-Solicitation"]
+
+
+def _is_url_like(value):
+    if value is None:
+        return False
+    s = str(value).strip().lower()
+    return s.startswith("http://") or s.startswith("https://") or s.startswith("www.")
 
 
 def _parse_csv(text: str | None) -> list[str]:
@@ -151,6 +157,18 @@ def _my_shortlist_query(db: Session, user, tab: str):
     return q
 
 
+def _best_description_text(opportunity: Opportunity) -> str:
+    description_text = (opportunity.description_text or "").strip()
+    if description_text:
+        return description_text
+
+    description = (opportunity.description or "").strip()
+    if description and not _is_url_like(description):
+        return description
+
+    return ""
+
+
 # ── Feed (INBOX) ──────────────────────────────────────────────
 
 @router.get("/")
@@ -181,24 +199,30 @@ async def feed(
         )
         q = q.filter(~Opportunity.id.in_(passed_opp_ids))
 
-    # Date filtering on upserted_at
+    date_field = Opportunity.upserted_at
+    if sort == "deadline":
+        date_field = Opportunity.response_deadline
+    elif sort == "posted":
+        date_field = Opportunity.posted_date
+
+    # Date filtering on the currently selected date basis
     today = date.today()
     if date_filter == "today":
-        q = q.filter(func.date(Opportunity.upserted_at) >= today)
+        q = q.filter(func.date(date_field) >= today)
     elif date_filter == "7d":
-        q = q.filter(func.date(Opportunity.upserted_at) >= today - timedelta(days=7))
+        q = q.filter(func.date(date_field) >= today - timedelta(days=7))
     elif date_filter == "30d":
-        q = q.filter(func.date(Opportunity.upserted_at) >= today - timedelta(days=30))
+        q = q.filter(func.date(date_field) >= today - timedelta(days=30))
     elif date_filter == "custom" and date_from:
         try:
             d_from = date.fromisoformat(date_from)
-            q = q.filter(func.date(Opportunity.upserted_at) >= d_from)
+            q = q.filter(func.date(date_field) >= d_from)
         except ValueError:
             pass
         if date_to:
             try:
                 d_to = date.fromisoformat(date_to)
-                q = q.filter(func.date(Opportunity.upserted_at) <= d_to)
+                q = q.filter(func.date(date_field) <= d_to)
             except ValueError:
                 pass
 
@@ -223,6 +247,7 @@ async def feed(
         "date_filter": date_filter,
         "date_from": date_from,
         "date_to": date_to,
+        "date_basis": sort,
         "show_passed": show_passed,
         "now": datetime.utcnow(),
     })
@@ -342,6 +367,8 @@ async def opportunity_detail(
     if not opportunity:
         return RedirectResponse(url="/", status_code=303)
 
+    resolved_description = _best_description_text(opportunity) or None
+
     brief_row = db.query(OpportunityBrief).filter(
         OpportunityBrief.opportunity_id == opp_id
     ).first()
@@ -361,6 +388,16 @@ async def opportunity_detail(
     counts = get_vote_counts(db, [opp_id])
     c = counts.get(opp_id, {"pursue": 0, "pass": 0})
     user_votes = get_user_votes(db, user.id, [opp_id])
+    notes = (
+        db.query(OpportunityNote)
+        .options(joinedload(OpportunityNote.user))
+        .filter(
+            OpportunityNote.opportunity_id == opp_id,
+            OpportunityNote.org_id == user.organization_id,
+        )
+        .order_by(OpportunityNote.created_at.desc())
+        .all()
+    )
 
     return templates.TemplateResponse("detail.html", {
         "request": request,
@@ -376,6 +413,8 @@ async def opportunity_detail(
         "brief": brief,
         "brief_status": brief_status,
         "brief_error": brief_error,
+        "resolved_description": resolved_description,
+        "opportunity_notes": notes,
         "sidebar": get_sidebar(db, user),
     })
 
@@ -440,6 +479,37 @@ async def toggle_watch(
 
     referer = request.headers.get("referer", "/")
     return RedirectResponse(url=referer, status_code=303)
+
+
+@router.post("/opportunities/{opp_id}/notes")
+async def add_opportunity_note(
+    request: Request,
+    opp_id: int,
+    body: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    opportunity = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
+    if not opportunity:
+        return RedirectResponse(url="/", status_code=303)
+
+    note_body = (body or "").strip()
+    if not note_body:
+        return RedirectResponse(url=f"/opportunity/{opp_id}", status_code=303)
+
+    note = OpportunityNote(
+        org_id=user.organization_id,
+        opportunity_id=opp_id,
+        user_id=user.id,
+        body=note_body,
+    )
+    db.add(note)
+    db.commit()
+
+    return RedirectResponse(url=f"/opportunity/{opp_id}", status_code=303)
 
 
 # ── Calendar ──────────────────────────────────────────────────

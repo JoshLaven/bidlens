@@ -62,6 +62,8 @@ class Opportunity(Base):
     naics = Column(String, nullable=True)
     set_aside = Column(String, nullable=True)
     description = Column(Text, nullable=True)
+    description_url = Column(Text, nullable=True)
+    description_text = Column(Text, nullable=True)
     sam_url = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -81,6 +83,7 @@ class Opportunity(Base):
     archived_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     user_opportunities = relationship("UserOpportunity", back_populates="opportunity")
+    notes = relationship("OpportunityNote", back_populates="opportunity", cascade="all, delete-orphan")
 
 class OpportunityBrief(Base):
     __tablename__ = "opportunity_briefs"
@@ -195,6 +198,22 @@ class User(Base):
 
     organization = relationship("Organization", back_populates="users")
     user_opportunities = relationship("UserOpportunity", back_populates="user")
+    opportunity_notes = relationship("OpportunityNote", back_populates="user")
+
+
+class OpportunityNote(Base):
+    __tablename__ = "opportunity_notes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    opportunity = relationship("Opportunity", back_populates="notes")
+    user = relationship("User", back_populates="opportunity_notes")
 
 class UserOpportunity(Base):
     __tablename__ = "user_opportunities"

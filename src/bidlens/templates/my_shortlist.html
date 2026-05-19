@@ -2,7 +2,10 @@
 {% from "_opp_card.html" import opp_card %}
 {% block title %}My Shortlist - BidLens{% endblock %}
 {% block content %}
-<h1>My Shortlist</h1>
+<div class="page-header">
+  <h1>My Queue</h1>
+  <p class="page-subtitle">Your personally shortlisted opportunities, ready for follow-up and decision-making.</p>
+</div>
 
 <div class="tabs">
   <a href="/my-shortlist?tab=solicitations" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>

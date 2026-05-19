@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, Set
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
-from .sam_client import SamRateLimitError, search_opportunities
+from .sam_client import SamRateLimitError, SamTemporaryUnavailableError, resolve_notice_description, search_opportunities
 from .models import Opportunity, IngestionRun
 
 logger = logging.getLogger(__name__)
@@ -94,7 +94,11 @@ def ingest_sam(
                 naics_result = {
                     "naics": naics,
                     "error": str(e),
-                    "error_type": "rate_limited" if isinstance(e, SamRateLimitError) else "exception",
+                    "error_type": (
+                        "rate_limited" if isinstance(e, SamRateLimitError)
+                        else "sam_unavailable" if isinstance(e, SamTemporaryUnavailableError)
+                        else "exception"
+                    ),
                     "retry_after_seconds": retry_after_seconds,
                     "inserted": 0,
                     "updated": 0,
@@ -118,7 +122,14 @@ def ingest_sam(
 
         db.commit()
 
-        status = "success" if errors == 0 else "partial_success"
+        if errors == 0:
+            status = "success"
+        elif inserted == 0 and updated == 0 and skipped == 0 and filtered == 0:
+            status = "failed"
+        else:
+            status = "partial_success"
+        run.notes = f"status={status} {run.notes}"
+        db.commit()
         logger.info(
             "Finished SAM ingest run_id=%s status=%s inserted=%s updated=%s skipped=%s filtered=%s errors=%s",
             run.id,
@@ -183,6 +194,7 @@ def normalize_sam_record(rec: Dict[str, Any], allowed_types: Set[str]) -> Option
     description = rec.get("description")
     if description is not None and not isinstance(description, str):
         description = None
+    description = description.strip() if isinstance(description, str) else None
 
     sam_url = rec.get("uiLink") or rec.get("link") or rec.get("resourceLink")
     # NOTE: you had `or rec.get("description")` here, which can accidentally put huge text in sam_url
@@ -190,6 +202,9 @@ def normalize_sam_record(rec: Dict[str, Any], allowed_types: Set[str]) -> Option
     # REQUIRED fields per model
     if not (sam_notice_id and title and agency and opportunity_type and posted_date and response_deadline and sam_url):
         return None
+
+    description_url = description if _description_needs_fetch(description) else None
+    description_text = None if description_url else description
 
     return {
         "sam_notice_id": str(sam_notice_id),
@@ -200,9 +215,15 @@ def normalize_sam_record(rec: Dict[str, Any], allowed_types: Set[str]) -> Option
         "response_deadline": response_deadline,
         "naics": str(naics) if naics else None,
         "set_aside": str(set_aside) if set_aside else None,
-        "description": description,
+        "description": description_text,
+        "description_url": description_url,
+        "description_text": description_text,
         "sam_url": str(sam_url),
     }
+
+
+def _description_needs_fetch(description: str | None) -> bool:
+    return bool(description) and description.strip().lower().startswith("http")
 
 
 def upsert_opportunity(db: Session, data: Dict[str, Any]) -> str:
@@ -297,6 +318,27 @@ def pull_sam_into_db(
                     filtered += 1
                     continue
 
+                if data.get("description_url"):
+                    try:
+                        resolved_description = resolve_notice_description(
+                            data["description_url"],
+                            data.get("sam_url"),
+                        )
+                    except SamRateLimitError:
+                        raise
+                    except Exception as exc:
+                        logger.warning(
+                            "SAM notice description fetch failed naics=%s sam_notice_id=%s error=%s",
+                            naics,
+                            data["sam_notice_id"],
+                            repr(exc),
+                        )
+                        resolved_description = None
+
+                    if resolved_description:
+                        data["description"] = resolved_description
+                        data["description_text"] = resolved_description
+
                 status = upsert_opportunity(db, data)
                 if status == "inserted":
                     inserted += 1
@@ -337,4 +379,92 @@ def pull_sam_into_db(
         "errors": errors,
         "ingestion_run_id": ingestion_run_id,
         "pulled":pulled
+    }
+
+
+def backfill_opportunity_descriptions(
+    db: Session,
+    *,
+    limit: int = 25,
+) -> Dict[str, Any]:
+    checked = 0
+    updated = 0
+    skipped = 0
+    errors = 0
+    rate_limited = 0
+    results: list[dict[str, Any]] = []
+
+    rows = (
+        db.query(Opportunity)
+        .filter(
+            Opportunity.description_url.is_not(None),
+            Opportunity.description_url != "",
+        )
+        .order_by(Opportunity.id.asc())
+        .limit(limit)
+        .all()
+    )
+
+    for opp in rows:
+        checked += 1
+
+        if opp.description_text and opp.description_text.strip():
+            skipped += 1
+            results.append({
+                "opp_id": opp.id,
+                "status": "skipped",
+                "reason": "description_text already present",
+            })
+            continue
+
+        try:
+            resolved = resolve_notice_description(opp.description_url, opp.sam_url)
+        except SamRateLimitError as exc:
+            db.rollback()
+            errors += 1
+            rate_limited += 1
+            results.append({
+                "opp_id": opp.id,
+                "status": "rate_limited",
+                "retry_after_seconds": exc.retry_after_seconds,
+                "error": str(exc),
+            })
+            break
+        except Exception as exc:
+            db.rollback()
+            errors += 1
+            results.append({
+                "opp_id": opp.id,
+                "status": "error",
+                "error": str(exc),
+            })
+            continue
+
+        if resolved:
+            opp.description_text = resolved
+            if opp.description and not opp.description.strip().lower().startswith("http"):
+                pass
+            elif not opp.description:
+                opp.description = resolved
+            db.commit()
+            updated += 1
+            results.append({
+                "opp_id": opp.id,
+                "status": "updated",
+            })
+        else:
+            skipped += 1
+            results.append({
+                "opp_id": opp.id,
+                "status": "skipped",
+                "reason": "no readable description resolved",
+            })
+
+    return {
+        "checked": checked,
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors,
+        "rate_limited": rate_limited,
+        "results": results,
     }

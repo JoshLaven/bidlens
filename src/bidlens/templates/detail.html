@@ -11,6 +11,15 @@
   <div class="detail-header">
     <div class="detail-title-row">
       <h1 class="detail-title">{{ opportunity.title }}</h1>
+      {% if decision_state != 'ARCHIVED' %}
+        <button type="button"
+                class="opp-icon-button detail-email-button"
+                title="Email opportunity"
+                aria-label="Email opportunity"
+                onclick='openOpportunityEmail({ title: {{ opportunity.title|tojson }}, agency: {{ opportunity.agency|tojson }}, due: {{ (opportunity.response_deadline.strftime("%B %d, %Y") if opportunity.response_deadline else "No deadline")|tojson }}, path: {{ ("/opportunity/" ~ opportunity.id)|tojson }}, samUrl: {{ (opportunity.sam_url or "")|tojson }} })'>
+          &#9993;
+        </button>
+      {% endif %}
       <span class="badge {{ 'badge-rfi' if opportunity.opportunity_type in ['RFI', 'Sources Sought'] else 'badge-type' }}">
         {{ opportunity.opportunity_type }}
       </span>
@@ -218,14 +227,49 @@
     </details>
 
     <!-- Original description -->
-    {% if opportunity.description %}
+    {% if resolved_description %}
       <details class="accordion">
         <summary class="accordion-summary">Original SAM.gov Description</summary>
         <div class="accordion-body prewrap">
-          {{ opportunity.description }}
+          {{ resolved_description }}
         </div>
       </details>
     {% endif %}
+
+    <details open class="accordion">
+      <summary class="accordion-summary">Internal Notes</summary>
+      <div class="accordion-body">
+        <form method="POST" action="/opportunities/{{ opportunity.id }}/notes" class="internal-notes-form">
+          <textarea
+            name="body"
+            rows="4"
+            class="notes-textarea"
+            placeholder="Add internal notes about routing, context, fit, or follow-up..."
+            required
+          ></textarea>
+          <div class="internal-notes-actions">
+            <button type="submit" class="btn btn-sm btn-primary">Add Note</button>
+          </div>
+        </form>
+
+        {% if opportunity_notes %}
+          <div class="internal-notes-list">
+            {% for note in opportunity_notes %}
+              <div class="internal-note">
+                <div class="internal-note-meta">
+                  <span class="internal-note-author">{{ note.user.email if note.user else "Unknown user" }}</span>
+                  <span class="internal-note-separator">·</span>
+                  <span class="internal-note-time">{{ note.created_at.strftime("%b %d, %Y %I:%M %p") }}</span>
+                </div>
+                <div class="internal-note-body prewrap">{{ note.body }}</div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="internal-notes-empty"><em>No internal notes yet.</em></p>
+        {% endif %}
+      </div>
+    </details>
 
   </div>
 </div>

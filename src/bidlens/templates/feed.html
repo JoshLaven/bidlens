@@ -3,6 +3,12 @@
 {% block title %}Feed - BidLens{% endblock %}
 {% block content %}
 {% set date_filter_label = 'All Dates' %}
+{% set date_basis_label = 'Ingested' %}
+{% if date_basis == 'deadline' %}
+  {% set date_basis_label = 'Deadline' %}
+{% elif date_basis == 'posted' %}
+  {% set date_basis_label = 'Posted' %}
+{% endif %}
 {% if date_filter == 'today' %}
   {% set date_filter_label = 'Today' %}
 {% elif date_filter == '7d' %}
@@ -12,7 +18,10 @@
 {% elif date_filter == 'custom' %}
   {% set date_filter_label = 'Custom Range' %}
 {% endif %}
-<h1>Feed</h1>
+<div class="page-header">
+  <h1>Opportunity Inbox</h1>
+  <p class="page-subtitle">Process new opportunities as work items, move the right ones forward, and clear the queue.</p>
+</div>
 
 <div class="tabs">
   <a href="/?tab=solicitations" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
@@ -29,12 +38,13 @@
         aria-expanded="false"
         aria-controls="dateFilterPanel"
       >
-        Date: {{ date_filter_label }}
+        {{ date_basis_label }}: {{ date_filter_label }}
       </button>
       <div id="dateFilterPanel" class="filter-panel" hidden>
         <form method="GET" action="/" class="date-filter-form">
           <input type="hidden" name="tab" value="{{ current_tab }}">
           <input type="hidden" name="sort" value="{{ sort }}">
+          <div class="filter-panel-label">Using {{ date_basis_label|lower }} date</div>
 
           <label class="filter-option">
             <input type="radio" name="date_filter" value="" {{ 'checked' if not date_filter else '' }}>
