@@ -2,23 +2,36 @@
 {% from "_opp_card.html" import opp_card %}
 {% block title %}Shortlist - BidLens{% endblock %}
 {% block content %}
+{% set export_url = '/opportunities/export.csv?view=shortlist&tab=' ~ current_tab ~ '&sort=' ~ sort ~ '&show_past_due=' ~ show_past_due %}
 <div class="page-header">
   <h1>Team Queue</h1>
   <p class="page-subtitle">Shared opportunities the team is carrying forward for closer review.</p>
 </div>
 
 <div class="tabs" style="margin-bottom:12px;">
-  <a href="/shortlist?tab=solicitations&sort={{ sort }}" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
-  <a href="/shortlist?tab=rfi&sort={{ sort }}" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
+  <a href="/shortlist?tab=solicitations&sort={{ sort }}&show_past_due={{ show_past_due }}" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
+  <a href="/shortlist?tab=rfi&sort={{ sort }}&show_past_due={{ show_past_due }}" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
 </div>
 
 <div class="feed-toolbar feed-toolbar--compact">
-  <div class="feed-toolbar-group feed-toolbar-group--sort">
-    <span class="feed-toolbar-label">Sort</span>
-    <a href="/shortlist?tab={{ current_tab }}&sort=pursue" class="btn btn-sm {{ 'btn-primary' if sort == 'pursue' else 'btn-outline-secondary' }}">Votes</a>
-    <a href="/shortlist?tab={{ current_tab }}&sort=deadline" class="btn btn-sm {{ 'btn-primary' if sort == 'deadline' else 'btn-outline-secondary' }}">Deadline</a>
-    <a href="/shortlist?tab={{ current_tab }}&sort=activity" class="btn btn-sm {{ 'btn-primary' if sort == 'activity' else 'btn-outline-secondary' }}">Activity</a>
+  <div class="controls-left">
+    <div class="feed-toolbar-group feed-toolbar-group--sort">
+      <span class="feed-toolbar-label">Sort</span>
+      <a href="/shortlist?tab={{ current_tab }}&sort=pursue&show_past_due={{ show_past_due }}" class="btn btn-sm {{ 'btn-primary' if sort == 'pursue' else 'btn-outline-secondary' }}">Votes</a>
+      <a href="/shortlist?tab={{ current_tab }}&sort=deadline&show_past_due={{ show_past_due }}" class="btn btn-sm {{ 'btn-primary' if sort == 'deadline' else 'btn-outline-secondary' }}">Deadline</a>
+      <a href="/shortlist?tab={{ current_tab }}&sort=activity&show_past_due={{ show_past_due }}" class="btn btn-sm {{ 'btn-primary' if sort == 'activity' else 'btn-outline-secondary' }}">Activity</a>
+    </div>
   </div>
+  <div class="controls-includes">
+    <button type="button" class="include-toggle {{ 'is-active' if show_past_due == '1' else '' }}" aria-pressed="{{ 'true' if show_past_due == '1' else 'false' }}" onclick="togglePastDue({{ 'false' if show_past_due == '1' else 'true' }})">
+      <span class="include-toggle-label">Include past due</span>
+      <span class="include-toggle-switch" aria-hidden="true"><span class="include-toggle-knob"></span></span>
+    </button>
+  </div>
+</div>
+
+<div class="feed-toolbar-actions">
+  <a href="{{ export_url }}" class="btn btn-sm btn-outline-secondary">Export CSV</a>
 </div>
 
 <div id="opportunity-list" data-list-view="shortlist">
@@ -32,5 +45,18 @@
     <h2>No shortlisted opportunities</h2>
     <p>Click <strong>Shortlist</strong> on an opportunity in the feed to move it here.</p>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+function togglePastDue(enabled) {
+  const url = new URL(window.location);
+  if (enabled) {
+    url.searchParams.set('show_past_due', '1');
+  } else {
+    url.searchParams.delete('show_past_due');
+  }
+  window.location = url.toString();
+}
+</script>
 {% endblock %}
 {% include "_archive_modal.html" %}

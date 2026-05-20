@@ -22,9 +22,16 @@ TRANSIENT_SAM_STATUS_CODES = {500, 502, 503, 504}
 
 
 class SamRateLimitError(RuntimeError):
-    def __init__(self, message: str, *, retry_after_seconds: float | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after_seconds: float | None = None,
+        retry_after: str | None = None,
+    ):
         super().__init__(message)
         self.retry_after_seconds = retry_after_seconds
+        self.retry_after = retry_after
 
 
 class SamTemporaryUnavailableError(RuntimeError):
@@ -187,6 +194,25 @@ def _extract_retry_after_seconds(resp: requests.Response) -> float | None:
     return None
 
 
+def _extract_retry_after_value(resp: requests.Response) -> str | None:
+    header_value = resp.headers.get("Retry-After")
+    if isinstance(header_value, str) and header_value.strip():
+        return header_value.strip()
+
+    try:
+        payload = resp.json()
+    except ValueError:
+        payload = None
+
+    if isinstance(payload, dict):
+        for key in ("nextAccessTime", "retryAfter", "retry_after", "next_access_time"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+    return None
+
+
 def _rate_limit_message(resp: requests.Response, fallback_message: str) -> str:
     retry_after_seconds = _extract_retry_after_seconds(resp)
     try:
@@ -330,6 +356,7 @@ def search_opportunities(
     limit: int = 100,
     offset: int = 0,
     max_retries: int = 3,
+    allow_rate_limit_wait: bool = True,
 ) -> Dict[str, Any]:
     api_key = SAM_API_KEY
     if not api_key:
@@ -360,8 +387,8 @@ def search_opportunities(
             )
 
             if r.status_code == 429:
-                retry_after = r.headers.get("Retry-After")
-                sleep_s = _parse_retry_after(retry_after)
+                retry_after = _extract_retry_after_value(r)
+                sleep_s = _extract_retry_after_seconds(r)
                 if sleep_s is None:
                     sleep_s = backoff
 
@@ -374,16 +401,25 @@ def search_opportunities(
                     sleep_s,
                 )
 
+                if not allow_rate_limit_wait:
+                    raise SamRateLimitError(
+                        _rate_limit_message(r, "SAM.gov is rate limiting requests. Try again later."),
+                        retry_after_seconds=sleep_s,
+                        retry_after=retry_after,
+                    )
+
                 if sleep_s > MAX_RATE_LIMIT_WAIT_SECONDS:
                     raise SamRateLimitError(
                         f"SAM rate limited requests for about {int(round(sleep_s))} seconds; try again later.",
                         retry_after_seconds=sleep_s,
+                        retry_after=retry_after,
                     )
 
                 if attempt == max_retries - 1:
                     raise SamRateLimitError(
                         f"SAM rate limited requests and asked us to wait about {int(round(sleep_s))} seconds.",
                         retry_after_seconds=sleep_s,
+                        retry_after=retry_after,
                     )
 
                 time.sleep(sleep_s)
@@ -476,9 +512,11 @@ def fetch_notice_description(description_url: str) -> str | None:
 
     if resp.status_code == 429:
         retry_after = _extract_retry_after_seconds(resp)
+        retry_after_value = _extract_retry_after_value(resp)
         raise SamRateLimitError(
             _rate_limit_message(resp, "SAM rate limited notice description fetch."),
             retry_after_seconds=retry_after,
+            retry_after=retry_after_value,
         )
 
     resp.raise_for_status()

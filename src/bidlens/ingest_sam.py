@@ -37,6 +37,7 @@ def ingest_sam(
     naics_list: list[str],
     days_back: int = 7,
     allowed_types: Optional[Set[str]] = None,
+    manual_pull: bool = False,
 ):
     allowed_types = allowed_types or set()
 
@@ -51,6 +52,9 @@ def ingest_sam(
 
         inserted = updated = skipped = filtered = errors = 0
         results: list[dict[str, Any]] = []
+        stopped_due_to_rate_limit = False
+        rate_limit_retry_after_seconds: float | None = None
+        rate_limit_retry_after: str | None = None
 
         logger.info(
             "Starting SAM ingest run_id=%s naics_count=%s days_back=%s allowed_types=%s",
@@ -60,7 +64,7 @@ def ingest_sam(
             sorted(allowed_types) if allowed_types else "default",
         )
 
-        for naics in naics_list:
+        for index, naics in enumerate(naics_list):
             try:
                 result = pull_sam_into_db(
                     db,
@@ -68,6 +72,7 @@ def ingest_sam(
                     days_back=days_back,
                     allowed_types=allowed_types,
                     ingestion_run_id=run.id,
+                    allow_rate_limit_wait=not manual_pull,
                 )
 
                 inserted += int(result.get("inserted", 0))
@@ -91,6 +96,7 @@ def ingest_sam(
                 db.rollback()
                 errors += 1
                 retry_after_seconds = e.retry_after_seconds if isinstance(e, SamRateLimitError) else None
+                retry_after = e.retry_after if isinstance(e, SamRateLimitError) else None
                 naics_result = {
                     "naics": naics,
                     "error": str(e),
@@ -100,6 +106,7 @@ def ingest_sam(
                         else "exception"
                     ),
                     "retry_after_seconds": retry_after_seconds,
+                    "retry_after": retry_after,
                     "inserted": 0,
                     "updated": 0,
                     "skipped": 0,
@@ -109,6 +116,36 @@ def ingest_sam(
                 }
                 results.append(naics_result)
                 logger.exception("SAM NAICS failed naics=%s error=%s", naics, repr(e))
+
+                if isinstance(e, SamRateLimitError):
+                    stopped_due_to_rate_limit = True
+                    rate_limit_retry_after_seconds = retry_after_seconds
+                    rate_limit_retry_after = retry_after
+                    remaining_naics = [item.strip() for item in naics_list[index + 1:] if item.strip()]
+                    for remaining_naics_code in remaining_naics:
+                        results.append({
+                            "naics": remaining_naics_code,
+                            "error": "Skipped because SAM.gov rate limited the manual pull.",
+                            "error_type": "rate_limited_skipped",
+                            "retry_after_seconds": retry_after_seconds,
+                            "retry_after": retry_after,
+                            "inserted": 0,
+                            "updated": 0,
+                            "skipped": 0,
+                            "filtered": 0,
+                            "errors": 0,
+                            "pulled": 0,
+                        })
+                    logger.warning(
+                        "Stopping SAM ingest after rate limit run_id=%s naics=%s remaining_naics=%s manual_pull=%s retry_after=%s retry_after_seconds=%s",
+                        run.id,
+                        naics,
+                        remaining_naics,
+                        manual_pull,
+                        retry_after,
+                        retry_after_seconds,
+                    )
+                    break
 
         run.inserted_count = inserted + updated
         run.skipped_count = skipped
@@ -122,7 +159,9 @@ def ingest_sam(
 
         db.commit()
 
-        if errors == 0:
+        if stopped_due_to_rate_limit and inserted == 0 and updated == 0 and skipped == 0 and filtered == 0:
+            status = "rate_limited"
+        elif errors == 0:
             status = "success"
         elif inserted == 0 and updated == 0 and skipped == 0 and filtered == 0:
             status = "failed"
@@ -150,6 +189,9 @@ def ingest_sam(
             "filtered": filtered,
             "errors": errors,
             "results": results,
+            "stopped_due_to_rate_limit": stopped_due_to_rate_limit,
+            "retry_after_seconds": rate_limit_retry_after_seconds,
+            "retry_after": rate_limit_retry_after,
         }
     finally:
         _INGEST_LOCK.release()
@@ -272,6 +314,7 @@ def pull_sam_into_db(
     max_pages: int = 20,
     allowed_types: Optional[Set[str]] = None,
     ingestion_run_id: int | None = None,
+    allow_rate_limit_wait: bool = True,
 ) -> Dict[str, Any]:
     allowed_types = allowed_types or set()
 
@@ -295,6 +338,7 @@ def pull_sam_into_db(
                 posted_to=posted_to,
                 limit=limit,
                 offset=offset,
+                allow_rate_limit_wait=allow_rate_limit_wait,
             )
         except Exception as e:
             logger.exception("SAM page fetch failed naics=%s offset=%s error=%s", naics, offset, repr(e))

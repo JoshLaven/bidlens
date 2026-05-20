@@ -2,11 +2,22 @@
 {% from "_opp_card.html" import opp_card %}
 {% block title %}Archive - BidLens{% endblock %}
 {% block content %}
-<h1>Archive</h1>
+{% set export_url = '/opportunities/export.csv?view=archive&tab=' ~ current_tab %}
+<div class="page-header">
+  <h1>Archive</h1>
+  <p class="page-subtitle">Closed opportunities kept for reference, context, and reporting.</p>
+</div>
 
 <div class="tabs">
   <a href="/archive?tab=solicitations" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
   <a href="/archive?tab=rfi" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
+</div>
+
+<div class="feed-toolbar feed-toolbar--compact">
+  <div class="feed-toolbar-group feed-toolbar-group--sort">
+    <span class="feed-toolbar-label">Export</span>
+    <a href="{{ export_url }}" class="btn btn-sm btn-outline-secondary">Export CSV</a>
+  </div>
 </div>
 
 {% if opportunities %}

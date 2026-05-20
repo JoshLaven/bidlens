@@ -1,5 +1,7 @@
 # src/bidlens/routes/sam.py
+import datetime as dt
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from ..database import get_db
@@ -30,13 +32,35 @@ def require_org_admin(user, db: Session):
 class DescriptionBackfillIn(BaseModel):
     limit: int = 25
 
+
+def _retry_after_display(retry_after: str | None, retry_after_seconds: float | None) -> str | None:
+    if retry_after:
+        return retry_after
+    if retry_after_seconds is None:
+        return None
+
+    retry_at = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=retry_after_seconds)
+    return retry_at.strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+
+def _failed_naics(results: list[dict]) -> list[str]:
+    return [item.get("naics") for item in results if item.get("naics")]
+
+
+def _retry_after_header_value(retry_after: str | None, retry_after_seconds: float | None) -> str | None:
+    if retry_after:
+        return retry_after
+    if retry_after_seconds is None:
+        return None
+    return str(int(round(retry_after_seconds)))
+
 @router.post("/pull-now", response_model=None)
 def pull_now(
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     if sam_ingest_in_progress():
-        return {
+        return JSONResponse(status_code=409, content={
             "status": "busy",
             "message": "A SAM pull is already in progress. Wait for it to finish before starting another.",
             "run_id": None,
@@ -46,7 +70,7 @@ def pull_now(
             "filtered": 0,
             "errors": 0,
             "results": [],
-        }
+        })
 
     profile = db.query(OrgProfile).filter(OrgProfile.org_id == user.organization_id).first()
     if not profile:
@@ -59,7 +83,7 @@ def pull_now(
     days_back = profile.sam_days_back or 7
     allowed_types = parse_allowed_types(profile.sam_allowed_types)
     if not naics_list:
-        return {
+        return JSONResponse(status_code=400, content={
             "status": "noop",
             "message": "No NAICS codes are configured for this organization.",
             "run_id": None,
@@ -69,13 +93,19 @@ def pull_now(
             "filtered": 0,
             "errors": 0,
             "results": [],
-        }
+        })
 
     try:
-        result = ingest_sam(db, naics_list=naics_list, days_back=days_back, allowed_types=allowed_types)
+        result = ingest_sam(
+            db,
+            naics_list=naics_list,
+            days_back=days_back,
+            allowed_types=allowed_types,
+            manual_pull=True,
+        )
     except RuntimeError as exc:
         if str(exc) == "A SAM pull is already in progress":
-            return {
+            return JSONResponse(status_code=409, content={
                 "status": "busy",
                 "message": "A SAM pull is already in progress. Wait for it to finish before starting another.",
                 "run_id": None,
@@ -85,11 +115,37 @@ def pull_now(
                 "filtered": 0,
                 "errors": 0,
                 "results": [],
-            }
+            })
         raise
 
     rate_limited_results = [item for item in result.get("results", []) if item.get("error_type") == "rate_limited"]
     sam_unavailable_results = [item for item in result.get("results", []) if item.get("error_type") == "sam_unavailable"]
+    stopped_due_to_rate_limit = bool(result.get("stopped_due_to_rate_limit"))
+    all_rate_limited = (
+        bool(rate_limited_results)
+        and result.get("status") == "rate_limited"
+        and result.get("inserted", 0) == 0
+        and result.get("updated", 0) == 0
+        and result.get("skipped", 0) == 0
+        and result.get("filtered", 0) == 0
+    )
+
+    retry_after_seconds = result.get("retry_after_seconds")
+    retry_after = result.get("retry_after")
+    for item in rate_limited_results:
+        seconds = item.get("retry_after_seconds")
+        if seconds is not None and (retry_after_seconds is None or seconds > retry_after_seconds):
+            retry_after_seconds = seconds
+            retry_after = item.get("retry_after") or retry_after
+        elif retry_after is None and item.get("retry_after"):
+            retry_after = item.get("retry_after")
+
+    retry_after_display = _retry_after_display(retry_after, retry_after_seconds)
+    retry_after_header = _retry_after_header_value(retry_after, retry_after_seconds)
+    result["retry_after"] = retry_after_display
+    result["retry_after_seconds"] = retry_after_seconds
+    result["failed_naics"] = _failed_naics(rate_limited_results or sam_unavailable_results)
+
     if sam_unavailable_results:
         if result.get("status") == "failed":
             result["message"] = "SAM.gov is temporarily unavailable. Try again later."
@@ -99,20 +155,33 @@ def pull_now(
                 f"{result['skipped']} skipped, {result['filtered']} filtered, {result['errors']} errors. "
                 "SAM.gov is temporarily unavailable. Try again later."
             )
+        return JSONResponse(status_code=503 if result.get("status") == "failed" else 200, content=result)
+    elif all_rate_limited:
+        retry_hint = f" Try again after {retry_after_display}." if retry_after_display else " Try again later."
+        result["status"] = "rate_limited"
+        result["message"] = f"SAM.gov quota exceeded.{retry_hint}"
+        headers = {"Retry-After": retry_after_header} if retry_after_header else {}
+        return JSONResponse(status_code=429, content=result, headers=headers)
     elif rate_limited_results:
-        waits = [item.get("retry_after_seconds") for item in rate_limited_results if item.get("retry_after_seconds") is not None]
-        wait_hint = f" Retry after about {int(round(max(waits)))} seconds." if waits else ""
-        result["message"] = (
-            f"Pull partially completed: {result['inserted']} inserted, {result['updated']} updated, "
-            f"{result['skipped']} skipped, {result['filtered']} filtered, {result['errors']} errors."
-            f" SAM.gov rate limited one or more NAICS pulls.{wait_hint}"
-        )
+        wait_hint = f" Try again after {retry_after_display}." if retry_after_display else ""
+        if stopped_due_to_rate_limit:
+            result["message"] = (
+                f"Pull stopped after SAM.gov quota exceeded: {result['inserted']} inserted, {result['updated']} updated, "
+                f"{result['skipped']} skipped, {result['filtered']} filtered, {result['errors']} errors.{wait_hint}"
+            )
+        else:
+            result["message"] = (
+                f"Pull partially completed: {result['inserted']} inserted, {result['updated']} updated, "
+                f"{result['skipped']} skipped, {result['filtered']} filtered, {result['errors']} errors."
+                f" SAM.gov rate limited one or more NAICS pulls.{wait_hint}"
+            )
+        return JSONResponse(status_code=200, content=result)
     else:
         result["message"] = (
             f"Pull completed with {result['inserted']} inserted, {result['updated']} updated, "
             f"{result['skipped']} skipped, {result['filtered']} filtered, {result['errors']} errors."
         )
-    return result
+        return JSONResponse(status_code=200, content=result)
 
 
 @router.post("/backfill-descriptions", response_model=None)

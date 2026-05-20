@@ -18,83 +18,99 @@
 {% elif date_filter == 'custom' %}
   {% set date_filter_label = 'Custom Range' %}
 {% endif %}
+{% set export_url = '/opportunities/export.csv?view=feed&tab=' ~ current_tab ~ '&sort=' ~ sort ~ '&date_filter=' ~ date_filter ~ '&date_from=' ~ date_from ~ '&date_to=' ~ date_to ~ '&show_passed=' ~ show_passed ~ '&show_past_due=' ~ show_past_due %}
 <div class="page-header">
-  <h1>Opportunity Inbox</h1>
+  <h1>The Feed</h1>
   <p class="page-subtitle">Process new opportunities as work items, move the right ones forward, and clear the queue.</p>
 </div>
 
 <div class="tabs">
-  <a href="/?tab=solicitations" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
-  <a href="/?tab=rfi" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
+  <a href="/?tab=solicitations&sort={{ sort }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
+  <a href="/?tab=rfi&sort={{ sort }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
 </div>
 
 <div class="feed-toolbar">
-  <div class="feed-toolbar-group">
-    <div class="filter-popover">
-      <button
-        type="button"
-        class="btn btn-sm btn-outline-secondary filter-trigger"
-        onclick="toggleDateFilterPanel()"
-        aria-expanded="false"
-        aria-controls="dateFilterPanel"
-      >
-        {{ date_basis_label }}: {{ date_filter_label }}
-      </button>
-      <div id="dateFilterPanel" class="filter-panel" hidden>
-        <form method="GET" action="/" class="date-filter-form">
-          <input type="hidden" name="tab" value="{{ current_tab }}">
-          <input type="hidden" name="sort" value="{{ sort }}">
-          <div class="filter-panel-label">Using {{ date_basis_label|lower }} date</div>
+  <div class="controls-left">
+    <div class="controls-left-stack">
+      <div class="feed-toolbar-group feed-toolbar-group--sort">
+        <span class="feed-toolbar-label">Sort</span>
+        <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=newest&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}" class="btn btn-sm {{ 'btn-primary' if sort == 'newest' else 'btn-outline-secondary' }}">Newest</a>
+        <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=deadline&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}" class="btn btn-sm {{ 'btn-primary' if sort == 'deadline' else 'btn-outline-secondary' }}">Deadline</a>
+        <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=posted&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}" class="btn btn-sm {{ 'btn-primary' if sort == 'posted' else 'btn-outline-secondary' }}">Posted</a>
+      </div>
+      <div class="feed-toolbar-group">
+        <div class="filter-popover">
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary filter-trigger"
+          onclick="toggleDateFilterPanel()"
+          aria-expanded="false"
+          aria-controls="dateFilterPanel"
+        >
+          {{ date_basis_label }}: {{ date_filter_label }}
+        </button>
+        <div id="dateFilterPanel" class="filter-panel" hidden>
+          <form method="GET" action="/" class="date-filter-form">
+            <input type="hidden" name="tab" value="{{ current_tab }}">
+            <input type="hidden" name="sort" value="{{ sort }}">
+            <input type="hidden" name="show_passed" value="{{ show_passed }}">
+            <input type="hidden" name="show_past_due" value="{{ show_past_due }}">
+            <div class="filter-panel-label">Using {{ date_basis_label|lower }} date</div>
 
-          <label class="filter-option">
-            <input type="radio" name="date_filter" value="" {{ 'checked' if not date_filter else '' }}>
-            <span>All</span>
-          </label>
-          <label class="filter-option">
-            <input type="radio" name="date_filter" value="today" {{ 'checked' if date_filter == 'today' else '' }}>
-            <span>Today</span>
-          </label>
-          <label class="filter-option">
-            <input type="radio" name="date_filter" value="7d" {{ 'checked' if date_filter == '7d' else '' }}>
-            <span>Last 7 Days</span>
-          </label>
-          <label class="filter-option">
-            <input type="radio" name="date_filter" value="30d" {{ 'checked' if date_filter == '30d' else '' }}>
-            <span>Last 30 Days</span>
-          </label>
-          <label class="filter-option">
-            <input type="radio" name="date_filter" value="custom" {{ 'checked' if date_filter == 'custom' else '' }}>
-            <span>Custom Range</span>
-          </label>
-
-          <div class="filter-date-grid">
-            <label>
-              <span>Start Date</span>
-              <input type="date" name="date_from" value="{{ date_from }}">
+            <label class="filter-option">
+              <input type="radio" name="date_filter" value="" {{ 'checked' if not date_filter else '' }}>
+              <span>All</span>
             </label>
-            <label>
-              <span>End Date</span>
-              <input type="date" name="date_to" value="{{ date_to }}">
+            <label class="filter-option">
+              <input type="radio" name="date_filter" value="today" {{ 'checked' if date_filter == 'today' else '' }}>
+              <span>Today</span>
             </label>
-          </div>
+            <label class="filter-option">
+              <input type="radio" name="date_filter" value="7d" {{ 'checked' if date_filter == '7d' else '' }}>
+              <span>Last 7 Days</span>
+            </label>
+            <label class="filter-option">
+              <input type="radio" name="date_filter" value="30d" {{ 'checked' if date_filter == '30d' else '' }}>
+              <span>Last 30 Days</span>
+            </label>
+            <label class="filter-option">
+              <input type="radio" name="date_filter" value="custom" {{ 'checked' if date_filter == 'custom' else '' }}>
+              <span>Custom Range</span>
+            </label>
 
-          <button type="submit" class="btn btn-sm btn-primary">Apply</button>
-        </form>
+            <div class="filter-date-grid">
+              <label>
+                <span>Start Date</span>
+                <input type="date" name="date_from" value="{{ date_from }}">
+              </label>
+              <label>
+                <span>End Date</span>
+                <input type="date" name="date_to" value="{{ date_to }}">
+              </label>
+            </div>
+
+            <button type="submit" class="btn btn-sm btn-primary">Apply</button>
+          </form>
+        </div>
+      </div>
       </div>
     </div>
-
-    <label class="feed-toolbar-checkbox">
-    <input type="checkbox" onchange="togglePassed(this)" {{ 'checked' if show_passed == '1' else '' }}>
-    <span>Show passed</span>
-  </label>
   </div>
 
-  <div class="feed-toolbar-group feed-toolbar-group--sort">
-    <span class="feed-toolbar-label">Sort</span>
-    <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=newest" class="btn btn-sm {{ 'btn-primary' if sort == 'newest' else 'btn-outline-secondary' }}">Newest</a>
-    <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=deadline" class="btn btn-sm {{ 'btn-primary' if sort == 'deadline' else 'btn-outline-secondary' }}">Deadline</a>
-    <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=posted" class="btn btn-sm {{ 'btn-primary' if sort == 'posted' else 'btn-outline-secondary' }}">Posted</a>
+  <div class="controls-includes">
+    <button type="button" class="include-toggle {{ 'is-active' if show_passed == '1' else '' }}" aria-pressed="{{ 'true' if show_passed == '1' else 'false' }}" onclick="toggleQueryParam('show_passed', {{ 'false' if show_passed == '1' else 'true' }})">
+      <span class="include-toggle-label">Include passed</span>
+      <span class="include-toggle-switch" aria-hidden="true"><span class="include-toggle-knob"></span></span>
+    </button>
+    <button type="button" class="include-toggle {{ 'is-active' if show_past_due == '1' else '' }}" aria-pressed="{{ 'true' if show_past_due == '1' else 'false' }}" onclick="toggleQueryParam('show_past_due', {{ 'false' if show_past_due == '1' else 'true' }})">
+      <span class="include-toggle-label">Include past due</span>
+      <span class="include-toggle-switch" aria-hidden="true"><span class="include-toggle-knob"></span></span>
+    </button>
   </div>
+</div>
+
+<div class="feed-toolbar-actions">
+  <a href="{{ export_url }}" class="btn btn-sm btn-outline-secondary">Export CSV</a>
 </div>
 
 <div id="opportunity-list" data-list-view="feed">
@@ -130,12 +146,12 @@ document.addEventListener('click', (event) => {
   }
 });
 
-function togglePassed(cb) {
+function toggleQueryParam(name, enabled) {
   const url = new URL(window.location);
-  if (cb.checked) {
-    url.searchParams.set('show_passed', '1');
+  if (enabled) {
+    url.searchParams.set(name, '1');
   } else {
-    url.searchParams.delete('show_passed');
+    url.searchParams.delete(name);
   }
   window.location = url.toString();
 }

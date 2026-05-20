@@ -1,6 +1,8 @@
 from datetime import date, datetime, timedelta
+import csv
+import io
 from fastapi import APIRouter, Request, Form, Depends
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import joinedload
@@ -88,6 +90,172 @@ def _apply_type_tab(query, tab: str):
         return query.filter(Opportunity.opportunity_type.in_(RFI_TYPES))
 
 
+def _agency_parts_for_export(raw_agency: str | None) -> tuple[str | None, str | None]:
+    if not raw_agency:
+        return None, None
+
+    cleaned_parts = [
+        part.replace("_", " ").strip()
+        for part in str(raw_agency).split(".")
+        if part and part.strip()
+    ]
+    if not cleaned_parts:
+        return None, None
+
+    department = cleaned_parts[0].title()
+    sub_agency = cleaned_parts[-1].title() if len(cleaned_parts) > 1 else None
+    if sub_agency == department:
+        sub_agency = None
+    return department, sub_agency
+
+
+def _current_org_status(opp: Opportunity) -> str:
+    stage = (opp.review_stage or "").strip()
+    if opp.decision_state == "SHORTLISTED" and stage:
+        return f"{opp.decision_state} / {stage}"
+    if opp.decision_state == "ARCHIVED" and opp.archived_reason:
+        return f"{opp.decision_state} / {opp.archived_reason}"
+    return opp.decision_state
+
+
+def _base_export_filename(view: str, tab: str) -> str:
+    safe_view = (view or "feed").replace("-", "_")
+    safe_tab = (tab or "solicitations").replace("-", "_")
+    return f"bidlens_{safe_view}_{safe_tab}_export.csv"
+
+
+def _format_date(value) -> str:
+    if not value:
+        return ""
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d")
+    return str(value)
+
+
+def _export_view_query(
+    db: Session,
+    user,
+    *,
+    view: str,
+    tab: str,
+    sort: str = "newest",
+    date_filter: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    show_passed: str = "",
+    show_past_due: str = "",
+):
+    if view == "shortlist":
+        q = _opp_list_query(db, user, "SHORTLISTED", tab)
+        q = _apply_past_due_filter(q, show_past_due=show_past_due)
+    elif view == "archive":
+        q = _opp_list_query(db, user, "ARCHIVED", tab)
+    elif view == "my_shortlist":
+        q = _my_shortlist_query(db, user, tab)
+    else:
+        q = _opp_list_query(db, user, "INBOX", tab)
+        q = apply_org_filters(q, db, user)
+        q = _apply_past_due_filter(q, show_past_due=show_past_due)
+        if show_passed != "1":
+            passed_opp_ids = (
+                db.query(Vote.opp_id)
+                .filter(Vote.user_id == user.id, Vote.vote == "PASS")
+                .subquery()
+            )
+            q = q.filter(~Opportunity.id.in_(passed_opp_ids))
+
+        date_field = Opportunity.upserted_at
+        if sort == "deadline":
+            date_field = Opportunity.response_deadline
+        elif sort == "posted":
+            date_field = Opportunity.posted_date
+
+        today = date.today()
+        if date_filter == "today":
+            q = q.filter(func.date(date_field) >= today)
+        elif date_filter == "7d":
+            q = q.filter(func.date(date_field) >= today - timedelta(days=7))
+        elif date_filter == "30d":
+            q = q.filter(func.date(date_field) >= today - timedelta(days=30))
+        elif date_filter == "custom" and date_from:
+            try:
+                d_from = date.fromisoformat(date_from)
+                q = q.filter(func.date(date_field) >= d_from)
+            except ValueError:
+                pass
+            if date_to:
+                try:
+                    d_to = date.fromisoformat(date_to)
+                    q = q.filter(func.date(date_field) <= d_to)
+                except ValueError:
+                    pass
+
+    return q
+
+
+def _vote_export_maps(db: Session, org_id: int, opp_ids: list[int]) -> tuple[dict[int, dict[str, int]], dict[int, list[str]], dict[int, list[str]]]:
+    if not opp_ids:
+        return {}, {}, {}
+
+    vote_rows = (
+        db.query(Vote.opp_id, Vote.vote, User.email)
+        .join(User, User.id == Vote.user_id)
+        .filter(Vote.org_id == org_id, Vote.opp_id.in_(opp_ids))
+        .all()
+    )
+
+    counts: dict[int, dict[str, int]] = {}
+    shortlist_users: dict[int, list[str]] = {}
+    pass_users: dict[int, list[str]] = {}
+
+    for opp_id, vote, email in vote_rows:
+        counts.setdefault(opp_id, {"pursue": 0, "pass": 0})
+        shortlist_users.setdefault(opp_id, [])
+        pass_users.setdefault(opp_id, [])
+
+        display_name = email or ""
+        if vote == "PURSUE":
+            counts[opp_id]["pursue"] += 1
+            shortlist_users[opp_id].append(display_name)
+        elif vote == "PASS":
+            counts[opp_id]["pass"] += 1
+            pass_users[opp_id].append(display_name)
+
+    for value_map in (shortlist_users, pass_users):
+        for opp_id, users in value_map.items():
+            value_map[opp_id] = sorted({u for u in users if u})
+
+    return counts, shortlist_users, pass_users
+
+
+def _sort_export_opportunities(db: Session, opportunities: list[Opportunity], *, view: str, sort: str) -> list[Opportunity]:
+    if not opportunities:
+        return opportunities
+
+    if view == "shortlist":
+        if sort == "activity":
+            opp_ids = [opp.id for opp in opportunities]
+            activity_map = get_last_activity(db, opp_ids)
+            for opp in opportunities:
+                opp.last_activity = activity_map.get(opp.id)
+            opportunities.sort(key=lambda opp: opp.last_activity or datetime.min, reverse=True)
+        elif sort == "pursue":
+            opportunities.sort(key=lambda opp: (opp.pursue_count, opp.response_deadline or date.max), reverse=True)
+        else:
+            opportunities.sort(key=lambda opp: (opp.response_deadline or date.max, opp.id))
+    elif view == "feed":
+        if sort == "deadline":
+            opportunities.sort(key=lambda opp: (opp.response_deadline or date.max, opp.id))
+        elif sort == "posted":
+            opportunities.sort(key=lambda opp: (opp.posted_date or date.min, opp.id), reverse=True)
+        else:
+            opportunities.sort(key=lambda opp: (opp.upserted_at or datetime.min, opp.id), reverse=True)
+    else:
+        opportunities.sort(key=lambda opp: (opp.response_deadline or date.max, opp.id))
+
+    return opportunities
+
+
 def _enrich_opps(rows, db, user, watched_col=True):
     """Add computed fields (days, vote counts, user vote) to opportunity rows."""
     today = date.today()
@@ -169,6 +337,18 @@ def _best_description_text(opportunity: Opportunity) -> str:
     return ""
 
 
+def _apply_past_due_filter(query, *, show_past_due: str = ""):
+    if show_past_due == "1":
+        return query
+    today = date.today()
+    return query.filter(
+        or_(
+            Opportunity.response_deadline.is_(None),
+            Opportunity.response_deadline >= today,
+        )
+    )
+
+
 # ── Feed (INBOX) ──────────────────────────────────────────────
 
 @router.get("/")
@@ -180,6 +360,7 @@ async def feed(
     date_from: str = "",
     date_to: str = "",
     show_passed: str = "",
+    show_past_due: str = "",
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -188,6 +369,7 @@ async def feed(
 
     q = _opp_list_query(db, user, "INBOX", tab)
     q = apply_org_filters(q, db, user)
+    q = _apply_past_due_filter(q, show_past_due=show_past_due)
 
     # By default, hide items the current user voted PASS on.
     # ?show_passed=1 reveals them.
@@ -249,6 +431,7 @@ async def feed(
         "date_to": date_to,
         "date_basis": sort,
         "show_passed": show_passed,
+        "show_past_due": show_past_due,
         "now": datetime.utcnow(),
     })
 
@@ -263,6 +446,7 @@ async def shortlist(
     request: Request,
     tab: str = "solicitations",
     sort: str = "pursue",
+    show_past_due: str = "",
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -270,6 +454,7 @@ async def shortlist(
         return RedirectResponse(url="/login", status_code=303)
 
     q = _opp_list_query(db, user, "SHORTLISTED", tab)
+    q = _apply_past_due_filter(q, show_past_due=show_past_due)
     rows = q.order_by(Opportunity.response_deadline.asc()).all()
 
     opps = _enrich_opps(rows, db, user)
@@ -296,6 +481,7 @@ async def shortlist(
         "active_page": "shortlist",
         "sidebar": get_sidebar(db, user),
         "sort": sort,
+        "show_past_due": show_past_due,
     })
 
 
@@ -349,6 +535,133 @@ async def archive(
         "active_page": "archive",
         "sidebar": get_sidebar(db, user),
     })
+
+
+@router.get("/opportunities/export.csv")
+async def export_opportunities_csv(
+    request: Request,
+    view: str = "feed",
+    tab: str = "solicitations",
+    sort: str = "newest",
+    date_filter: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    show_passed: str = "",
+    show_past_due: str = "",
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    q = _export_view_query(
+        db,
+        user,
+        view=view,
+        tab=tab,
+        sort=sort,
+        date_filter=date_filter,
+        date_from=date_from,
+        date_to=date_to,
+        show_passed=show_passed,
+        show_past_due=show_past_due,
+    )
+
+    rows = q.all()
+    opportunities = _enrich_opps(rows, db, user)
+    opportunities = _sort_export_opportunities(db, opportunities, view=view, sort=sort)
+    opp_ids = [opp.id for opp in opportunities]
+
+    vote_counts, shortlist_users_map, pass_users_map = _vote_export_maps(db, user.organization_id, opp_ids)
+    user_votes = get_user_votes(db, user.id, opp_ids)
+
+    user_opp_rows = (
+        db.query(UserOpportunity)
+        .filter(
+            UserOpportunity.user_id == user.id,
+            UserOpportunity.opportunity_id.in_(opp_ids),
+        )
+        .all()
+        if opp_ids else []
+    )
+    user_opp_map = {row.opportunity_id: row for row in user_opp_rows}
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "BidLens ID",
+        "DB ID",
+        "Title",
+        "Agency",
+        "Department",
+        "Sub-agency",
+        "Opportunity Type",
+        "Posted Date",
+        "Response Deadline",
+        "Days Until Due",
+        "NAICS",
+        "Set-Aside",
+        "SAM Notice ID",
+        "SAM URL",
+        "Current Org-Level Status",
+        "Shortlist Count",
+        "Pass Count",
+        "Users Who Shortlisted",
+        "Users Who Passed",
+        "Current User Vote",
+        "Watched",
+        "My Shortlist",
+        "Internal Deadline",
+        "Notes",
+    ])
+
+    today = date.today()
+    for opp in opportunities:
+        department, sub_agency = _agency_parts_for_export(opp.agency)
+        counts = vote_counts.get(opp.id, {"pursue": getattr(opp, "pursue_count", 0), "pass": getattr(opp, "pass_count", 0)})
+        shortlist_users = "; ".join(shortlist_users_map.get(opp.id, []))
+        pass_users = "; ".join(pass_users_map.get(opp.id, []))
+        user_opp = user_opp_map.get(opp.id)
+        current_vote = user_votes.get(opp.id) or getattr(opp, "user_vote", None) or ""
+        my_shortlist = "Yes" if current_vote == "PURSUE" else "No"
+        watched = "Yes" if bool(getattr(opp, "watched", False) or (user_opp and user_opp.watched)) else "No"
+        days_until_due = ""
+        if opp.response_deadline:
+            days_until_due = (opp.response_deadline - today).days
+
+        writer.writerow([
+            str(opp.bidlens_id or ""),
+            opp.id,
+            opp.title or "",
+            opp.agency or "",
+            department or "",
+            sub_agency or "",
+            opp.opportunity_type or "",
+            _format_date(opp.posted_date),
+            _format_date(opp.response_deadline),
+            days_until_due,
+            opp.naics or "",
+            opp.set_aside or "",
+            opp.sam_notice_id or "",
+            opp.sam_url or "",
+            _current_org_status(opp),
+            counts.get("pursue", 0),
+            counts.get("pass", 0),
+            shortlist_users,
+            pass_users,
+            current_vote,
+            watched,
+            my_shortlist,
+            _format_date(user_opp.internal_deadline) if user_opp else "",
+            user_opp.notes if user_opp and user_opp.notes else "",
+        ])
+
+    filename = _base_export_filename(view, tab)
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ── Detail ────────────────────────────────────────────────────

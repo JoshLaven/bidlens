@@ -2,6 +2,7 @@
 {% from "_opp_card.html" import opp_card %}
 {% block title %}My Shortlist - BidLens{% endblock %}
 {% block content %}
+{% set export_url = '/opportunities/export.csv?view=my_shortlist&tab=' ~ current_tab %}
 <div class="page-header">
   <h1>My Queue</h1>
   <p class="page-subtitle">Your personally shortlisted opportunities, ready for follow-up and decision-making.</p>
@@ -10,6 +11,13 @@
 <div class="tabs">
   <a href="/my-shortlist?tab=solicitations" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
   <a href="/my-shortlist?tab=rfi" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
+</div>
+
+<div class="feed-toolbar feed-toolbar--compact">
+  <div class="feed-toolbar-group feed-toolbar-group--sort">
+    <span class="feed-toolbar-label">Export</span>
+    <a href="{{ export_url }}" class="btn btn-sm btn-outline-secondary">Export CSV</a>
+  </div>
 </div>
 
 <div id="opportunity-list" data-list-view="my_shortlist">

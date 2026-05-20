@@ -96,13 +96,13 @@
   </div>
 
   <div class="opp-card-row">
-    <div class="opp-card-deadline {{ 'due-urgent' if opp.days_until_due is defined and opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due is defined and opp.days_until_due <= 14 else '' }}">
+    <div class="opp-card-deadline {{ 'due-past' if opp.days_until_due is defined and opp.days_until_due < 0 else 'due-urgent' if opp.days_until_due is defined and opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due is defined and opp.days_until_due <= 14 else '' }}">
       {% if opp.response_deadline %}
         {{ opp.response_deadline.strftime('%b %d, %Y') }}
         {% if opp.days_until_due is defined and opp.days_until_due >= 0 %}
           <span class="opp-card-days">{{ opp.days_until_due }}d</span>
         {% elif opp.days_until_due is defined %}
-          <span class="opp-card-days">Past due</span>
+          <span class="opp-card-days opp-card-days--past">Past due</span>
         {% endif %}
       {% else %}
         No deadline
