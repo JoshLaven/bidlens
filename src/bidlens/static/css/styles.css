@@ -993,6 +993,48 @@ h2 {
     margin-bottom: 6px;
 }
 
+.brief-source-note {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+    color: var(--gray-600);
+    font-size: 0.8125rem;
+}
+
+.brief-source-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(56, 104, 216, 0.08);
+    color: var(--gray-800);
+    font-weight: 600;
+}
+
+.brief-source-files {
+    color: var(--gray-500);
+}
+
+.brief-source-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+    margin-bottom: 12px;
+    font-size: 0.78rem;
+    color: var(--gray-500);
+}
+
+.brief-source-summary span {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.10);
+}
+
 .prewrap {
   white-space: pre-wrap;
 }
@@ -1641,15 +1683,12 @@ details[open] .accordion-summary::after {
 }
 
 .opp-card-score {
-  position: absolute;
-  left: -20px;
-  top: 66px;
   display: flex;
-  flex-direction: column;
-  gap: 5px;
-  align-items: flex-start;
-  z-index: 2;
-  pointer-events: none;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 3px;
+  pointer-events: auto;
 }
 
 .opp-score-flap {
@@ -1669,6 +1708,7 @@ details[open] .accordion-summary::after {
   box-shadow: 0 3px 10px rgba(17, 32, 51, 0.04);
   justify-content: center;
   pointer-events: auto;
+  position: relative;
 }
 
 .opp-score-label {
@@ -1691,6 +1731,38 @@ details[open] .accordion-summary::after {
 
 .opp-score-flap--fresh {
   animation: opp-score-bump 280ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.opp-score-tooltip {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 140px;
+  max-width: 240px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: rgba(20, 30, 46, 0.96);
+  color: white;
+  font-size: 0.675rem;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.2);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms ease, visibility 120ms ease;
+  white-space: normal;
+  text-transform: none;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.opp-score-flap:hover .opp-score-tooltip,
+.opp-score-flap:focus-visible .opp-score-tooltip,
+.opp-score-flap:focus-within .opp-score-tooltip {
+  opacity: 1;
+  visibility: visible;
 }
 
 @keyframes opp-score-bump {
@@ -1952,10 +2024,12 @@ details[open] .accordion-summary::after {
   }
 
   .opp-card-score {
-    position: static;
-    flex-direction: row;
-    margin-bottom: 8px;
-    pointer-events: auto;
+    justify-content: center;
+    margin: 12px 0 4px;
+  }
+
+  .opp-score-tooltip {
+    display: none;
   }
 
   .opp-score-flap {

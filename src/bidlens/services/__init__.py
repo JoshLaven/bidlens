@@ -1,9 +1,9 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func, case
 
-from .models import Opportunity, Vote
-from .state_machine import OppState, validate_transition
-from .events import log_event
+from ..models import Opportunity, Vote, User
+from ..state_machine import OppState, validate_transition
+from ..events import log_event
 
 
 def transition_state(
@@ -74,7 +74,6 @@ def cast_vote(
     if opp.decision_state == "ARCHIVED":
         raise ValueError("Cannot vote on archived opportunities")
 
-    # Upsert the vote record
     row = (
         db.query(Vote)
         .filter(and_(Vote.org_id == org_id, Vote.opp_id == opp_id, Vote.user_id == user_id))
@@ -89,7 +88,6 @@ def cast_vote(
 
     db.flush()
 
-    # Auto-promote: first PURSUE vote moves INBOX -> SHORTLISTED
     promoted = False
     if vote == "PURSUE" and opp.decision_state == "INBOX":
         opp.decision_state = OppState.SHORTLISTED.value
@@ -168,6 +166,41 @@ def get_user_votes(db: Session, user_id: int, opp_ids: list[int]) -> dict[int, s
     )
 
     return {opp_id: vote for opp_id, vote in rows}
+
+
+def get_vote_user_maps(
+    db: Session,
+    *,
+    org_id: int,
+    opp_ids: list[int],
+) -> tuple[dict[int, list[str]], dict[int, list[str]]]:
+    """Get human-readable user lists for pursue/pass votes by opportunity."""
+    if not opp_ids:
+        return {}, {}
+
+    vote_rows = (
+        db.query(Vote.opp_id, Vote.vote, User.email)
+        .join(User, User.id == Vote.user_id)
+        .filter(Vote.org_id == org_id, Vote.opp_id.in_(opp_ids))
+        .all()
+    )
+
+    pursue_users: dict[int, list[str]] = {}
+    pass_users: dict[int, list[str]] = {}
+    for opp_id, vote, email in vote_rows:
+        display_name = (email or "").strip()
+        if not display_name:
+            continue
+        target = pursue_users if vote == "PURSUE" else pass_users if vote == "PASS" else None
+        if target is None:
+            continue
+        target.setdefault(opp_id, []).append(display_name)
+
+    for value_map in (pursue_users, pass_users):
+        for opp_id, users in value_map.items():
+            value_map[opp_id] = sorted(dict.fromkeys(users))
+
+    return pursue_users, pass_users
 
 
 def get_last_activity(db: Session, opp_ids: list[int]) -> dict[int, "datetime"]:

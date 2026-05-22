@@ -154,60 +154,51 @@
           </button>
         </div>
 
+        {% if brief_source_basis %}
+          <div class="brief-source-note">
+            {% if brief_source_basis == "solicitation_documents" %}
+              <span class="brief-source-badge">Based on solicitation documents</span>
+            {% else %}
+              <span class="brief-source-badge">Based on SAM description only</span>
+            {% endif %}
+            {% if brief_source_files %}
+              <span class="brief-source-files">{{ brief_source_files|join(", ") }}</span>
+            {% endif %}
+          </div>
+          {% if brief_source_summary %}
+            <div class="brief-source-summary">
+              <span>{{ brief_source_summary.pdfs_processed or 0 }} PDF{{ "" if (brief_source_summary.pdfs_processed or 0) == 1 else "s" }} processed</span>
+              <span>{{ brief_source_summary.pages_extracted or 0 }} page{{ "" if (brief_source_summary.pages_extracted or 0) == 1 else "s" }} extracted</span>
+              <span>{{ brief_source_summary.total_extracted_characters or 0 }} characters read</span>
+              {% if brief_source_summary.total_attachments_found %}
+                <span>{{ brief_source_summary.total_attachments_found }} attachment{{ "" if brief_source_summary.total_attachments_found == 1 else "s" }} found</span>
+              {% endif %}
+              {% if brief_source_summary.pdfs_skipped_due_to_limits %}
+                <span>{{ brief_source_summary.pdfs_skipped_due_to_limits }} skipped due to V1 limits</span>
+              {% endif %}
+              {% if brief_source_summary.non_pdfs_skipped %}
+                <span>{{ brief_source_summary.non_pdfs_skipped }} non-PDF skipped</span>
+              {% endif %}
+              {% if brief_source_summary.controlled_or_unavailable_skipped %}
+                <span>{{ brief_source_summary.controlled_or_unavailable_skipped }} controlled/unavailable skipped</span>
+              {% endif %}
+              {% if brief_source_summary.extraction_failures %}
+                <span>{{ brief_source_summary.extraction_failures }} extraction failure{{ "" if brief_source_summary.extraction_failures == 1 else "s" }}</span>
+              {% endif %}
+            </div>
+          {% endif %}
+        {% endif %}
+
         <div class="brief-content">
           {% if brief %}
-            {% if brief.summary_bullets %}
+            {% for section in brief_sections %}
+              <h4>{{ section["label"] }}</h4>
               <ul>
-                {% for b in brief.summary_bullets %}
-                  <li>{{ b }}</li>
+                {% for item in section["items"] %}
+                  <li>{{ item }}</li>
                 {% endfor %}
               </ul>
-            {% endif %}
-
-            {% if brief.key_requirements %}
-              <h4>Key requirements</h4>
-              <ul>
-                {% for x in brief.key_requirements %}
-                  <li>{{ x }}</li>
-                {% endfor %}
-              </ul>
-            {% endif %}
-
-            {% if brief.deliverables %}
-              <h4>Deliverables</h4>
-              <ul>
-                {% for x in brief.deliverables %}
-                  <li>{{ x }}</li>
-                {% endfor %}
-              </ul>
-            {% endif %}
-
-            {% if brief.eligibility %}
-              <h4>Eligibility</h4>
-              <ul>
-                {% for x in brief.eligibility %}
-                  <li>{{ x }}</li>
-                {% endfor %}
-              </ul>
-            {% endif %}
-
-            {% if brief.red_flags %}
-              <h4>Red flags</h4>
-              <ul>
-                {% for x in brief.red_flags %}
-                  <li>{{ x }}</li>
-                {% endfor %}
-              </ul>
-            {% endif %}
-
-            {% if brief.recommended_next_steps %}
-              <h4>Recommended next steps</h4>
-              <ul>
-                {% for x in brief.recommended_next_steps %}
-                  <li>{{ x }}</li>
-                {% endfor %}
-              </ul>
-            {% endif %}
+            {% endfor %}
 
           {% else %}
             {% if brief_status == "pending" %}
@@ -279,7 +270,20 @@
 {% block scripts %}
 <script>
 async function generateBrief(oppId) {
-  await fetch(`/api/opps/${oppId}/generate_brief`, { method: "POST" });
+  const response = await fetch(`/api/opps/${oppId}/generate_brief`, { method: "POST" });
+  if (!response.ok) {
+    let message = "Unable to generate brief right now.";
+    try {
+      const payload = await response.json();
+      if (payload && payload.detail) {
+        message = payload.detail;
+      }
+    } catch (error) {
+      // Fall through to the default message.
+    }
+    window.alert(message);
+    return;
+  }
   window.location.reload();
 }
 </script>

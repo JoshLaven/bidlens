@@ -203,6 +203,27 @@
       renderSidebarSection('sidebar-following-body', sidebar.following || [], 'Not following any yet.');
     }
 
+    function applySignalTooltip(signalEl, prefix, users) {
+      if (!signalEl) return;
+      const userList = Array.isArray(users) ? users.filter(Boolean) : [];
+      signalEl.dataset.users = userList.join(', ');
+      const tooltip = signalEl.querySelector('[data-signal-tooltip]');
+      if (userList.length) {
+        const text = `${prefix}: ${userList.join(', ')}`;
+        if (tooltip) {
+          tooltip.textContent = text;
+          tooltip.hidden = false;
+        }
+        signalEl.setAttribute('aria-label', text);
+      } else {
+        if (tooltip) {
+          tooltip.hidden = true;
+          tooltip.textContent = '';
+        }
+        signalEl.removeAttribute('aria-label');
+      }
+    }
+
     function updateOpportunityCard(oppId, vote, data) {
       const card = document.getElementById(`opp-card-${oppId}`);
       if (!card) return;
@@ -216,17 +237,23 @@
 
       const pursueButton = card.querySelector('[data-vote-button="PURSUE"]');
       const passButton = card.querySelector('[data-vote-button="PASS"]');
+      const passHelper = card.querySelector('[data-pass-helper]');
       if (pursueButton) {
         pursueButton.className = `btn btn-sm opp-card-button opp-card-button--primary ${vote === 'PURSUE' ? 'btn-success' : 'btn-primary'}`;
-        pursueButton.innerHTML = `${vote === 'PURSUE' ? '&#10003; ' : ''}Shortlist`;
+        pursueButton.innerHTML = vote === 'PURSUE' ? '&#10003; Shortlisted' : 'Shortlist';
       }
       if (passButton) {
         passButton.className = `btn btn-sm opp-card-button opp-card-button--secondary ${vote === 'PASS' ? 'btn-warning' : 'btn-outline-secondary'}`;
-        passButton.innerHTML = `${vote === 'PASS' ? '&#10003; ' : ''}Pass`;
+        passButton.innerHTML = vote === 'PASS' ? '&#10003; Passed' : 'Pass';
+      }
+      if (passHelper) {
+        passHelper.hidden = vote === 'PASS';
       }
 
       const pursueCount = Number(data.pursue_count || 0);
       const passCount = Number(data.pass_count || 0);
+      const pursueUsers = Array.isArray(data.pursue_users) ? data.pursue_users : [];
+      const passUsers = Array.isArray(data.pass_users) ? data.pass_users : [];
       const total = pursueCount + passCount;
       const signalRow = card.querySelector('[data-signal-container]');
       const pursueSignal = card.querySelector('[data-signal-pill="pursue"]');
@@ -239,12 +266,12 @@
       }
       if (pursueSignal) {
         pursueSignal.hidden = pursueCount === 0;
-        pursueSignal.title = `${pursueCount} shortlisted`;
+        applySignalTooltip(pursueSignal, 'Shortlisted by', pursueUsers);
         pursueSignal.classList.toggle('opp-score-flap--fresh', vote === 'PURSUE');
       }
       if (passSignal) {
         passSignal.hidden = passCount === 0;
-        passSignal.title = `${passCount} passed`;
+        applySignalTooltip(passSignal, 'Passed by', passUsers);
         passSignal.classList.toggle('opp-score-flap--fresh', vote === 'PASS');
       }
       if (pursueCountEl) {

@@ -22,6 +22,8 @@
 {% set due_label = opp.response_deadline.strftime('%b %d, %Y') if opp.response_deadline else 'No deadline' %}
 {% set preview_text = (opp.description_text or opp.description or '')|striptags|trim %}
 {% set preview_is_url = preview_text[:4]|lower == 'http' %}
+{% set pursue_users = opp.pursue_users or [] %}
+{% set pass_users = opp.pass_users or [] %}
 {% if preview_is_url %}
   {% set preview_text = '' %}
 {% endif %}
@@ -31,16 +33,6 @@
   data-opp-id="{{ opp.id }}"
   data-card-view="{{ view }}"
 >
-  <div class="opp-card-score" data-signal-container {% if not total_signals %}hidden{% endif %}>
-    <span class="opp-score-flap opp-score-flap--pursue" data-signal-pill="pursue" title="{{ pursue_count }} shortlisted" {% if not pursue_count %}hidden{% endif %}>
-      <span class="opp-score-label">S</span>
-      <span class="opp-score-value" data-pursue-count>{{ pursue_count }}</span>
-    </span>
-    <span class="opp-score-flap opp-score-flap--pass" data-signal-pill="pass" title="{{ pass_count }} passed" {% if not pass_count %}hidden{% endif %}>
-      <span class="opp-score-label">P</span>
-      <span class="opp-score-value" data-pass-count>{{ pass_count }}</span>
-    </span>
-  </div>
   <div class="opp-card-heading">
     <div class="opp-card-title-group">
       <a href="/opportunity/{{ opp.id }}" class="opp-card-title">{{ opp.title }}</a>
@@ -114,15 +106,15 @@
               class="btn btn-sm opp-card-button opp-card-button--primary {{ 'btn-success' if opp.user_vote == 'PURSUE' else 'btn-primary' }}"
               data-vote-button="PURSUE"
               onclick="voteOpp('{{ opp.id }}', 'PURSUE')">
-        {% if opp.user_vote == 'PURSUE' %}&#10003; {% endif %}Shortlist
+        {% if opp.user_vote == 'PURSUE' %}&#10003; Shortlisted{% else %}Shortlist{% endif %}
       </button>
       <div class="opp-card-actions-secondary">
-        <span class="opp-card-pass-label">Not a fit?</span>
+        <span class="opp-card-pass-label" data-pass-helper {% if opp.user_vote == 'PASS' %}hidden{% endif %}>Not a fit?</span>
         <button type="button"
                 class="btn btn-sm opp-card-button opp-card-button--secondary {{ 'btn-warning' if opp.user_vote == 'PASS' else 'btn-outline-secondary' }}"
                 data-vote-button="PASS"
                 onclick="voteOpp('{{ opp.id }}', 'PASS')">
-          {% if opp.user_vote == 'PASS' %}&#10003; {% endif %}Pass
+          {% if opp.user_vote == 'PASS' %}&#10003; Passed{% else %}Pass{% endif %}
         </button>
       </div>
     </div>
@@ -131,6 +123,29 @@
       <span class="opp-card-archived-label">Archived</span>
     </div>
     {% endif %}
+  </div>
+
+  <div class="opp-card-score" data-signal-container {% if not total_signals %}hidden{% endif %}>
+    <span
+      class="opp-score-flap opp-score-flap--pursue"
+      data-signal-pill="pursue"
+      data-users="{{ pursue_users|join(', ') }}"
+      {% if not pursue_count %}hidden{% endif %}
+    >
+      <span class="opp-score-label">S</span>
+      <span class="opp-score-value" data-pursue-count>{{ pursue_count }}</span>
+      <span class="opp-score-tooltip" data-signal-tooltip {% if not pursue_users %}hidden{% endif %}>Shortlisted by: {{ pursue_users|join(', ') }}</span>
+    </span>
+    <span
+      class="opp-score-flap opp-score-flap--pass"
+      data-signal-pill="pass"
+      data-users="{{ pass_users|join(', ') }}"
+      {% if not pass_count %}hidden{% endif %}
+    >
+      <span class="opp-score-label">P</span>
+      <span class="opp-score-value" data-pass-count>{{ pass_count }}</span>
+      <span class="opp-score-tooltip" data-signal-tooltip {% if not pass_users %}hidden{% endif %}>Passed by: {{ pass_users|join(', ') }}</span>
+    </span>
   </div>
 
   {# === EXPANDABLE DETAILS === #}

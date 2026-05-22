@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Any, Optional
 from ..database import get_db
 from ..auth import get_current_user
 from ..state_machine import OppState
@@ -9,11 +9,16 @@ from ..services import transition_state, cast_vote
 from ..models import Opportunity, OpportunityBrief
 from sqlalchemy import or_
 from datetime import datetime
-import os
-import requests
-from ..services import get_vote_counts
+import logging
+from ..services import get_vote_counts, get_vote_user_maps
 from ..sam_client import _is_url_like
+from ..services.research.brief_generator import (
+    build_brief_request_payload,
+    generate_local_brief,
+    generate_llm_brief,
+)
 router = APIRouter(prefix="/api", tags=["api"])
+logger = logging.getLogger(__name__)
 
 
 def _best_description_text(opp: Opportunity) -> str:
@@ -124,6 +129,11 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
             ui_version=payload.ui_version,
         )
         counts = get_vote_counts(db, [payload.opp_id]).get(payload.opp_id, {"pursue": 0, "pass": 0})
+        pursue_users_map, pass_users_map = get_vote_user_maps(
+            db,
+            org_id=user.organization_id,
+            opp_ids=[payload.opp_id],
+        )
         from .opportunities import get_sidebar
 
         sidebar = get_sidebar(db, user)
@@ -134,6 +144,8 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
             "opp_id": payload.opp_id,
             "pursue_count": counts["pursue"],
             "pass_count": counts["pass"],
+            "pursue_users": pursue_users_map.get(payload.opp_id, []),
+            "pass_users": pass_users_map.get(payload.opp_id, []),
             "in_my_shortlist": result["state"] == "SHORTLISTED" and result["vote"] == "PURSUE",
             "sidebar": _serialize_sidebar(sidebar),
         }
@@ -265,7 +277,20 @@ def pending_enrichment(request: Request, limit: int = 50, db: Session = Depends(
     
 class BriefIn(BaseModel):
     brief: dict
+    provider: Optional[str] = None
     model: Optional[str] = None
+    source_basis: Optional[str] = None
+    sources_used: Optional[list[dict[str, Any]]] = None
+    filenames_processed: Optional[list[str]] = None
+    source_summary: Optional[dict[str, Any]] = None
+
+
+def _apply_brief_source_metadata(row: OpportunityBrief, payload: dict[str, Any]) -> None:
+    row.provider = payload.get("provider")
+    row.source_basis = payload.get("source_basis")
+    row.sources_used = payload.get("sources_used")
+    row.filenames_processed = payload.get("filenames_processed")
+    row.source_summary = payload.get("source_summary")
 
 @router.post("/opps/{opp_id}/enrichment")
 def save_enrichment(opp_id: int, payload: BriefIn, request: Request, db: Session = Depends(get_db)):
@@ -281,10 +306,21 @@ def save_enrichment(opp_id: int, payload: BriefIn, request: Request, db: Session
         db.flush()
 
     row.brief_json = payload.brief
+    row.provider = payload.provider
     row.model = payload.model
     row.generated_at = datetime.utcnow()
     row.status = "ok"
     row.error_message = None
+    if payload.source_basis or payload.sources_used or payload.filenames_processed or payload.source_summary:
+        _apply_brief_source_metadata(
+            row,
+            {
+                "source_basis": payload.source_basis,
+                "sources_used": payload.sources_used,
+                "filenames_processed": payload.filenames_processed,
+                "source_summary": payload.source_summary,
+            },
+        )
 
     db.commit()
     return {"ok": True, "opp_id": opp_id}
@@ -303,7 +339,12 @@ def reset_enrichment(opp_id: int, request: Request, db: Session = Depends(get_db
     row.error_message = None
     row.brief_json = None
     row.model = None
+    row.provider = None
     row.generated_at = None
+    row.source_basis = None
+    row.sources_used = None
+    row.filenames_processed = None
+    row.source_summary = None
 
     db.commit()
     return {"ok": True, "opp_id": opp_id, "status": "pending"}
@@ -349,18 +390,50 @@ def generate_brief(
         row.status = "pending"
         row.error_message = None
 
+    brief_payload = build_brief_request_payload(opp)
+    _apply_brief_source_metadata(row, brief_payload)
     db.commit()
 
-    # Call n8n webhook
-    N8N_WEBHOOK_URL = os.getenv("N8N_BRIEF_WEBHOOK_URL")
-    print("N8N_WEBHOOK =", N8N_WEBHOOK_URL)
-    requests.post(
-        N8N_WEBHOOK_URL,
-        json={"opp_id": opp_id},
-        timeout=5,
-    )
+    fallback_triggered = False
+    try:
+        llm_result = generate_llm_brief(brief_payload)
+        row.brief_json = llm_result["brief"]
+        row.provider = llm_result["provider"]
+        row.model = llm_result["model"]
+        row.generated_at = datetime.utcnow()
+        row.status = "ok"
+        row.error_message = None
+    except Exception as exc:
+        fallback_triggered = True
+        logger.warning("OpenAI brief generation failed for opp_id=%s; using local fallback error=%s", opp_id, repr(exc))
+        row.brief_json = generate_local_brief(opp, brief_payload)
+        row.provider = "local"
+        row.model = "local-deterministic-fallback"
+        row.generated_at = datetime.utcnow()
+        row.status = "ok"
+        row.error_message = f"OpenAI brief generation failed, used local fallback: {exc}"
+        db.commit()
+        return {
+            "ok": True,
+            "status": "ok",
+            "source_basis": brief_payload["source_basis"],
+            "filenames_processed": brief_payload["filenames_processed"],
+            "provider": row.provider,
+            "model": row.model,
+            "fallback_triggered": fallback_triggered,
+        }
 
-    return {"ok": True, "status": "pending"}
+    db.commit()
+
+    return {
+        "ok": True,
+        "status": "ok",
+        "source_basis": brief_payload["source_basis"],
+        "filenames_processed": brief_payload["filenames_processed"],
+        "provider": row.provider,
+        "model": row.model,
+        "fallback_triggered": fallback_triggered,
+    }
     
 @router.get("/opps/{opp_id}")
 def get_opp_for_enrichment(opp_id: int, request: Request, db: Session = Depends(get_db)):
@@ -369,15 +442,14 @@ def get_opp_for_enrichment(opp_id: int, request: Request, db: Session = Depends(
     if not o:
         raise HTTPException(status_code=404, detail="Not found")
 
-    return {
-        "id": o.id,
-        "title": o.title,
-        "agency": o.agency,
-        "opportunity_type": o.opportunity_type,
-        "posted_date": o.posted_date.isoformat() if o.posted_date else None,
-        "response_deadline": o.response_deadline.isoformat() if o.response_deadline else None,
-        "naics": o.naics,
-        "set_aside": o.set_aside,
-        "url": o.sam_url,
-        "text_for_enrichment": _best_description_text(o)[:20000],
-    }
+    payload = build_brief_request_payload(o)
+
+    row = db.query(OpportunityBrief).filter(OpportunityBrief.opportunity_id == opp_id).first()
+    if not row:
+        row = OpportunityBrief(opportunity_id=opp_id)
+        db.add(row)
+        db.flush()
+    _apply_brief_source_metadata(row, payload)
+    db.commit()
+
+    return payload

@@ -93,7 +93,12 @@ class OpportunityBrief(Base):
     opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
 
     brief_json = Column(JSON, nullable=True)
+    provider = Column(String, nullable=True)
     model = Column(String, nullable=True)
+    source_basis = Column(String, nullable=True)
+    sources_used = Column(JSON, nullable=True)
+    filenames_processed = Column(JSON, nullable=True)
+    source_summary = Column(JSON, nullable=True)
 
     status = Column(String, nullable=False, default="pending", index=True)  # pending | ok | failed
     error_message = Column(Text, nullable=True)

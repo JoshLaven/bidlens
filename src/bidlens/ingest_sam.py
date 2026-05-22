@@ -38,6 +38,8 @@ def ingest_sam(
     days_back: int = 7,
     allowed_types: Optional[Set[str]] = None,
     manual_pull: bool = False,
+    enrich_descriptions: bool = False,
+    max_description_enrichments: int = 10,
 ):
     allowed_types = allowed_types or set()
 
@@ -51,6 +53,9 @@ def ingest_sam(
         db.refresh(run)
 
         inserted = updated = skipped = filtered = errors = 0
+        pages_pulled = 0
+        records_seen = 0
+        search_requests_made = 0
         results: list[dict[str, Any]] = []
         stopped_due_to_rate_limit = False
         rate_limit_retry_after_seconds: float | None = None
@@ -73,6 +78,8 @@ def ingest_sam(
                     allowed_types=allowed_types,
                     ingestion_run_id=run.id,
                     allow_rate_limit_wait=not manual_pull,
+                    enrich_descriptions=enrich_descriptions,
+                    max_description_enrichments=max_description_enrichments,
                 )
 
                 inserted += int(result.get("inserted", 0))
@@ -80,11 +87,17 @@ def ingest_sam(
                 skipped += int(result.get("skipped", 0))
                 filtered += int(result.get("filtered", 0))
                 errors += int(result.get("errors", 0))
+                pages_pulled += int(result.get("pages_pulled", 0))
+                records_seen += int(result.get("records_seen", 0))
+                search_requests_made += int(result.get("search_requests_made", 0))
 
                 results.append(result)
                 logger.info(
-                    "Completed SAM NAICS naics=%s inserted=%s updated=%s skipped=%s filtered=%s errors=%s pulled=%s",
+                    "Completed SAM NAICS naics=%s pages_pulled=%s records_seen=%s search_requests=%s inserted=%s updated=%s skipped=%s filtered=%s errors=%s pulled=%s",
                     naics,
+                    result.get("pages_pulled", 0),
+                    result.get("records_seen", 0),
+                    result.get("search_requests_made", 0),
                     result.get("inserted", 0),
                     result.get("updated", 0),
                     result.get("skipped", 0),
@@ -113,6 +126,9 @@ def ingest_sam(
                     "filtered": 0,
                     "errors": 1,
                     "pulled": 0,
+                    "pages_pulled": 0,
+                    "records_seen": 0,
+                    "search_requests_made": 0,
                 }
                 results.append(naics_result)
                 logger.exception("SAM NAICS failed naics=%s error=%s", naics, repr(e))
@@ -135,6 +151,9 @@ def ingest_sam(
                             "filtered": 0,
                             "errors": 0,
                             "pulled": 0,
+                            "pages_pulled": 0,
+                            "records_seen": 0,
+                            "search_requests_made": 0,
                         })
                     logger.warning(
                         "Stopping SAM ingest after rate limit run_id=%s naics=%s remaining_naics=%s manual_pull=%s retry_after=%s retry_after_seconds=%s",
@@ -154,7 +173,8 @@ def ingest_sam(
         run.finished_at = dt.datetime.utcnow()
         run.notes = (
             f"inserted={inserted} updated={updated} skipped={skipped} "
-            f"filtered={filtered} errors={errors}"
+            f"filtered={filtered} errors={errors} pages={pages_pulled} "
+            f"records_seen={records_seen} search_requests={search_requests_made}"
         )
 
         db.commit()
@@ -170,9 +190,12 @@ def ingest_sam(
         run.notes = f"status={status} {run.notes}"
         db.commit()
         logger.info(
-            "Finished SAM ingest run_id=%s status=%s inserted=%s updated=%s skipped=%s filtered=%s errors=%s",
+            "Finished SAM ingest run_id=%s status=%s pages=%s records_seen=%s search_requests=%s inserted=%s updated=%s skipped=%s filtered=%s errors=%s",
             run.id,
             status,
+            pages_pulled,
+            records_seen,
+            search_requests_made,
             inserted,
             updated,
             skipped,
@@ -188,6 +211,9 @@ def ingest_sam(
             "skipped": skipped,
             "filtered": filtered,
             "errors": errors,
+            "pages_pulled": pages_pulled,
+            "records_seen": records_seen,
+            "search_requests_made": search_requests_made,
             "results": results,
             "stopped_due_to_rate_limit": stopped_due_to_rate_limit,
             "retry_after_seconds": rate_limit_retry_after_seconds,
@@ -315,6 +341,8 @@ def pull_sam_into_db(
     allowed_types: Optional[Set[str]] = None,
     ingestion_run_id: int | None = None,
     allow_rate_limit_wait: bool = True,
+    enrich_descriptions: bool = False,
+    max_description_enrichments: int = 10,
 ) -> Dict[str, Any]:
     allowed_types = allowed_types or set()
 
@@ -329,6 +357,9 @@ def pull_sam_into_db(
     filtered = 0
     errors = 0
     pulled = 0
+    pages_pulled = 0
+    search_requests_made = 0
+    description_enrichments = 0
 
     for _page in range(max_pages):
         try:
@@ -340,12 +371,14 @@ def pull_sam_into_db(
                 offset=offset,
                 allow_rate_limit_wait=allow_rate_limit_wait,
             )
+            search_requests_made += 1
         except Exception as e:
             logger.exception("SAM page fetch failed naics=%s offset=%s error=%s", naics, offset, repr(e))
             raise
 
         records = payload.get("opportunitiesData") or payload.get("opportunities") or []
         pulled += len(records)
+        pages_pulled += 1
         logger.info(
             "Fetched SAM page naics=%s offset=%s records=%s",
             naics,
@@ -362,7 +395,7 @@ def pull_sam_into_db(
                     filtered += 1
                     continue
 
-                if data.get("description_url"):
+                if enrich_descriptions and data.get("description_url") and description_enrichments < max_description_enrichments:
                     try:
                         resolved_description = resolve_notice_description(
                             data["description_url"],
@@ -382,6 +415,21 @@ def pull_sam_into_db(
                     if resolved_description:
                         data["description"] = resolved_description
                         data["description_text"] = resolved_description
+                    description_enrichments += 1
+                elif data.get("description_url") and not enrich_descriptions:
+                    logger.debug(
+                        "Skipping inline description enrichment naics=%s sam_notice_id=%s enrich_descriptions=%s",
+                        naics,
+                        data["sam_notice_id"],
+                        enrich_descriptions,
+                    )
+                elif data.get("description_url") and description_enrichments >= max_description_enrichments:
+                    logger.info(
+                        "Skipping inline description enrichment due to cap naics=%s sam_notice_id=%s cap=%s",
+                        naics,
+                        data["sam_notice_id"],
+                        max_description_enrichments,
+                    )
 
                 status = upsert_opportunity(db, data)
                 if status == "inserted":
@@ -422,7 +470,12 @@ def pull_sam_into_db(
         "filtered": filtered,
         "errors": errors,
         "ingestion_run_id": ingestion_run_id,
-        "pulled":pulled
+        "pulled": pulled,
+        "pages_pulled": pages_pulled,
+        "records_seen": pulled,
+        "search_requests_made": search_requests_made,
+        "description_enrichments": description_enrichments,
+        "enrich_descriptions": enrich_descriptions,
     }
 
 

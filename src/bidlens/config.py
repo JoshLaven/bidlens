@@ -17,3 +17,5 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bidlens.db")
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
 SESSION_COOKIE_NAME = "bidlens_session"
 SAM_API_KEY = os.getenv("SAM_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")

@@ -10,7 +10,7 @@ from collections import OrderedDict
 from ..database import get_db
 from ..models import Opportunity, User, UserOpportunity, OpportunityStatus, OrgProfile, OpportunityNote
 from ..auth import get_current_user
-from ..services import get_vote_counts, get_user_votes, get_last_activity
+from ..services import get_vote_counts, get_user_votes, get_last_activity, get_vote_user_maps
 from sqlalchemy import and_, or_
 from dataclasses import dataclass
 from typing import Optional
@@ -22,6 +22,19 @@ templates = Jinja2Templates(directory="src/bidlens/templates")
 
 SOLICITATION_TYPES = ["Solicitation", "Combined Synopsis/Solicitation", "Award Notice"]
 RFI_TYPES = ["RFI", "Sources Sought", "Special Notice", "Pre-Solicitation"]
+BRIEF_SECTION_DEFS = [
+    ("executive_summary", "Executive Summary"),
+    ("key_dates", "Key Dates"),
+    ("buyer_agency", "Buyer / Agency"),
+    ("scope_of_work", "Scope of Work"),
+    ("eligibility_set_aside", "Eligibility / Set-Aside"),
+    ("submission_requirements", "Submission Requirements"),
+    ("evaluation_criteria", "Evaluation Criteria"),
+    ("fit_signals", "Fit Signals"),
+    ("risk_flags", "Risk Flags"),
+    ("open_questions", "Open Questions"),
+    ("recommended_action", "Recommended Action"),
+]
 
 
 def _is_url_like(value):
@@ -36,6 +49,44 @@ def _parse_csv(text: str | None) -> list[str]:
     if not text:
         return []
     return [s.strip() for s in text.split(",") if s.strip()]
+
+
+def _normalize_brief_section_items(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, dict):
+        return [f"{k}: {v}".strip() for k, v in value.items() if str(v).strip()]
+    return [str(value).strip()]
+
+
+def _build_brief_sections(brief: dict | None) -> list[dict]:
+    if not brief:
+        return []
+
+    legacy = {
+        "executive_summary": brief.get("summary_bullets"),
+        "scope_of_work": brief.get("deliverables"),
+        "eligibility_set_aside": brief.get("eligibility"),
+        "submission_requirements": brief.get("key_requirements"),
+        "risk_flags": brief.get("red_flags"),
+        "recommended_action": brief.get("recommended_next_steps"),
+    }
+
+    sections: list[dict] = []
+    for key, label in BRIEF_SECTION_DEFS:
+        raw_value = brief.get(key)
+        if raw_value is None and key in legacy:
+            raw_value = legacy[key]
+        items = _normalize_brief_section_items(raw_value)
+        if not items:
+            items = ["Not found in available materials"]
+        sections.append({"key": key, "label": label, "items": items})
+    return sections
 
 
 def apply_org_filters(query, db: Session, user):
@@ -197,34 +248,8 @@ def _vote_export_maps(db: Session, org_id: int, opp_ids: list[int]) -> tuple[dic
     if not opp_ids:
         return {}, {}, {}
 
-    vote_rows = (
-        db.query(Vote.opp_id, Vote.vote, User.email)
-        .join(User, User.id == Vote.user_id)
-        .filter(Vote.org_id == org_id, Vote.opp_id.in_(opp_ids))
-        .all()
-    )
-
-    counts: dict[int, dict[str, int]] = {}
-    shortlist_users: dict[int, list[str]] = {}
-    pass_users: dict[int, list[str]] = {}
-
-    for opp_id, vote, email in vote_rows:
-        counts.setdefault(opp_id, {"pursue": 0, "pass": 0})
-        shortlist_users.setdefault(opp_id, [])
-        pass_users.setdefault(opp_id, [])
-
-        display_name = email or ""
-        if vote == "PURSUE":
-            counts[opp_id]["pursue"] += 1
-            shortlist_users[opp_id].append(display_name)
-        elif vote == "PASS":
-            counts[opp_id]["pass"] += 1
-            pass_users[opp_id].append(display_name)
-
-    for value_map in (shortlist_users, pass_users):
-        for opp_id, users in value_map.items():
-            value_map[opp_id] = sorted({u for u in users if u})
-
+    counts = get_vote_counts(db, opp_ids)
+    shortlist_users, pass_users = get_vote_user_maps(db, org_id=org_id, opp_ids=opp_ids)
     return counts, shortlist_users, pass_users
 
 
@@ -273,12 +298,15 @@ def _enrich_opps(rows, db, user, watched_col=True):
     opp_ids = [o.id for o in opportunities]
     counts = get_vote_counts(db, opp_ids)
     user_votes = get_user_votes(db, user.id, opp_ids)
+    pursue_users_map, pass_users_map = get_vote_user_maps(db, org_id=user.organization_id, opp_ids=opp_ids)
 
     for opp in opportunities:
         c = counts.get(opp.id, {"pursue": 0, "pass": 0})
         opp.pursue_count = c["pursue"]
         opp.pass_count = c["pass"]
         opp.user_vote = user_votes.get(opp.id)
+        opp.pursue_users = pursue_users_map.get(opp.id, [])
+        opp.pass_users = pass_users_map.get(opp.id, [])
 
     return opportunities
 
@@ -687,8 +715,12 @@ async def opportunity_detail(
     ).first()
 
     brief = brief_row.brief_json if (brief_row and brief_row.brief_json) else None
+    brief_sections = _build_brief_sections(brief)
     brief_status = brief_row.status if brief_row else None
     brief_error = brief_row.error_message if brief_row else None
+    brief_source_basis = brief_row.source_basis if brief_row else None
+    brief_source_files = brief_row.filenames_processed if (brief_row and brief_row.filenames_processed) else []
+    brief_source_summary = brief_row.source_summary if (brief_row and brief_row.source_summary) else None
 
     user_opp = db.query(UserOpportunity).filter(
         UserOpportunity.user_id == user.id,
@@ -724,8 +756,12 @@ async def opportunity_detail(
         "user_vote": user_votes.get(opp_id),
         "active_page": None,
         "brief": brief,
+        "brief_sections": brief_sections,
         "brief_status": brief_status,
         "brief_error": brief_error,
+        "brief_source_basis": brief_source_basis,
+        "brief_source_files": brief_source_files,
+        "brief_source_summary": brief_source_summary,
         "resolved_description": resolved_description,
         "opportunity_notes": notes,
         "sidebar": get_sidebar(db, user),

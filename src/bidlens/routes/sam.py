@@ -102,6 +102,7 @@ def pull_now(
             days_back=days_back,
             allowed_types=allowed_types,
             manual_pull=True,
+            enrich_descriptions=False,
         )
     except RuntimeError as exc:
         if str(exc) == "A SAM pull is already in progress":
@@ -179,7 +180,8 @@ def pull_now(
     else:
         result["message"] = (
             f"Pull completed with {result['inserted']} inserted, {result['updated']} updated, "
-            f"{result['skipped']} skipped, {result['filtered']} filtered, {result['errors']} errors."
+            f"{result['skipped']} skipped, {result['filtered']} filtered, {result['errors']} errors, "
+            f"{result.get('pages_pulled', 0)} pages pulled, {result.get('records_seen', 0)} records seen."
         )
         return JSONResponse(status_code=200, content=result)
 
