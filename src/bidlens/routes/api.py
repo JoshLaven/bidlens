@@ -9,16 +9,45 @@ from ..services import transition_state, cast_vote
 from ..models import Opportunity, OpportunityBrief
 from sqlalchemy import or_
 from datetime import datetime
+import html
 import logging
+import os
+import re
+import requests
 from ..services import get_vote_counts, get_vote_user_maps
 from ..sam_client import _is_url_like
 from ..services.research.brief_generator import (
     build_brief_request_payload,
+    build_opportunity_source_text,
     generate_local_brief,
     generate_llm_brief,
 )
+from ..services.research.document_fetcher import fetch_opportunity_attachment_metadata
 router = APIRouter(prefix="/api", tags=["api"])
 logger = logging.getLogger(__name__)
+N8N_PROVIDER = "n8n"
+N8N_MODEL = "n8n-webhook"
+BRIEF_SECTION_KEYS = [
+    "executive_summary",
+    "key_dates",
+    "buyer_agency",
+    "scope_of_work",
+    "eligibility_set_aside",
+    "submission_requirements",
+    "evaluation_criteria",
+    "fit_signals",
+    "risk_flags",
+    "open_questions",
+    "recommended_action",
+]
+
+
+def _normalize_brief_status(value: str | None) -> str:
+    if value == "pending":
+        return "generating"
+    if value == "ok":
+        return "completed"
+    return value or "not_started"
 
 
 def _best_description_text(opp: Opportunity) -> str:
@@ -31,6 +60,173 @@ def _best_description_text(opp: Opportunity) -> str:
         return description
 
     return ""
+
+
+def _clean_preview_text(value: str | None) -> str:
+    if not value:
+        return ""
+    text = re.sub(r"<[^>]+>", " ", str(value))
+    text = html.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _build_preview_payload(opp: Opportunity) -> dict[str, Any]:
+    description = _clean_preview_text(_best_description_text(opp))
+    if description:
+        return {
+            "ok": True,
+            "state": "text",
+            "title": opp.title,
+            "description": description[:300] + ("…" if len(description) > 300 else ""),
+            "sam_url": opp.sam_url,
+        }
+
+    if opp.sam_url:
+        return {
+            "ok": True,
+            "state": "sam_fallback",
+            "title": opp.title,
+            "description": "Detailed description available on SAM.gov",
+            "sam_url": opp.sam_url,
+        }
+
+    return {
+        "ok": True,
+        "state": "empty",
+        "title": opp.title,
+        "description": "No description available.",
+        "sam_url": None,
+    }
+
+
+def _normalize_brief_items(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    return [str(value).strip()] if str(value).strip() else []
+
+
+def _normalize_n8n_brief_response(data: dict[str, Any], brief_payload: dict[str, Any]) -> dict[str, list[str]]:
+    schema_keys = list((brief_payload.get("desired_brief_schema") or {}).keys()) or BRIEF_SECTION_KEYS
+    brief_value = data.get("brief")
+    normalized: dict[str, list[str]] = {key: ["Not found in available materials"] for key in schema_keys}
+
+    if isinstance(brief_value, dict):
+        legacy_map = {
+            "executive_summary": _normalize_brief_items(brief_value.get("summary_bullets")),
+            "scope_of_work": _normalize_brief_items(brief_value.get("deliverables")) + _normalize_brief_items(brief_value.get("key_requirements")),
+            "eligibility_set_aside": _normalize_brief_items(brief_value.get("eligibility")),
+            "submission_requirements": _normalize_brief_items(brief_value.get("key_requirements")),
+            "risk_flags": _normalize_brief_items(brief_value.get("red_flags")),
+            "open_questions": _normalize_brief_items(brief_value.get("recommended_next_steps")),
+            "recommended_action": _normalize_brief_items(brief_value.get("recommended_next_steps")),
+        }
+        for key in schema_keys:
+            items = _normalize_brief_items(brief_value.get(key))
+            if not items and key in legacy_map:
+                items = legacy_map[key]
+            if items:
+                normalized[key] = list(dict.fromkeys(items))
+    elif isinstance(brief_value, str) and brief_value.strip():
+        normalized["executive_summary"] = [brief_value.strip()]
+
+    fit_signals = _normalize_brief_items(data.get("fit_signals"))
+    if fit_signals:
+        normalized["fit_signals"] = fit_signals
+
+    risk_flags = _normalize_brief_items(data.get("risk_flags"))
+    if risk_flags:
+        normalized["risk_flags"] = risk_flags
+
+    agency = (data.get("agency") or brief_payload.get("agency") or "").strip()
+    if agency and normalized["buyer_agency"] == ["Not found in available materials"]:
+        normalized["buyer_agency"] = [agency]
+
+    response_deadline = (data.get("response_deadline") or brief_payload.get("response_deadline") or "").strip()
+    if response_deadline and normalized["key_dates"] == ["Not found in available materials"]:
+        normalized["key_dates"] = [f"Response deadline: {response_deadline}"]
+
+    recommended_next_steps = _normalize_brief_items(data.get("recommended_next_steps"))
+    if recommended_next_steps:
+        if normalized["open_questions"] == ["Not found in available materials"]:
+            normalized["open_questions"] = recommended_next_steps
+        if normalized["recommended_action"] == ["Not found in available materials"]:
+            normalized["recommended_action"] = recommended_next_steps
+
+    return normalized
+
+
+def _merge_n8n_source_metadata(n8n_data: dict[str, Any], brief_payload: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(brief_payload.get("source_summary") or {})
+
+    direct_mappings = {
+        "pdfs_processed": "pdfs_processed",
+        "pages_extracted": "pages_extracted",
+        "characters_read": "total_extracted_characters",
+        "characters_sent_to_model": "characters_sent_to_model",
+        "attachments_found": "total_attachments_found",
+    }
+    for source_key, summary_key in direct_mappings.items():
+        value = n8n_data.get(source_key)
+        if value is not None:
+            merged[summary_key] = value
+
+    document_filenames = n8n_data.get("document_filenames")
+    if document_filenames:
+        merged["document_filenames"] = document_filenames
+
+    return merged
+
+
+def _build_n8n_payload(opp: Opportunity, brief_payload: dict[str, Any]) -> dict[str, Any]:
+    agency_parts = [part.strip().replace("_", " ") for part in (opp.agency or "").split(".") if part.strip()]
+    department = agency_parts[0] if len(agency_parts) > 1 else None
+    subagency = agency_parts[-1] if len(agency_parts) > 1 else None
+    source_text, source_text_field = build_opportunity_source_text(
+        opp,
+        brief_context=brief_payload.get("brief_context") or brief_payload.get("text_for_enrichment"),
+    )
+    attachment_payload = fetch_opportunity_attachment_metadata(opp)
+    description = (brief_payload.get("description") or source_text or "").strip()
+    source_summary = dict(brief_payload.get("source_summary") or {})
+    return {
+        "opp_id": opp.id,
+        "opportunity_id": opp.id,
+        "bidlens_id": str(opp.bidlens_id) if getattr(opp, "bidlens_id", None) else None,
+        "title": opp.title,
+        "agency": opp.agency,
+        "department": department,
+        "subagency": subagency,
+        "opportunity_type": opp.opportunity_type,
+        "description": description,
+        "description_text": description,
+        "source_text": source_text,
+        "source_text_field": source_text_field,
+        "sam_url": opp.sam_url,
+        "sam_notice_id": opp.sam_notice_id,
+        "notice_id": opp.sam_notice_id,
+        "response_deadline": brief_payload.get("response_deadline"),
+        "posted_date": brief_payload.get("posted_date"),
+        "naics": opp.naics,
+        "set_aside": opp.set_aside,
+        "attachments": attachment_payload.get("attachments", []),
+        "attachment_count": len(attachment_payload.get("attachments", [])),
+        "attachment_summary": attachment_payload.get("summary", {}),
+        "document_filenames": brief_payload.get("filenames_processed", []),
+        "text_for_brief": brief_payload.get("text_for_brief") or brief_payload.get("text_for_enrichment"),
+        "brief_context": brief_payload.get("text_for_brief") or brief_payload.get("text_for_enrichment"),
+        "pdfs_processed": source_summary.get("pdfs_processed", 0),
+        "pages_extracted": source_summary.get("pages_extracted", 0),
+        "characters_read": source_summary.get("total_extracted_characters", 0),
+        "characters_sent_to_model": source_summary.get("characters_sent_to_model", 0),
+        "attachments_found": source_summary.get("total_attachments_found", 0),
+        "source_basis": brief_payload.get("source_basis"),
+        "used_solicitation_documents": brief_payload.get("used_solicitation_documents"),
+    }
 
 
 class TransitionIn(BaseModel):
@@ -164,31 +360,7 @@ def opportunity_preview(
     opp = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
     if not opp:
         raise HTTPException(status_code=404, detail="Opportunity not found")
-
-    description = _best_description_text(opp)
-
-    if description:
-        return {
-            "ok": True,
-            "state": "text",
-            "description": description[:400] + ("…" if len(description) > 400 else ""),
-            "sam_url": opp.sam_url,
-        }
-
-    if opp.sam_url:
-        return {
-            "ok": True,
-            "state": "sam_fallback",
-            "description": "Detailed description available on SAM.gov",
-            "sam_url": opp.sam_url,
-        }
-
-    return {
-        "ok": True,
-        "state": "empty",
-        "description": "No description available.",
-        "sam_url": None,
-    }
+    return _build_preview_payload(opp)
 
 
 REVIEW_STAGES = ["Team Review", "Director Review", "Approved"]
@@ -241,14 +413,14 @@ def pending_enrichment(request: Request, limit: int = 50, db: Session = Depends(
     else:
         raise HTTPException(status_code=401, detail="Automation only endpoint")
 
-    # Pending = no brief row OR brief.status == "pending" OR brief.status == "failed"
+    # Pending work = no brief row OR brief.status in not_started/generating/failed
     q = (
         db.query(Opportunity)
         .outerjoin(OpportunityBrief, OpportunityBrief.opportunity_id == Opportunity.id)
         .filter(
             or_(
                 OpportunityBrief.id.is_(None),
-                OpportunityBrief.status.in_(["pending", "failed"])
+                OpportunityBrief.status.in_(["not_started", "generating", "failed", "pending"])
             )
         )
         .order_by(Opportunity.response_deadline.asc())
@@ -271,7 +443,8 @@ def pending_enrichment(request: Request, limit: int = 50, db: Session = Depends(
             "naics": o.naics,
             "set_aside": o.set_aside,
             "url": o.sam_url,
-            "text_for_enrichment": text_for_enrichment[:20000],  # guardrail
+            "text_for_brief": text_for_enrichment[:20000],  # guardrail
+            "text_for_enrichment": text_for_enrichment[:20000],  # backward compatibility
         })
     return out
     
@@ -309,7 +482,7 @@ def save_enrichment(opp_id: int, payload: BriefIn, request: Request, db: Session
     row.provider = payload.provider
     row.model = payload.model
     row.generated_at = datetime.utcnow()
-    row.status = "ok"
+    row.status = "completed"
     row.error_message = None
     if payload.source_basis or payload.sources_used or payload.filenames_processed or payload.source_summary:
         _apply_brief_source_metadata(
@@ -335,7 +508,7 @@ def reset_enrichment(opp_id: int, request: Request, db: Session = Depends(get_db
         db.add(row)
         db.flush()
 
-    row.status = "pending"
+    row.status = "not_started"
     row.error_message = None
     row.brief_json = None
     row.model = None
@@ -347,7 +520,7 @@ def reset_enrichment(opp_id: int, request: Request, db: Session = Depends(get_db
     row.source_summary = None
 
     db.commit()
-    return {"ok": True, "opp_id": opp_id, "status": "pending"}
+    return {"ok": True, "opp_id": opp_id, "status": "not_started"}
     
 @router.post("/opps/{opp_id}/mark_pending")
 def mark_pending(opp_id: int, request: Request, db: Session = Depends(get_db)):
@@ -359,10 +532,10 @@ def mark_pending(opp_id: int, request: Request, db: Session = Depends(get_db)):
         db.add(row)
         db.flush()
 
-    row.status = "pending"
+    row.status = "generating"
     row.error_message = None
     db.commit()
-    return {"ok": True, "opp_id": opp_id, "status": "pending"}
+    return {"ok": True, "opp_id": opp_id, "status": "generating"}
 
 @router.post("/opps/{opp_id}/generate_brief")
 def generate_brief(
@@ -371,6 +544,7 @@ def generate_brief(
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
+    logger.info("Generate brief requested opp_id=%s user_id=%s", opp_id, getattr(user, "id", None))
 
     opp = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
     if not opp:
@@ -383,11 +557,11 @@ def generate_brief(
     if not row:
         row = OpportunityBrief(
             opportunity_id=opp_id,
-            status="pending",
+            status="generating",
         )
         db.add(row)
     else:
-        row.status = "pending"
+        row.status = "generating"
         row.error_message = None
 
     brief_payload = build_brief_request_payload(opp)
@@ -395,39 +569,118 @@ def generate_brief(
     db.commit()
 
     fallback_triggered = False
+    n8n_url = os.getenv("N8N_BRIEF_WEBHOOK_URL")
+    if n8n_url:
+        n8n_payload = _build_n8n_payload(opp, brief_payload)
+        source_text = (n8n_payload.get("source_text") or "").strip()
+        source_text_field = n8n_payload.get("source_text_field")
+        description = (n8n_payload.get("description") or "").strip()
+        if not source_text:
+            logger.warning(
+                "No local SAM description available for brief generation opp_id=%s title=%s description_length=%s source_text_length=%s source_text_field=%s",
+                opp_id,
+                opp.title,
+                len(description),
+                len(source_text),
+                source_text_field,
+            )
+            logger.info("Skipping n8n brief generation for opp_id=%s and falling back to direct OpenAI/local flow", opp_id)
+        else:
+            logger.info(
+                "Attempting n8n brief generation opp_id=%s title=%s description_length=%s source_text_length=%s source_text_field=%s attachment_count=%s webhook=%s",
+                opp_id,
+                opp.title,
+                len(description),
+                len(source_text),
+                source_text_field,
+                n8n_payload.get("attachment_count", 0),
+                n8n_url,
+            )
+        try:
+            if source_text:
+                n8n_response = requests.post(
+                    n8n_url,
+                    json=n8n_payload,
+                    timeout=60,
+                )
+                n8n_response.raise_for_status()
+                n8n_data = n8n_response.json()
+                row.brief_json = _normalize_n8n_brief_response(n8n_data, brief_payload)
+                row.provider = N8N_PROVIDER
+                row.model = n8n_data.get("model") or N8N_MODEL
+                row.generated_at = datetime.utcnow()
+                row.status = "completed"
+                row.error_message = None
+                row.source_basis = n8n_data.get("source_basis") or brief_payload.get("source_basis")
+                row.filenames_processed = n8n_data.get("document_filenames") or brief_payload.get("filenames_processed")
+                row.source_summary = _merge_n8n_source_metadata(n8n_data, brief_payload)
+                db.commit()
+                logger.info(
+                    "Generate brief finished opp_id=%s provider=%s model=%s fallback_triggered=%s",
+                    opp_id,
+                    row.provider,
+                    row.model,
+                    fallback_triggered,
+                )
+                return {
+                    "ok": True,
+                    "status": "ok",
+                    "source_basis": brief_payload["source_basis"],
+                    "filenames_processed": brief_payload["filenames_processed"],
+                    "provider": row.provider,
+                    "model": row.model,
+                    "fallback_triggered": fallback_triggered,
+                }
+        except Exception as exc:
+            logger.warning("n8n brief generation failed for opp_id=%s; falling back to direct OpenAI error=%s", opp_id, repr(exc))
+
     try:
         llm_result = generate_llm_brief(brief_payload)
         row.brief_json = llm_result["brief"]
         row.provider = llm_result["provider"]
         row.model = llm_result["model"]
         row.generated_at = datetime.utcnow()
-        row.status = "ok"
+        row.status = "completed"
         row.error_message = None
     except Exception as exc:
         fallback_triggered = True
         logger.warning("OpenAI brief generation failed for opp_id=%s; using local fallback error=%s", opp_id, repr(exc))
-        row.brief_json = generate_local_brief(opp, brief_payload)
-        row.provider = "local"
-        row.model = "local-deterministic-fallback"
-        row.generated_at = datetime.utcnow()
-        row.status = "ok"
-        row.error_message = f"OpenAI brief generation failed, used local fallback: {exc}"
-        db.commit()
-        return {
-            "ok": True,
-            "status": "ok",
-            "source_basis": brief_payload["source_basis"],
-            "filenames_processed": brief_payload["filenames_processed"],
-            "provider": row.provider,
-            "model": row.model,
-            "fallback_triggered": fallback_triggered,
-        }
+        try:
+            row.brief_json = generate_local_brief(opp, brief_payload)
+            row.provider = "local"
+            row.model = "local-deterministic-fallback"
+            row.generated_at = datetime.utcnow()
+            row.status = "completed"
+            row.error_message = None
+            db.commit()
+            return {
+                "ok": True,
+                "status": "completed",
+                "source_basis": brief_payload["source_basis"],
+                "filenames_processed": brief_payload["filenames_processed"],
+                "provider": row.provider,
+                "model": row.model,
+                "fallback_triggered": fallback_triggered,
+            }
+        except Exception as fallback_exc:
+            row.status = "failed"
+            row.error_message = f"Brief generation failed: {fallback_exc}"
+            db.commit()
+            logger.exception("Brief generation failed completely opp_id=%s error=%s", opp_id, repr(fallback_exc))
+            raise HTTPException(status_code=500, detail="Brief generation failed")
 
     db.commit()
+    logger.info(
+        "Generate brief finished opp_id=%s provider=%s model=%s fallback_triggered=%s",
+        opp_id,
+        row.provider,
+        row.model,
+        fallback_triggered,
+    )
 
     return {
         "ok": True,
-        "status": "ok",
+        "status": "completed",
         "source_basis": brief_payload["source_basis"],
         "filenames_processed": brief_payload["filenames_processed"],
         "provider": row.provider,

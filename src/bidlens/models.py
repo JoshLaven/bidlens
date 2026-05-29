@@ -100,7 +100,7 @@ class OpportunityBrief(Base):
     filenames_processed = Column(JSON, nullable=True)
     source_summary = Column(JSON, nullable=True)
 
-    status = Column(String, nullable=False, default="pending", index=True)  # pending | ok | failed
+    status = Column(String, nullable=False, default="not_started", index=True)  # not_started | generating | completed | failed
     error_message = Column(Text, nullable=True)
 
     generated_at = Column(DateTime, nullable=True)

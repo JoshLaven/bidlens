@@ -22,6 +22,8 @@ MAX_PDF_BYTES = 15 * 1024 * 1024
 SAM_PUBLIC_RESOURCES_TEMPLATE = "https://sam.gov/api/prod/opps/v3/opportunities/{notice_id}/resources"
 SAM_PUBLIC_DOWNLOAD_TEMPLATE = "https://sam.gov/api/prod/opps/v3/opportunities/resources/files/{resource_id}/download"
 HIGH_PRIORITY_TERMS = (
+    "performance work statement",
+    "statement of work",
     "solicitation",
     "rfp",
     "rfq",
@@ -32,11 +34,20 @@ HIGH_PRIORITY_TERMS = (
     "statement_of_work",
     "instructions",
     "evaluation",
+    "proposal",
+    "pricing",
     "q&a",
     "qanda",
     "qa",
 )
 LOW_PRIORITY_TERMS = (
+    "wage determination",
+    "wage_determination",
+    "clause",
+    "clauses",
+    "provision",
+    "provisions",
+    "attachment",
     "form",
     "forms",
     "template",
@@ -264,6 +275,31 @@ def _fetch_public_pdf_resources(opportunity) -> tuple[list[dict], dict]:
         summary["controlled_or_unavailable_skipped"],
     )
     return _prioritize_resources(pdf_resources), summary
+
+
+def fetch_opportunity_attachment_metadata(opportunity) -> dict:
+    """Return lightweight SAM attachment/resource metadata without downloading files."""
+    resources, summary = _fetch_public_pdf_resources(opportunity)
+    attachments = [
+        {
+            "filename": resource.get("filename"),
+            "url": resource.get("source_url"),
+            "content_type": "application/pdf",
+            "source": "sam",
+        }
+        for resource in resources
+    ]
+    logger.info(
+        "Attachment metadata ready opp_id=%s attachments=%s total_found=%s pdf_candidates=%s",
+        getattr(opportunity, "id", None),
+        len(attachments),
+        summary.get("total_attachments_found", 0),
+        summary.get("pdf_candidates_found", 0),
+    )
+    return {
+        "attachments": attachments,
+        "summary": summary,
+    }
 
 
 def _extract_pdf_links_from_html(html: str, base_url: str) -> list[str]:

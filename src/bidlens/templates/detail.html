@@ -148,11 +148,26 @@
 
         <div class="brief-actions" style="display:flex; justify-content:flex-end; margin-bottom: 12px;">
           <button class="btn btn-secondary btn-sm"
+                  id="generate-brief-button"
                   type="button"
                   onclick="generateBrief('{{ opportunity.id }}')">
             Generate AI Brief
           </button>
         </div>
+
+        <div id="brief-generate-status" class="muted" style="display:none; margin-bottom: 12px;"></div>
+
+        {% if brief_status == "completed" and brief_generated_at %}
+          <div class="muted" style="margin-bottom: 10px;">
+            Generated {{ brief_generated_at.strftime("%b %d, %Y %I:%M %p") }}
+            {% if brief_provider %} via {{ brief_provider }}{% endif %}
+            {% if brief_model %} · {{ brief_model }}{% endif %}
+          </div>
+        {% elif brief_status == "generating" %}
+          <div class="muted" style="margin-bottom: 10px;">Generating…</div>
+        {% elif brief_status == "failed" %}
+          <div class="muted" style="margin-bottom: 10px;">Last generation attempt failed.</div>
+        {% endif %}
 
         {% if brief_source_basis %}
           <div class="brief-source-note">
@@ -190,6 +205,10 @@
         {% endif %}
 
         <div class="brief-content">
+          {% if brief_status == "failed" %}
+            <p><strong>Brief failed:</strong> {{ brief_error or "unknown error" }}</p>
+          {% endif %}
+
           {% if brief %}
             {% for section in brief_sections %}
               <h4>{{ section["label"] }}</h4>
@@ -201,13 +220,10 @@
             {% endfor %}
 
           {% else %}
-            {% if brief_status == "pending" %}
-              <script>
-                setTimeout(() => window.location.reload(), 5000);
-              </script>
-              <p><em>Generating summary…</em></p>
+            {% if brief_status == "generating" %}
+              <p><em>Generating summary… refresh in a moment if it does not appear.</em></p>
             {% elif brief_status == "failed" %}
-              <p><strong>Brief failed:</strong> {{ brief_error or "unknown error" }}</p>
+              <p><em>No completed brief is available yet.</em></p>
             {% else %}
               <p><em>No brief yet. Click "Generate AI Brief" to create one.</em></p>
             {% endif %}
@@ -269,22 +285,70 @@
 {% include "_archive_modal.html" %}
 {% block scripts %}
 <script>
+let briefGenerationInFlight = false;
+
 async function generateBrief(oppId) {
-  const response = await fetch(`/api/opps/${oppId}/generate_brief`, { method: "POST" });
-  if (!response.ok) {
-    let message = "Unable to generate brief right now.";
-    try {
-      const payload = await response.json();
-      if (payload && payload.detail) {
-        message = payload.detail;
-      }
-    } catch (error) {
-      // Fall through to the default message.
-    }
-    window.alert(message);
+  if (briefGenerationInFlight) {
+    console.info(`[BidLens] Generate brief already in progress for opportunity ${oppId}`);
     return;
   }
-  window.location.reload();
+
+  const button = document.getElementById('generate-brief-button');
+  const status = document.getElementById('brief-generate-status');
+  briefGenerationInFlight = true;
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Generating...';
+  }
+  if (status) {
+    status.style.display = 'block';
+    status.textContent = 'Generating summary...';
+  }
+
+  console.info(`[BidLens] Starting brief generation for opportunity ${oppId}`);
+
+  try {
+    const response = await fetch(`/api/opps/${oppId}/generate_brief`, { method: "POST" });
+    if (!response.ok) {
+      let message = "Unable to generate brief right now.";
+      try {
+        const payload = await response.json();
+        if (payload && payload.detail) {
+          message = payload.detail;
+        }
+      } catch (error) {
+        // Fall through to the default message.
+      }
+
+      if (button) {
+        button.disabled = false;
+        button.textContent = 'Generate AI Brief';
+      }
+      if (status) {
+        status.textContent = message;
+      }
+      briefGenerationInFlight = false;
+      window.alert(message);
+      return;
+    }
+
+    console.info(`[BidLens] Brief generation finished for opportunity ${oppId}; reloading once`);
+    if (status) {
+      status.textContent = 'Summary ready. Refreshing...';
+    }
+    window.location.reload();
+  } catch (error) {
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Generate AI Brief';
+    }
+    if (status) {
+      status.textContent = 'Unable to generate brief right now.';
+    }
+    briefGenerationInFlight = false;
+    window.alert('Unable to generate brief right now.');
+  }
 }
 </script>
 {% endblock %}

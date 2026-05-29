@@ -20,86 +20,80 @@
 {% set original_agency_title = original_agency|title %}
 {% set agency_display = candidate_agency if candidate_agency and candidate_agency|length >= 4 and candidate_agency|length <= original_agency_title|length else original_agency_title %}
 {% set due_label = opp.response_deadline.strftime('%b %d, %Y') if opp.response_deadline else 'No deadline' %}
-{% set preview_text = (opp.description_text or opp.description or '')|striptags|trim %}
-{% set preview_is_url = preview_text[:4]|lower == 'http' %}
 {% set pursue_users = opp.pursue_users or [] %}
 {% set pass_users = opp.pass_users or [] %}
-{% if preview_is_url %}
-  {% set preview_text = '' %}
-{% endif %}
+{% set preview_text = opp.preview_description or '' %}
+{% set preview_has_sam_fallback = opp.preview_has_sam_fallback %}
 <div
   id="opp-card-{{ opp.id }}"
   class="opp-card{% if view != 'archive' %}{% if opp.user_vote == 'PURSUE' %} opp-card--pursue{% elif opp.user_vote == 'PASS' %} opp-card--pass{% endif %}{% endif %}{% if view == 'archive' %} opp-card--archived{% endif %}"
   data-opp-id="{{ opp.id }}"
   data-card-view="{{ view }}"
 >
-  <div class="opp-card-heading">
-    <div class="opp-card-title-group">
-      <a href="/opportunity/{{ opp.id }}" class="opp-card-title">{{ opp.title }}</a>
-      <div class="opp-preview" data-preview-id="{{ opp.id }}">
-        <button
-          type="button"
-          class="opp-preview-toggle"
-          aria-label="More info"
-          aria-expanded="false"
-          onmouseenter="loadPreview('{{ opp.id }}')"
-          onfocus="loadPreview('{{ opp.id }}')"
-          onclick="togglePreview(event, '{{ opp.id }}')"
-        >
-          i
-        </button>
-        <div class="opp-preview-popover" data-preview-popover role="note">
-          {% if preview_is_url %}
-            <p>Detailed description available on SAM.gov</p>
-            {% if opp.sam_url %}
-              <a href="{{ opp.sam_url }}" target="_blank" rel="noreferrer" class="opp-preview-link">View on SAM.gov</a>
+  <div class="opp-card-top">
+    <div class="opp-card-main">
+      <div class="opp-card-heading">
+        <div class="opp-card-title-group">
+          <a href="/opportunity/{{ opp.id }}" class="opp-card-title">{{ opp.title }}</a>
+          <div class="opp-preview" data-preview-id="{{ opp.id }}">
+            <button
+              type="button"
+              class="opp-preview-toggle"
+              aria-label="More info"
+              aria-expanded="false"
+              onmouseenter="loadPreview('{{ opp.id }}')"
+              onfocus="loadPreview('{{ opp.id }}')"
+              onclick="togglePreview(event, '{{ opp.id }}')"
+            >
+              i
+            </button>
+            <div class="opp-preview-popover" data-preview-popover role="note">
+              <div class="opp-preview-title">{{ opp.title }}</div>
+              {% if preview_has_sam_fallback %}
+                <p>Detailed description available on SAM.gov</p>
+                {% if opp.sam_url %}
+                  <a href="{{ opp.sam_url }}" target="_blank" rel="noreferrer" class="opp-preview-link">View on SAM.gov</a>
+                {% endif %}
+              {% elif preview_text %}
+                <p>{{ preview_text[:300] }}{% if preview_text|length > 300 %}…{% endif %}</p>
+              {% else %}
+                <p>No description available.</p>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="opp-card-agency" title="{{ agency_display }}">{{ agency_display|truncate(60, False, '…') }}</div>
+      <div class="opp-preview-inline" id="opp-preview-inline-{{ opp.id }}" data-preview-inline hidden>
+        <div class="opp-preview-title">{{ opp.title }}</div>
+        {% if preview_has_sam_fallback %}
+          <p>Detailed description available on SAM.gov</p>
+          {% if opp.sam_url %}
+            <a href="{{ opp.sam_url }}" target="_blank" rel="noreferrer" class="opp-preview-link">View on SAM.gov</a>
+          {% endif %}
+        {% elif preview_text %}
+          <p>{{ preview_text[:300] }}{% if preview_text|length > 300 %}…{% endif %}</p>
+        {% else %}
+          <p>No description available.</p>
+        {% endif %}
+      </div>
+
+      <div class="opp-card-row">
+        <div class="opp-card-deadline {{ 'due-past' if opp.days_until_due is defined and opp.days_until_due < 0 else 'due-urgent' if opp.days_until_due is defined and opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due is defined and opp.days_until_due <= 14 else '' }}">
+          {% if opp.response_deadline %}
+            {{ opp.response_deadline.strftime('%b %d, %Y') }}
+            {% if opp.days_until_due is defined and opp.days_until_due >= 0 %}
+              <span class="opp-card-days">{{ opp.days_until_due }}d</span>
+            {% elif opp.days_until_due is defined %}
+              <span class="opp-card-days opp-card-days--past">Past due</span>
             {% endif %}
-          {% elif preview_text %}
-            <p>{{ preview_text[:400] }}{% if preview_text|length > 400 %}…{% endif %}</p>
           {% else %}
-            <p>No description available.</p>
+            No deadline
           {% endif %}
         </div>
       </div>
     </div>
-    <div class="opp-card-tools">
-      <button
-        type="button"
-        class="opp-icon-button"
-        title="Email opportunity"
-        aria-label="Email opportunity"
-        onclick='openOpportunityEmail({ title: {{ opp.title|tojson }}, agency: {{ agency_display|tojson }}, due: {{ due_label|tojson }}, path: {{ ("/opportunity/" ~ opp.id)|tojson }}, samUrl: {{ (opp.sam_url or "")|tojson }} })'>
-        &#9993;
-      </button>
-    </div>
-  </div>
-  <div class="opp-card-agency" title="{{ agency_display }}">{{ agency_display|truncate(60, False, '…') }}</div>
-  <div class="opp-preview-inline" id="opp-preview-inline-{{ opp.id }}" data-preview-inline hidden>
-    {% if preview_is_url %}
-      <p>Detailed description available on SAM.gov</p>
-      {% if opp.sam_url %}
-        <a href="{{ opp.sam_url }}" target="_blank" rel="noreferrer" class="opp-preview-link">View on SAM.gov</a>
-      {% endif %}
-    {% elif preview_text %}
-      <p>{{ preview_text[:400] }}{% if preview_text|length > 400 %}…{% endif %}</p>
-    {% else %}
-      <p>No description available.</p>
-    {% endif %}
-  </div>
 
-  <div class="opp-card-row">
-    <div class="opp-card-deadline {{ 'due-past' if opp.days_until_due is defined and opp.days_until_due < 0 else 'due-urgent' if opp.days_until_due is defined and opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due is defined and opp.days_until_due <= 14 else '' }}">
-      {% if opp.response_deadline %}
-        {{ opp.response_deadline.strftime('%b %d, %Y') }}
-        {% if opp.days_until_due is defined and opp.days_until_due >= 0 %}
-          <span class="opp-card-days">{{ opp.days_until_due }}d</span>
-        {% elif opp.days_until_due is defined %}
-          <span class="opp-card-days opp-card-days--past">Past due</span>
-        {% endif %}
-      {% else %}
-        No deadline
-      {% endif %}
-    </div>
     {% if view != 'archive' %}
     <div class="opp-card-actions">
       <button type="button"
@@ -125,32 +119,41 @@
     {% endif %}
   </div>
 
-  <div class="opp-card-score" data-signal-container {% if not total_signals %}hidden{% endif %}>
-    <span
-      class="opp-score-flap opp-score-flap--pursue"
-      data-signal-pill="pursue"
-      data-users="{{ pursue_users|join(', ') }}"
-      {% if not pursue_count %}hidden{% endif %}
-    >
-      <span class="opp-score-label">S</span>
-      <span class="opp-score-value" data-pursue-count>{{ pursue_count }}</span>
-      <span class="opp-score-tooltip" data-signal-tooltip {% if not pursue_users %}hidden{% endif %}>Shortlisted by: {{ pursue_users|join(', ') }}</span>
-    </span>
-    <span
-      class="opp-score-flap opp-score-flap--pass"
-      data-signal-pill="pass"
-      data-users="{{ pass_users|join(', ') }}"
-      {% if not pass_count %}hidden{% endif %}
-    >
-      <span class="opp-score-label">P</span>
-      <span class="opp-score-value" data-pass-count>{{ pass_count }}</span>
-      <span class="opp-score-tooltip" data-signal-tooltip {% if not pass_users %}hidden{% endif %}>Passed by: {{ pass_users|join(', ') }}</span>
-    </span>
-  </div>
-
   {# === EXPANDABLE DETAILS === #}
   <details class="opp-card-more">
-    <summary>Details</summary>
+    <summary>
+      <span class="opp-card-more-label">Details</span>
+      <span class="opp-card-score" data-signal-container {% if not total_signals %}hidden{% endif %}>
+        <span
+          class="opp-score-flap opp-score-flap--pursue"
+          data-signal-pill="pursue"
+          data-users="{{ pursue_users|join(', ') }}"
+          {% if not pursue_count %}hidden{% endif %}
+        >
+          <span class="opp-score-label">S</span>
+          <span class="opp-score-value" data-pursue-count>{{ pursue_count }}</span>
+          <span class="opp-score-tooltip" data-signal-tooltip {% if not pursue_users %}hidden{% endif %}>Shortlisted by: {{ pursue_users|join(', ') }}</span>
+        </span>
+        <span
+          class="opp-score-flap opp-score-flap--pass"
+          data-signal-pill="pass"
+          data-users="{{ pass_users|join(', ') }}"
+          {% if not pass_count %}hidden{% endif %}
+        >
+          <span class="opp-score-label">P</span>
+          <span class="opp-score-value" data-pass-count>{{ pass_count }}</span>
+          <span class="opp-score-tooltip" data-signal-tooltip {% if not pass_users %}hidden{% endif %}>Passed by: {{ pass_users|join(', ') }}</span>
+        </span>
+      </span>
+      <button
+        type="button"
+        class="opp-icon-button opp-footer-icon"
+        title="Email opportunity"
+        aria-label="Email opportunity"
+        onclick='openOpportunityEmail({ title: {{ opp.title|tojson }}, agency: {{ agency_display|tojson }}, due: {{ due_label|tojson }}, path: {{ ("/opportunity/" ~ opp.id)|tojson }}, samUrl: {{ (opp.sam_url or "")|tojson }} })'>
+        &#9993;
+      </button>
+    </summary>
     <div class="opp-card-expanded">
       <div class="opp-detail-grid">
         {% if opp.opportunity_type %}

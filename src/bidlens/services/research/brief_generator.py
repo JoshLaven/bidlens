@@ -35,6 +35,12 @@ BRIEF_SECTION_ORDER = [
 ]
 logger = logging.getLogger(__name__)
 OPENAI_PROVIDER = "openai"
+SOURCE_TEXT_FIELD_ORDER = (
+    "description",
+    "description_text",
+    "notice_description",
+    "raw_description",
+)
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -48,16 +54,22 @@ def _estimate_tokens_from_chars(char_count: int) -> int:
     return max(1, (char_count + 3) // 4) if char_count > 0 else 0
 
 
-def _best_description_text(opportunity: Opportunity) -> str:
-    description_text = (opportunity.description_text or "").strip()
-    if description_text:
-        return description_text
+def build_opportunity_source_text(
+    opportunity: Opportunity,
+    *,
+    brief_context: str | None = None,
+) -> tuple[str, str | None]:
+    for field_name in SOURCE_TEXT_FIELD_ORDER:
+        value = getattr(opportunity, field_name, None)
+        text = (value or "").strip() if isinstance(value, str) else ""
+        if text and not _is_url_like(text):
+            return text, field_name
 
-    description = (opportunity.description or "").strip()
-    if description and not _is_url_like(description):
-        return description
+    context_text = (brief_context or "").strip()
+    if context_text:
+        return context_text, "brief_context"
 
-    return ""
+    return "", None
 
 
 def _not_found_list() -> list[str]:
@@ -72,6 +84,9 @@ def _render_brief_instructions() -> str:
             "You are generating a BidLens opportunity brief for bid/no-bid triage.",
             "Use concise, plain-English, decision-oriented language.",
             "Return a JSON object only.",
+            "Use solicitation document text as the primary source of truth when it is available.",
+            "Use the SAM description only as supplemental context.",
+            "Prefer exact extracted requirements, instructions, dates, and evaluation language over generic summaries.",
             "Every section below is required, even if the answer is missing.",
             "If information is missing, write exactly: Not found in available materials",
             "Do not guess or infer facts that are not stated in the SAM description or solicitation documents.",
@@ -103,8 +118,65 @@ def _brief_schema() -> dict[str, Any]:
     }
 
 
+def _render_document_sections(documents: list[dict[str, Any]]) -> str:
+    if not documents:
+        return "No readable PDF solicitation documents were retrieved."
+
+    sections = []
+    for document in documents:
+        sections.append(
+            "\n".join(
+                [
+                    f"Filename: {document['filename']}",
+                    f"Source URL: {document['source_url']}",
+                    f"Extracted Text:\n{document['extracted_text']}",
+                ]
+            )
+        )
+    return "\n\n---\n\n".join(sections)
+
+
+def _render_attachment_metadata(
+    documents: list[dict[str, Any]],
+    source_summary: dict[str, Any],
+) -> str:
+    filenames = [doc["filename"] for doc in documents if doc.get("filename")]
+    lines = [
+        f"Attachments found on SAM: {source_summary.get('total_attachments_found', 0)}",
+        f"PDFs processed: {source_summary.get('pdfs_processed', 0)}",
+        f"Pages extracted: {source_summary.get('pages_extracted', 0)}",
+        f"Characters read: {source_summary.get('total_extracted_characters', 0)}",
+    ]
+    if filenames:
+        lines.append("Document filenames reviewed: " + "; ".join(filenames))
+    else:
+        lines.append("Document filenames reviewed: None")
+    return "\n".join(lines)
+
+
+def _build_text_for_brief(
+    opportunity: Opportunity,
+    *,
+    description: str,
+    documents: list[dict[str, Any]],
+    source_summary: dict[str, Any],
+) -> str:
+    due_date = opportunity.response_deadline.strftime("%B %d, %Y") if opportunity.response_deadline else "Unknown"
+    prompt_sections = [
+        f"Title: {opportunity.title}",
+        f"Agency: {opportunity.agency}",
+        f"Due Date: {due_date}",
+        "Primary Solicitation Document Text:\n" + _render_document_sections(documents),
+        "Supplemental SAM Description:\n" + (description or "No SAM description text available."),
+        "Attachment Metadata:\n" + _render_attachment_metadata(documents, source_summary),
+        "Brief Instructions:\n" + _render_brief_instructions(),
+    ]
+    return "\n\n".join(prompt_sections)
+
+
 def build_brief_request_payload(opportunity: Opportunity) -> dict[str, Any]:
-    description = _truncate(_best_description_text(opportunity), MAX_DESCRIPTION_CHARS)
+    source_text, source_text_field = build_opportunity_source_text(opportunity)
+    description = _truncate(source_text, MAX_DESCRIPTION_CHARS)
     fetch_result = fetch_opportunity_documents(opportunity)
     fetched_documents = fetch_result["documents"]
     source_summary = fetch_result["summary"]
@@ -145,38 +217,16 @@ def build_brief_request_payload(opportunity: Opportunity) -> dict[str, Any]:
             }
         )
 
-    due_date = opportunity.response_deadline.strftime("%B %d, %Y") if opportunity.response_deadline else "Unknown"
-
-    prompt_sections = [
-        f"Title: {opportunity.title}",
-        f"Agency: {opportunity.agency}",
-        f"Due Date: {due_date}",
-    ]
-    if description:
-        prompt_sections.append(f"SAM Description:\n{description}")
-    else:
-        prompt_sections.append("SAM Description:\nNo SAM description text available.")
-
-    if documents:
-        doc_sections = []
-        for document in documents:
-            doc_sections.append(
-                "\n".join(
-                    [
-                        f"Filename: {document['filename']}",
-                        f"Source URL: {document['source_url']}",
-                        f"Extracted Text:\n{document['extracted_text']}",
-                    ]
-                )
-            )
-        prompt_sections.append("Solicitation Documents:\n\n" + "\n\n---\n\n".join(doc_sections))
-    else:
-        prompt_sections.append("Solicitation Documents:\nNo readable PDF solicitation documents were retrieved.")
-
-    prompt_sections.append("Brief Instructions:\n" + _render_brief_instructions())
-    text_for_enrichment = "\n\n".join(prompt_sections)
-    input_chars = len(text_for_enrichment)
+    text_for_brief = _build_text_for_brief(
+        opportunity,
+        description=description,
+        documents=documents,
+        source_summary=source_summary,
+    )
+    input_chars = len(text_for_brief)
     estimated_input_tokens = _estimate_tokens_from_chars(input_chars)
+    document_chars_sent = sum(len(doc.get("extracted_text", "")) for doc in documents)
+    attachment_metadata_text = _render_attachment_metadata(documents, source_summary)
     if estimated_input_tokens > MAX_INPUT_TOKENS_ESTIMATE:
         logger.warning(
             "Brief payload estimated tokens exceed V1 target opp_id=%s estimated_tokens=%s limit=%s",
@@ -185,15 +235,25 @@ def build_brief_request_payload(opportunity: Opportunity) -> dict[str, Any]:
             MAX_INPUT_TOKENS_ESTIMATE,
         )
     logger.info(
-        "Brief payload ready opp_id=%s input_chars=%s estimated_input_tokens=%s docs_included=%s",
+        "Brief payload ready opp_id=%s input_chars=%s estimated_input_tokens=%s docs_included=%s source_text_field=%s description_length=%s document_chars_sent=%s attachment_metadata_chars=%s",
         opportunity.id,
         input_chars,
         estimated_input_tokens,
         len(documents),
+        source_text_field,
+        len(description),
+        document_chars_sent,
+        len(attachment_metadata_text),
     )
+    source_summary["attachments_found"] = source_summary.get("total_attachments_found", 0)
+    source_summary["document_filenames"] = filenames_processed
     source_summary["input_chars"] = input_chars
     source_summary["estimated_input_tokens"] = estimated_input_tokens
     source_summary["prompt_char_budget"] = PROMPT_CHAR_BUDGET
+    source_summary["characters_sent_to_model"] = input_chars
+    source_summary["description_characters_sent"] = len(description)
+    source_summary["document_characters_sent"] = document_chars_sent
+    source_summary["attachment_metadata_characters_sent"] = len(attachment_metadata_text)
 
     return {
         "opp_id": opportunity.id,
@@ -207,6 +267,8 @@ def build_brief_request_payload(opportunity: Opportunity) -> dict[str, Any]:
         "set_aside": opportunity.set_aside,
         "url": opportunity.sam_url,
         "description": description,
+        "source_text": source_text,
+        "source_text_field": source_text_field,
         "solicitation_documents": documents,
         "sources_used": sources_used,
         "filenames_processed": filenames_processed,
@@ -215,7 +277,8 @@ def build_brief_request_payload(opportunity: Opportunity) -> dict[str, Any]:
         "used_solicitation_documents": bool(documents),
         "prompt_instructions": _render_brief_instructions(),
         "desired_brief_schema": {key: [] for key, _ in BRIEF_SECTION_ORDER},
-        "text_for_enrichment": text_for_enrichment,
+        "text_for_brief": text_for_brief,
+        "text_for_enrichment": text_for_brief,
     }
 
 
@@ -388,7 +451,7 @@ def generate_llm_brief(payload: dict[str, Any]) -> dict[str, Any]:
 
     client = OpenAI(api_key=OPENAI_API_KEY)
     model = OPENAI_MODEL
-    input_text = payload["text_for_enrichment"]
+    input_text = payload.get("text_for_brief") or payload["text_for_enrichment"]
     input_chars = len(input_text)
 
     response = client.responses.create(

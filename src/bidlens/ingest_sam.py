@@ -259,7 +259,14 @@ def normalize_sam_record(rec: Dict[str, Any], allowed_types: Set[str]) -> Option
     naics = rec.get("naics") or rec.get("naicsCode")
     set_aside = rec.get("typeOfSetAside") or rec.get("setAside") or rec.get("setAsideCode")
 
-    description = rec.get("description")
+    description = (
+        rec.get("description")
+        or rec.get("descriptionText")
+        or rec.get("noticeDescription")
+        or rec.get("rawDescription")
+        or rec.get("synopsis")
+        or rec.get("additionalInfo")
+    )
     if description is not None and not isinstance(description, str):
         description = None
     description = description.strip() if isinstance(description, str) else None

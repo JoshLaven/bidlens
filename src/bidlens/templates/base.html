@@ -292,8 +292,10 @@
     function renderPreviewContent(target, data) {
       if (!target || !data) return;
 
+      const titleHtml = `<div class="opp-preview-title">${escapeHtml(data.title || '')}</div>`;
+
       if (data.state === 'text') {
-        target.innerHTML = `<p>${escapeHtml(data.description)}</p>`;
+        target.innerHTML = `${titleHtml}<p>${escapeHtml(data.description)}</p>`;
         return;
       }
 
@@ -301,11 +303,11 @@
         const linkHtml = data.sam_url
           ? `<a href="${escapeHtml(data.sam_url)}" target="_blank" rel="noreferrer" class="opp-preview-link">View on SAM.gov</a>`
           : '';
-        target.innerHTML = `<p>${escapeHtml(data.description)}</p>${linkHtml}`;
+        target.innerHTML = `${titleHtml}<p>${escapeHtml(data.description)}</p>${linkHtml}`;
         return;
       }
 
-      target.innerHTML = `<p>No description available.</p>`;
+      target.innerHTML = `${titleHtml}<p>No description available.</p>`;
     }
 
     async function loadPreview(oppId) {

@@ -1,4 +1,6 @@
 from datetime import date, datetime, timedelta
+import html
+import re
 import csv
 import io
 from fastapi import APIRouter, Request, Form, Depends
@@ -35,6 +37,14 @@ BRIEF_SECTION_DEFS = [
     ("open_questions", "Open Questions"),
     ("recommended_action", "Recommended Action"),
 ]
+
+
+def _normalize_brief_status(value: str | None) -> str:
+    if value == "pending":
+        return "generating"
+    if value == "ok":
+        return "completed"
+    return value or "not_started"
 
 
 def _is_url_like(value):
@@ -307,6 +317,8 @@ def _enrich_opps(rows, db, user, watched_col=True):
         opp.user_vote = user_votes.get(opp.id)
         opp.pursue_users = pursue_users_map.get(opp.id, [])
         opp.pass_users = pass_users_map.get(opp.id, [])
+        opp.preview_description = _clean_preview_text(opp.description_text or opp.description or "")
+        opp.preview_has_sam_fallback = bool((not opp.preview_description) and getattr(opp, "sam_url", None))
 
     return opportunities
 
@@ -363,6 +375,14 @@ def _best_description_text(opportunity: Opportunity) -> str:
         return description
 
     return ""
+
+
+def _clean_preview_text(value: str | None) -> str:
+    if not value:
+        return ""
+    text = re.sub(r"<[^>]+>", " ", str(value))
+    text = html.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _apply_past_due_filter(query, *, show_past_due: str = ""):
@@ -716,11 +736,14 @@ async def opportunity_detail(
 
     brief = brief_row.brief_json if (brief_row and brief_row.brief_json) else None
     brief_sections = _build_brief_sections(brief)
-    brief_status = brief_row.status if brief_row else None
+    brief_status = _normalize_brief_status(brief_row.status if brief_row else None)
     brief_error = brief_row.error_message if brief_row else None
     brief_source_basis = brief_row.source_basis if brief_row else None
     brief_source_files = brief_row.filenames_processed if (brief_row and brief_row.filenames_processed) else []
     brief_source_summary = brief_row.source_summary if (brief_row and brief_row.source_summary) else None
+    brief_generated_at = brief_row.generated_at if brief_row else None
+    brief_provider = brief_row.provider if brief_row else None
+    brief_model = brief_row.model if brief_row else None
 
     user_opp = db.query(UserOpportunity).filter(
         UserOpportunity.user_id == user.id,
@@ -759,6 +782,9 @@ async def opportunity_detail(
         "brief_sections": brief_sections,
         "brief_status": brief_status,
         "brief_error": brief_error,
+        "brief_generated_at": brief_generated_at,
+        "brief_provider": brief_provider,
+        "brief_model": brief_model,
         "brief_source_basis": brief_source_basis,
         "brief_source_files": brief_source_files,
         "brief_source_summary": brief_source_summary,
