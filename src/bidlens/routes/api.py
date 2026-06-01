@@ -165,6 +165,10 @@ def _merge_n8n_source_metadata(n8n_data: dict[str, Any], brief_payload: dict[str
 
     direct_mappings = {
         "pdfs_processed": "pdfs_processed",
+        "docs_processed": "docs_processed",
+        "txts_processed": "txts_processed",
+        "spreadsheets_skipped": "spreadsheets_skipped",
+        "non_extractable_skipped": "non_extractable_skipped",
         "pages_extracted": "pages_extracted",
         "characters_read": "total_extracted_characters",
         "characters_sent_to_model": "characters_sent_to_model",
@@ -220,6 +224,10 @@ def _build_n8n_payload(opp: Opportunity, brief_payload: dict[str, Any]) -> dict[
         "text_for_brief": brief_payload.get("text_for_brief") or brief_payload.get("text_for_enrichment"),
         "brief_context": brief_payload.get("text_for_brief") or brief_payload.get("text_for_enrichment"),
         "pdfs_processed": source_summary.get("pdfs_processed", 0),
+        "docs_processed": source_summary.get("docs_processed", 0),
+        "txts_processed": source_summary.get("txts_processed", 0),
+        "spreadsheets_skipped": source_summary.get("spreadsheets_skipped", 0),
+        "non_extractable_skipped": source_summary.get("non_extractable_skipped", 0),
         "pages_extracted": source_summary.get("pages_extracted", 0),
         "characters_read": source_summary.get("total_extracted_characters", 0),
         "characters_sent_to_model": source_summary.get("characters_sent_to_model", 0),

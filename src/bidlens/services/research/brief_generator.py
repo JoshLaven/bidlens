@@ -120,7 +120,7 @@ def _brief_schema() -> dict[str, Any]:
 
 def _render_document_sections(documents: list[dict[str, Any]]) -> str:
     if not documents:
-        return "No readable PDF solicitation documents were retrieved."
+        return "No readable solicitation documents were retrieved."
 
     sections = []
     for document in documents:
@@ -144,6 +144,10 @@ def _render_attachment_metadata(
     lines = [
         f"Attachments found on SAM: {source_summary.get('total_attachments_found', 0)}",
         f"PDFs processed: {source_summary.get('pdfs_processed', 0)}",
+        f"Word documents processed: {source_summary.get('docs_processed', 0)}",
+        f"Text files processed: {source_summary.get('txts_processed', 0)}",
+        f"Spreadsheets skipped: {source_summary.get('spreadsheets_skipped', 0)}",
+        f"Non-extractable files skipped: {source_summary.get('non_extractable_skipped', 0)}",
         f"Pages extracted: {source_summary.get('pages_extracted', 0)}",
         f"Characters read: {source_summary.get('total_extracted_characters', 0)}",
     ]
@@ -209,9 +213,10 @@ def build_brief_request_payload(opportunity: Opportunity) -> dict[str, Any]:
             }
         )
     for doc in documents:
+        file_kind = doc.get("file_kind") or "document"
         sources_used.append(
             {
-                "type": "solicitation_pdf",
+                "type": f"solicitation_{file_kind}",
                 "label": doc["filename"],
                 "url": doc["source_url"],
             }

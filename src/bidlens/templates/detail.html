@@ -183,16 +183,28 @@
           {% if brief_source_summary %}
             <div class="brief-source-summary">
               <span>{{ brief_source_summary.pdfs_processed or 0 }} PDF{{ "" if (brief_source_summary.pdfs_processed or 0) == 1 else "s" }} processed</span>
+              {% if brief_source_summary.docs_processed %}
+                <span>{{ brief_source_summary.docs_processed }} Word doc{{ "" if brief_source_summary.docs_processed == 1 else "s" }} processed</span>
+              {% endif %}
+              {% if brief_source_summary.txts_processed %}
+                <span>{{ brief_source_summary.txts_processed }} TXT file{{ "" if brief_source_summary.txts_processed == 1 else "s" }} processed</span>
+              {% endif %}
               <span>{{ brief_source_summary.pages_extracted or 0 }} page{{ "" if (brief_source_summary.pages_extracted or 0) == 1 else "s" }} extracted</span>
               <span>{{ brief_source_summary.total_extracted_characters or 0 }} characters read</span>
               {% if brief_source_summary.total_attachments_found %}
                 <span>{{ brief_source_summary.total_attachments_found }} attachment{{ "" if brief_source_summary.total_attachments_found == 1 else "s" }} found</span>
               {% endif %}
-              {% if brief_source_summary.pdfs_skipped_due_to_limits %}
-                <span>{{ brief_source_summary.pdfs_skipped_due_to_limits }} skipped due to V1 limits</span>
+              {% if brief_source_summary.documents_skipped_due_to_limits or brief_source_summary.pdfs_skipped_due_to_limits %}
+                <span>{{ brief_source_summary.documents_skipped_due_to_limits or brief_source_summary.pdfs_skipped_due_to_limits }} skipped due to V1 limits</span>
+              {% endif %}
+              {% if brief_source_summary.spreadsheets_skipped %}
+                <span>{{ brief_source_summary.spreadsheets_skipped }} spreadsheet{{ "" if brief_source_summary.spreadsheets_skipped == 1 else "s" }} skipped</span>
+              {% endif %}
+              {% if brief_source_summary.non_extractable_skipped %}
+                <span>{{ brief_source_summary.non_extractable_skipped }} non-extractable skipped</span>
               {% endif %}
               {% if brief_source_summary.non_pdfs_skipped %}
-                <span>{{ brief_source_summary.non_pdfs_skipped }} non-PDF skipped</span>
+                <span>{{ brief_source_summary.non_pdfs_skipped }} other file{{ "" if brief_source_summary.non_pdfs_skipped == 1 else "s" }} skipped</span>
               {% endif %}
               {% if brief_source_summary.controlled_or_unavailable_skipped %}
                 <span>{{ brief_source_summary.controlled_or_unavailable_skipped }} controlled/unavailable skipped</span>

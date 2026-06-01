@@ -7,6 +7,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 
 from ...sam_client import _is_url_like
+from .document_text_parser import extract_doc_text, extract_docx_text, extract_txt_text
 from .pdf_parser import extract_pdf_text
 
 
@@ -36,6 +37,7 @@ HIGH_PRIORITY_TERMS = (
     "evaluation",
     "proposal",
     "pricing",
+    "requirements",
     "q&a",
     "qanda",
     "qa",
@@ -55,13 +57,13 @@ LOW_PRIORITY_TERMS = (
     "spreadsheet",
     "admin",
 )
+SPREADSHEET_TERMS = ("xlsx", "xls", "spreadsheet")
+EXTRACTABLE_FILE_KINDS = {"pdf", "docx", "doc", "txt"}
 
 
 def _safe_filename(url: str, fallback_prefix: str = "solicitation") -> str:
     path = urlparse(url).path.strip("/")
     candidate = os.path.basename(path) or fallback_prefix
-    if not candidate.lower().endswith(".pdf"):
-        candidate = f"{candidate}.pdf"
     return candidate[:180]
 
 
@@ -106,10 +108,18 @@ def _empty_summary() -> dict:
     return {
         "total_attachments_found": 0,
         "pdf_candidates_found": 0,
+        "doc_candidates_found": 0,
+        "txt_candidates_found": 0,
+        "spreadsheet_candidates_found": 0,
         "pdfs_processed": 0,
+        "docs_processed": 0,
+        "txts_processed": 0,
+        "spreadsheets_skipped": 0,
         "non_pdfs_skipped": 0,
+        "non_extractable_skipped": 0,
         "controlled_or_unavailable_skipped": 0,
         "pdfs_skipped_due_to_limits": 0,
+        "documents_skipped_due_to_limits": 0,
         "extraction_failures": 0,
         "pages_extracted": 0,
         "total_extracted_characters": 0,
@@ -126,6 +136,32 @@ def _estimated_tokens(char_count: int) -> int:
     return max(1, (char_count + 3) // 4) if char_count > 0 else 0
 
 
+def _classify_attachment(filename: str, mime_type: str) -> str:
+    name = (filename or "").strip().lower()
+    mime = (mime_type or "").strip().lower()
+
+    if name.endswith(".pdf") or "pdf" in mime:
+        return "pdf"
+    if (
+        name.endswith(".docx")
+        or "wordprocessingml.document" in mime
+        or "application/vnd.openxmlformats-officedocument.wordprocessingml.document" in mime
+    ):
+        return "docx"
+    if name.endswith(".doc") or mime == "application/msword":
+        return "doc"
+    if name.endswith(".txt") or mime.startswith("text/plain"):
+        return "txt"
+    if (
+        name.endswith(".xlsx")
+        or name.endswith(".xls")
+        or "spreadsheetml" in mime
+        or "application/vnd.ms-excel" in mime
+    ):
+        return "spreadsheet"
+    return "other"
+
+
 def _rank_resource(resource: dict) -> tuple[int, list[str]]:
     name = str(resource.get("filename", "")).lower()
     score = 0
@@ -140,9 +176,19 @@ def _rank_resource(resource: dict) -> tuple[int, list[str]]:
             score -= 3
             reasons.append(f"-{term}")
 
-    if name.endswith(".pdf"):
+    file_kind = resource.get("file_kind")
+    if file_kind == "pdf":
         score += 1
         reasons.append("+pdf")
+    elif file_kind in {"docx", "doc", "txt"}:
+        score += 1
+        reasons.append(f"+{file_kind}")
+    elif file_kind == "spreadsheet":
+        score -= 2
+        reasons.append("-spreadsheet")
+    elif file_kind == "other":
+        score -= 4
+        reasons.append("-other")
 
     posted_date = resource.get("posted_date")
     if posted_date:
@@ -177,7 +223,7 @@ def _prioritize_resources(resources: list[dict]) -> list[dict]:
     return [resource for _score, _idx, resource, _reasons in ranked]
 
 
-def _fetch_public_pdf_resources(opportunity) -> tuple[list[dict], dict]:
+def _fetch_public_file_resources(opportunity) -> tuple[list[dict], dict]:
     summary = _empty_summary()
     notice_id = _extract_notice_id(opportunity)
     if not notice_id:
@@ -222,7 +268,7 @@ def _fetch_public_pdf_resources(opportunity) -> tuple[list[dict], dict]:
     summary["total_attachments_found"] = len(attachments)
     summary["discovery_method"] = "sam_public_resources"
 
-    pdf_resources: list[dict] = []
+    resources: list[dict] = []
     for attachment in attachments:
         deleted = str(attachment.get("deletedFlag", "")).strip()
         access_level = str(attachment.get("accessLevel", "")).strip().lower()
@@ -244,15 +290,24 @@ def _fetch_public_pdf_resources(opportunity) -> tuple[list[dict], dict]:
             continue
         mime_type = str(attachment.get("mimeType", "")).lower()
         name = str(attachment.get("name", "")).strip()
-        if ".pdf" not in mime_type and not name.lower().endswith(".pdf"):
-            summary["non_pdfs_skipped"] += 1
-            continue
+        file_kind = _classify_attachment(name, mime_type)
         resource_id = str(attachment.get("resourceId", "")).strip()
         if not resource_id:
             summary["controlled_or_unavailable_skipped"] += 1
             continue
 
-        pdf_resources.append(
+        if file_kind == "pdf":
+            summary["pdf_candidates_found"] += 1
+        elif file_kind in {"docx", "doc"}:
+            summary["doc_candidates_found"] += 1
+        elif file_kind == "txt":
+            summary["txt_candidates_found"] += 1
+        elif file_kind == "spreadsheet":
+            summary["spreadsheet_candidates_found"] += 1
+        else:
+            summary["non_pdfs_skipped"] += 1
+
+        resources.append(
             {
                 "filename": name or _safe_filename(resource_id, fallback_prefix=notice_id),
                 "source_url": _public_resource_download_url(resource_id),
@@ -261,40 +316,47 @@ def _fetch_public_pdf_resources(opportunity) -> tuple[list[dict], dict]:
                 "access_status": attachment.get("accessStatus"),
                 "size": attachment.get("size"),
                 "posted_date": attachment.get("postedDate"),
+                "content_type": mime_type or None,
+                "file_kind": file_kind,
             }
         )
-    summary["pdf_candidates_found"] = len(pdf_resources)
 
     logger.info(
-        "SAM public resources summary opp_id=%s notice_id=%s attachments=%s pdf_candidates=%s non_pdf_skipped=%s controlled_or_unavailable=%s",
+        "SAM public resources summary opp_id=%s notice_id=%s attachments=%s pdf_candidates=%s doc_candidates=%s txt_candidates=%s spreadsheet_candidates=%s non_pdf_skipped=%s controlled_or_unavailable=%s",
         getattr(opportunity, "id", None),
         notice_id,
         summary["total_attachments_found"],
-        len(pdf_resources),
+        summary["pdf_candidates_found"],
+        summary["doc_candidates_found"],
+        summary["txt_candidates_found"],
+        summary["spreadsheet_candidates_found"],
         summary["non_pdfs_skipped"],
         summary["controlled_or_unavailable_skipped"],
     )
-    return _prioritize_resources(pdf_resources), summary
+    return _prioritize_resources(resources), summary
 
 
 def fetch_opportunity_attachment_metadata(opportunity) -> dict:
     """Return lightweight SAM attachment/resource metadata without downloading files."""
-    resources, summary = _fetch_public_pdf_resources(opportunity)
+    resources, summary = _fetch_public_file_resources(opportunity)
     attachments = [
         {
             "filename": resource.get("filename"),
             "url": resource.get("source_url"),
-            "content_type": "application/pdf",
+            "content_type": resource.get("content_type"),
+            "file_kind": resource.get("file_kind"),
             "source": "sam",
         }
         for resource in resources
     ]
     logger.info(
-        "Attachment metadata ready opp_id=%s attachments=%s total_found=%s pdf_candidates=%s",
+        "Attachment metadata ready opp_id=%s attachments=%s total_found=%s pdf_candidates=%s doc_candidates=%s txt_candidates=%s",
         getattr(opportunity, "id", None),
         len(attachments),
         summary.get("total_attachments_found", 0),
         summary.get("pdf_candidates_found", 0),
+        summary.get("doc_candidates_found", 0),
+        summary.get("txt_candidates_found", 0),
     )
     return {
         "attachments": attachments,
@@ -325,7 +387,7 @@ def _extract_pdf_links_from_html(html: str, base_url: str) -> list[str]:
     return deduped[:MAX_PDFS]
 
 
-def _download_pdf(url: str) -> bytes | None:
+def _download_attachment(url: str) -> bytes | None:
     try:
         with requests.get(
             url,
@@ -333,7 +395,7 @@ def _download_pdf(url: str) -> bytes | None:
             headers={"User-Agent": "Mozilla/5.0"},
             stream=True,
         ) as resp:
-            logger.info("PDF download status=%s url=%s", resp.status_code, url)
+            logger.info("Attachment download status=%s url=%s", resp.status_code, url)
             resp.raise_for_status()
 
             content_length = resp.headers.get("Content-Length")
@@ -344,7 +406,7 @@ def _download_pdf(url: str) -> bytes | None:
                     length = None
                 else:
                     if length > MAX_PDF_BYTES:
-                        logger.warning("Skipping oversized PDF url=%s bytes=%s", url, length)
+                        logger.warning("Skipping oversized attachment url=%s bytes=%s", url, length)
                         return None
 
             chunks: list[bytes] = []
@@ -354,20 +416,20 @@ def _download_pdf(url: str) -> bytes | None:
                     continue
                 total += len(chunk)
                 if total > MAX_PDF_BYTES:
-                    logger.warning("Skipping oversized streamed PDF url=%s bytes>%s", url, MAX_PDF_BYTES)
+                    logger.warning("Skipping oversized streamed attachment url=%s bytes>%s", url, MAX_PDF_BYTES)
                     return None
                 chunks.append(chunk)
 
             return b"".join(chunks)
     except requests.RequestException as exc:
-        logger.warning("PDF download failed url=%s error=%s", url, repr(exc))
+        logger.warning("Attachment download failed url=%s error=%s", url, repr(exc))
         return None
 
 
 def fetch_opportunity_documents(opportunity) -> dict:
     page_urls = [url for url in [getattr(opportunity, "sam_url", None)] if _is_url_like(url)]
 
-    resources, summary = _fetch_public_pdf_resources(opportunity)
+    resources, summary = _fetch_public_file_resources(opportunity)
     if not resources and page_urls:
         pdf_links: list[str] = []
         for page_url in page_urls:
@@ -394,6 +456,8 @@ def fetch_opportunity_documents(opportunity) -> dict:
             {
                 "filename": _safe_filename(link, fallback_prefix=str(getattr(opportunity, "sam_notice_id", "solicitation"))),
                 "source_url": link,
+                "content_type": "application/pdf",
+                "file_kind": "pdf",
             }
             for link in unique_links[:MAX_PDFS]
         ]
@@ -407,14 +471,18 @@ def fetch_opportunity_documents(opportunity) -> dict:
     documents: list[dict] = []
     for index, resource in enumerate(resources):
         if len(documents) >= MAX_PDFS:
-            summary["pdfs_skipped_due_to_limits"] += max(0, len(resources) - index)
-            logger.info("PDF cap reached opp_id=%s max_pdfs=%s", getattr(opportunity, "id", None), MAX_PDFS)
+            skipped_remaining = max(0, len(resources) - index)
+            summary["pdfs_skipped_due_to_limits"] += skipped_remaining
+            summary["documents_skipped_due_to_limits"] += skipped_remaining
+            logger.info("Document cap reached opp_id=%s max_docs=%s", getattr(opportunity, "id", None), MAX_PDFS)
             break
 
         remaining_pages = MAX_TOTAL_PAGES - summary["pages_extracted"]
         remaining_chars = MAX_TOTAL_CHARS - summary["total_extracted_characters"]
         if remaining_pages <= 0 or remaining_chars <= 0:
-            summary["pdfs_skipped_due_to_limits"] += max(0, len(resources) - index)
+            skipped_remaining = max(0, len(resources) - index)
+            summary["pdfs_skipped_due_to_limits"] += skipped_remaining
+            summary["documents_skipped_due_to_limits"] += skipped_remaining
             logger.info(
                 "Global extraction cap reached opp_id=%s remaining_pages=%s remaining_chars=%s",
                 getattr(opportunity, "id", None),
@@ -424,19 +492,37 @@ def fetch_opportunity_documents(opportunity) -> dict:
             break
 
         filename = resource["filename"]
-        pdf_bytes = _download_pdf(resource["source_url"])
-        if not pdf_bytes:
+        file_kind = resource.get("file_kind") or "other"
+        if file_kind == "spreadsheet":
+            summary["spreadsheets_skipped"] += 1
+            logger.info("Skipping spreadsheet attachment filename=%s", filename)
+            continue
+        if file_kind not in EXTRACTABLE_FILE_KINDS:
+            summary["non_extractable_skipped"] += 1
+            logger.info("Skipping non-extractable attachment filename=%s file_kind=%s", filename, file_kind)
+            continue
+
+        file_bytes = _download_attachment(resource["source_url"])
+        if not file_bytes:
             summary["extraction_failures"] += 1
             continue
 
-        parsed = extract_pdf_text(
-            pdf_bytes,
-            filename=filename,
-            max_pages=min(MAX_PAGES_PER_PDF, remaining_pages),
-            max_chars=remaining_chars,
-        )
+        if file_kind == "pdf":
+            parsed = extract_pdf_text(
+                file_bytes,
+                filename=filename,
+                max_pages=min(MAX_PAGES_PER_PDF, remaining_pages),
+                max_chars=remaining_chars,
+            )
+        elif file_kind == "docx":
+            parsed = extract_docx_text(file_bytes, filename=filename, max_chars=remaining_chars)
+        elif file_kind == "doc":
+            parsed = extract_doc_text(file_bytes, filename=filename, max_chars=remaining_chars)
+        else:
+            parsed = extract_txt_text(file_bytes, filename=filename, max_chars=remaining_chars)
+
         if not parsed:
-            logger.warning("Skipping PDF with no extracted text filename=%s url=%s", filename, resource["source_url"])
+            logger.warning("Skipping attachment with no extracted text filename=%s url=%s file_kind=%s", filename, resource["source_url"], file_kind)
             summary["extraction_failures"] += 1
             continue
 
@@ -444,23 +530,36 @@ def fetch_opportunity_documents(opportunity) -> dict:
             {
                 "filename": filename,
                 "source_url": resource["source_url"],
+                "content_type": resource.get("content_type"),
+                "file_kind": file_kind,
                 "extracted_text": parsed["extracted_text"],
                 "pages_extracted": parsed["pages_extracted"],
                 "total_characters": parsed["total_characters"],
             }
         )
-        summary["pdfs_processed"] += 1
+        if file_kind == "pdf":
+            summary["pdfs_processed"] += 1
+        elif file_kind in {"docx", "doc"}:
+            summary["docs_processed"] += 1
+        else:
+            summary["txts_processed"] += 1
         summary["pages_extracted"] += parsed["pages_extracted"]
         summary["total_extracted_characters"] += parsed["total_characters"]
 
     logger.info(
-        "Document fetch complete opp_id=%s method=%s attachments=%s pdf_candidates=%s processed=%s skipped_due_to_limits=%s non_pdf_skipped=%s controlled_or_unavailable=%s extraction_failures=%s pages_extracted=%s total_chars=%s estimated_tokens=%s",
+        "Document fetch complete opp_id=%s method=%s attachments=%s pdf_candidates=%s doc_candidates=%s txt_candidates=%s processed_pdf=%s processed_doc=%s processed_txt=%s skipped_due_to_limits=%s spreadsheets_skipped=%s non_extractable_skipped=%s non_pdf_skipped=%s controlled_or_unavailable=%s extraction_failures=%s pages_extracted=%s total_chars=%s estimated_tokens=%s",
         getattr(opportunity, "id", None),
         summary["discovery_method"],
         summary["total_attachments_found"],
         summary["pdf_candidates_found"],
+        summary["doc_candidates_found"],
+        summary["txt_candidates_found"],
         summary["pdfs_processed"],
-        summary["pdfs_skipped_due_to_limits"],
+        summary["docs_processed"],
+        summary["txts_processed"],
+        summary["documents_skipped_due_to_limits"],
+        summary["spreadsheets_skipped"],
+        summary["non_extractable_skipped"],
         summary["non_pdfs_skipped"],
         summary["controlled_or_unavailable_skipped"],
         summary["extraction_failures"],
