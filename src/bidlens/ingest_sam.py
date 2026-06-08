@@ -34,6 +34,7 @@ def sam_ingest_in_progress() -> bool:
 
 def ingest_sam(
     db: Session,
+    organization_id: int,
     naics_list: list[str],
     days_back: int = 7,
     allowed_types: Optional[Set[str]] = None,
@@ -73,6 +74,7 @@ def ingest_sam(
             try:
                 result = pull_sam_into_db(
                     db,
+                    organization_id=organization_id,
                     naics=naics,
                     days_back=days_back,
                     allowed_types=allowed_types,
@@ -301,21 +303,24 @@ def _description_needs_fetch(description: str | None) -> bool:
     return bool(description) and description.strip().lower().startswith("http")
 
 
-def upsert_opportunity(db: Session, data: Dict[str, Any]) -> str:
+def upsert_opportunity(db: Session, organization_id: int, data: Dict[str, Any]) -> str:
     """
     Returns: "inserted" | "updated" | "skipped"
     Uses DB uniqueness on sam_notice_id; safe under concurrency.
     """
     existing = (
         db.query(Opportunity)
-        .filter(Opportunity.sam_notice_id == data["sam_notice_id"])
+        .filter(
+            Opportunity.organization_id == organization_id,
+            Opportunity.sam_notice_id == data["sam_notice_id"],
+        )
         .one_or_none()
     )
 
     if existing is None:
         try:
             with db.begin_nested():
-                db.add(Opportunity(**data, upserted_at=dt.datetime.utcnow()))
+                db.add(Opportunity(organization_id=organization_id, **data, upserted_at=dt.datetime.utcnow()))
                 db.flush()
             return "inserted"
         except IntegrityError:
@@ -341,6 +346,7 @@ def upsert_opportunity(db: Session, data: Dict[str, Any]) -> str:
 def pull_sam_into_db(
     db: Session,
     *,
+    organization_id: int,
     naics: str,
     days_back: int = 7,
     limit: int = 100,
@@ -438,7 +444,7 @@ def pull_sam_into_db(
                         max_description_enrichments,
                     )
 
-                status = upsert_opportunity(db, data)
+                status = upsert_opportunity(db, organization_id, data)
                 if status == "inserted":
                     inserted += 1
                 elif status == "updated":
@@ -501,6 +507,7 @@ def backfill_opportunity_descriptions(
     rows = (
         db.query(Opportunity)
         .filter(
+            Opportunity.organization_id.is_not(None),
             Opportunity.description_url.is_not(None),
             Opportunity.description_url != "",
         )

@@ -4,6 +4,7 @@ from apscheduler.triggers.cron import CronTrigger
 import datetime as dt
 from .database import SessionLocal
 from .ingest_sam import ingest_sam
+from .models import Organization
 
 print("[SCHEDULER] scheduler.py imported")
 
@@ -14,7 +15,11 @@ def run_sam_ingest():
 
     db = SessionLocal()
     try:
-        results = ingest_sam(db, naics_list=naics_list, days_back=7)
+        org = db.query(Organization).order_by(Organization.id.asc()).first()
+        if not org:
+            print("[SAM INGEST] skipped: no organization configured")
+            return
+        results = ingest_sam(db, organization_id=org.id, naics_list=naics_list, days_back=7)
         print("[SAM INGEST] done:", results)
     except Exception as e:
         print("[SAM INGEST] error:", repr(e))

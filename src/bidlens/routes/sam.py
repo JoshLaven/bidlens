@@ -1,6 +1,6 @@
 # src/bidlens/routes/sam.py
 import datetime as dt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -13,14 +13,19 @@ from ..ingest_sam import (
 )
 from ..models import OrgProfile, User
 from ..auth import get_current_user  # <-- adjust this import to your project
+from ..tenancy import current_org_id
 
 router = APIRouter(prefix="/sam", tags=["sam"])
+
+
+def _user_org_id(user) -> int:
+    return getattr(user, "current_organization_id", None) or user.organization_id
 
 
 def require_org_admin(user, db: Session):
     first_user = (
         db.query(User)
-        .filter(User.organization_id == user.organization_id)
+        .filter(User.organization_id == _user_org_id(user))
         .order_by(User.id.asc())
         .first()
     )
@@ -56,9 +61,11 @@ def _retry_after_header_value(retry_after: str | None, retry_after_seconds: floa
 
 @router.post("/pull-now", response_model=None)
 def pull_now(
+    request: Request,
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    setattr(user, "current_organization_id", current_org_id(request, db, user))
     if sam_ingest_in_progress():
         return JSONResponse(status_code=409, content={
             "status": "busy",
@@ -72,9 +79,9 @@ def pull_now(
             "results": [],
         })
 
-    profile = db.query(OrgProfile).filter(OrgProfile.org_id == user.organization_id).first()
+    profile = db.query(OrgProfile).filter(OrgProfile.org_id == _user_org_id(user)).first()
     if not profile:
-        profile = OrgProfile(org_id=user.organization_id, sam_naics_codes="541611,541690")
+        profile = OrgProfile(org_id=_user_org_id(user), sam_naics_codes="541611,541690")
         db.add(profile)
         db.commit()
         db.refresh(profile)
@@ -98,6 +105,7 @@ def pull_now(
     try:
         result = ingest_sam(
             db,
+            organization_id=_user_org_id(user),
             naics_list=naics_list,
             days_back=days_back,
             allowed_types=allowed_types,
@@ -189,9 +197,11 @@ def pull_now(
 @router.post("/backfill-descriptions", response_model=None)
 def backfill_descriptions(
     payload: DescriptionBackfillIn,
+    request: Request,
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    setattr(user, "current_organization_id", current_org_id(request, db, user))
     require_org_admin(user, db)
 
     limit = max(1, min(payload.limit, 100))

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..auth import get_current_user
 from ..models import OrgProfile
+from ..tenancy import current_org_id
 
 router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
@@ -14,7 +15,12 @@ def require_user(request: Request, db: Session):
     user = get_current_user(request, db)
     if not user:
         return None
+    setattr(user, "current_organization_id", current_org_id(request, db, user))
     return user
+
+
+def _user_org_id(user) -> int:
+    return getattr(user, "current_organization_id", None) or user.organization_id
 
 @router.get("/settings")
 async def settings_page(
@@ -27,7 +33,7 @@ async def settings_page(
 
     # V1: treat first user in org as "admin" if you don't have roles yet
     # If you add roles later, tighten this.
-    profile = db.query(OrgProfile).filter(OrgProfile.org_id == user.organization_id).first()
+    profile = db.query(OrgProfile).filter(OrgProfile.org_id == _user_org_id(user)).first()
 
     return templates.TemplateResponse("settings.html", {
         "request": request,
@@ -54,9 +60,9 @@ async def settings_save(
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    profile = db.query(OrgProfile).filter(OrgProfile.org_id == user.organization_id).first()
+    profile = db.query(OrgProfile).filter(OrgProfile.org_id == _user_org_id(user)).first()
     if not profile:
-        profile = OrgProfile(org_id=user.organization_id)
+        profile = OrgProfile(org_id=_user_org_id(user))
         db.add(profile)
         db.flush()
 

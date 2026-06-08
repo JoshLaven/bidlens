@@ -6,8 +6,9 @@ from ..database import get_db
 from ..auth import get_current_user
 from ..state_machine import OppState
 from ..services import transition_state, cast_vote
-from ..models import Opportunity, OpportunityBrief
-from sqlalchemy import or_
+from ..models import CompanyProfile, Opportunity, OpportunityBrief, Organization
+from ..tenancy import current_org_id
+from sqlalchemy import and_, or_
 from datetime import datetime
 import html
 import logging
@@ -244,13 +245,27 @@ class TransitionIn(BaseModel):
     archive_reason: Optional[str] = None
 
 
+class CompanyProfileIn(BaseModel):
+    company_name: Optional[str] = None
+    website_url: Optional[str] = None
+    cage_code: Optional[str] = None
+    duns: Optional[str] = None
+    uei: Optional[str] = None
+    profile: Any
+
+
 def require_user(request: Request, db: Session):
     user = get_current_user(request, db)
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    setattr(user, "current_organization_id", current_org_id(request, db, user))
     if not getattr(user, "organization", None) or not user.organization.is_active:
         raise HTTPException(status_code=403, detail="Organization inactive")
     return user
+
+
+def _user_org_id(user) -> int:
+    return getattr(user, "current_organization_id", None) or user.organization_id
 
 def require_user_or_automation(request: Request, db: Session):
     expected = os.getenv("AUTOMATION_API_KEY")
@@ -260,6 +275,89 @@ def require_user_or_automation(request: Request, db: Session):
         return {"automation": True}
 
     return require_user(request, db)
+
+
+def _clean_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _profile_text(profile: dict[str, Any], keys: list[str]) -> str | None:
+    identifiers = profile.get("identifiers")
+    sources = [profile]
+    if isinstance(identifiers, dict):
+        sources.append(identifiers)
+
+    for source in sources:
+        for key in keys:
+            value = _clean_optional_text(source.get(key))
+            if value:
+                return value
+    return None
+
+
+def _automation_org_id(db: Session) -> int:
+    configured_org_id = os.getenv("AUTOMATION_ORG_ID")
+    if configured_org_id:
+        try:
+            org_id = int(configured_org_id)
+        except ValueError:
+            raise HTTPException(status_code=500, detail="AUTOMATION_ORG_ID must be an integer")
+
+        org = db.query(Organization).filter(Organization.id == org_id).first()
+        if not org:
+            raise HTTPException(status_code=500, detail="AUTOMATION_ORG_ID does not match an organization")
+        return org.id
+
+    org = db.query(Organization).order_by(Organization.id.asc()).first()
+    if not org:
+        raise HTTPException(status_code=500, detail="No organization available for automation profile save")
+    return org.id
+
+
+def _caller_org_id(caller, db: Session) -> int:
+    if isinstance(caller, dict) and caller.get("automation") is True:
+        return _automation_org_id(db)
+    return _user_org_id(caller)
+
+
+@router.post("/company-profiles")
+def api_save_company_profile(
+    payload: CompanyProfileIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    caller = require_user_or_automation(request, db)
+
+    if not isinstance(payload.profile, dict):
+        raise HTTPException(status_code=400, detail="profile must be a JSON object")
+
+    company_name = _clean_optional_text(payload.company_name) or _profile_text(payload.profile, ["company_name", "name", "legal_name"])
+    website_url = _clean_optional_text(payload.website_url) or _profile_text(payload.profile, ["website_url", "website", "url"])
+    cage_code = _clean_optional_text(payload.cage_code) or _profile_text(payload.profile, ["cage_code", "cage"])
+    duns = _clean_optional_text(payload.duns) or _profile_text(payload.profile, ["duns", "duns_number"])
+    uei = _clean_optional_text(payload.uei) or _profile_text(payload.profile, ["uei", "uei_sam"])
+
+    profile = CompanyProfile(
+        org_id=_caller_org_id(caller, db),
+        company_name=company_name,
+        website_url=website_url,
+        cage_code=cage_code,
+        duns=duns,
+        uei=uei,
+        profile_json=payload.profile,
+    )
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+
+    return {
+        "status": "saved",
+        "id": profile.id,
+        "company_name": profile.company_name,
+    }
 
 
 
@@ -275,7 +373,7 @@ def api_transition(payload: TransitionIn, request: Request, db: Session = Depend
     try:
         new_state = transition_state(
             db,
-            org_id=user.organization_id,
+            org_id=_user_org_id(user),
             user_id=user.id,
             opp_id=payload.opp_id,
             to_state=to_state,
@@ -326,7 +424,7 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
     try:
         result = cast_vote(
             db,
-            org_id=user.organization_id,
+            org_id=_user_org_id(user),
             user_id=user.id,
             opp_id=payload.opp_id,
             vote=payload.vote,
@@ -335,7 +433,7 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
         counts = get_vote_counts(db, [payload.opp_id]).get(payload.opp_id, {"pursue": 0, "pass": 0})
         pursue_users_map, pass_users_map = get_vote_user_maps(
             db,
-            org_id=user.organization_id,
+            org_id=_user_org_id(user),
             opp_ids=[payload.opp_id],
         )
         from .opportunities import get_sidebar
@@ -365,7 +463,10 @@ def opportunity_preview(
 ):
     user = require_user(request, db)
 
-    opp = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
+    opp = db.query(Opportunity).filter(
+        Opportunity.id == opp_id,
+        Opportunity.organization_id == _user_org_id(user),
+    ).first()
     if not opp:
         raise HTTPException(status_code=404, detail="Opportunity not found")
     return _build_preview_payload(opp)
@@ -393,7 +494,10 @@ def api_set_stage(payload: StageIn, request: Request, db: Session = Depends(get_
     if payload.stage not in REVIEW_STAGES:
         raise HTTPException(status_code=400, detail=f"Invalid stage. Must be one of: {REVIEW_STAGES}")
 
-    opp = db.query(Opportunity).filter(Opportunity.id == payload.opp_id).first()
+    opp = db.query(Opportunity).filter(
+        Opportunity.id == payload.opp_id,
+        Opportunity.organization_id == _user_org_id(user),
+    ).first()
     if not opp:
         raise HTTPException(status_code=404, detail="Opportunity not found")
 
@@ -420,11 +524,19 @@ def pending_enrichment(request: Request, limit: int = 50, db: Session = Depends(
         pass
     else:
         raise HTTPException(status_code=401, detail="Automation only endpoint")
+    org_id = _caller_org_id(caller, db)
 
     # Pending work = no brief row OR brief.status in not_started/generating/failed
     q = (
         db.query(Opportunity)
-        .outerjoin(OpportunityBrief, OpportunityBrief.opportunity_id == Opportunity.id)
+        .outerjoin(
+            OpportunityBrief,
+            and_(
+                OpportunityBrief.opportunity_id == Opportunity.id,
+                OpportunityBrief.organization_id == org_id,
+            ),
+        )
+        .filter(Opportunity.organization_id == org_id)
         .filter(
             or_(
                 OpportunityBrief.id.is_(None),
@@ -476,13 +588,20 @@ def _apply_brief_source_metadata(row: OpportunityBrief, payload: dict[str, Any])
 @router.post("/opps/{opp_id}/enrichment")
 def save_enrichment(opp_id: int, payload: BriefIn, request: Request, db: Session = Depends(get_db)):
     caller = require_user_or_automation(request, db)
-    opp = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
+    org_id = _caller_org_id(caller, db)
+    opp = db.query(Opportunity).filter(
+        Opportunity.id == opp_id,
+        Opportunity.organization_id == org_id,
+    ).first()
     if not opp:
         raise HTTPException(status_code=404, detail="Opportunity not found")
 
-    row = db.query(OpportunityBrief).filter(OpportunityBrief.opportunity_id == opp_id).first()
+    row = db.query(OpportunityBrief).filter(
+        OpportunityBrief.organization_id == org_id,
+        OpportunityBrief.opportunity_id == opp_id,
+    ).first()
     if not row:
-        row = OpportunityBrief(opportunity_id=opp_id)
+        row = OpportunityBrief(organization_id=org_id, opportunity_id=opp_id)
         db.add(row)
         db.flush()
 
@@ -509,10 +628,14 @@ def save_enrichment(opp_id: int, payload: BriefIn, request: Request, db: Session
 @router.post("/opps/{opp_id}/enrichment/reset")
 def reset_enrichment(opp_id: int, request: Request, db: Session = Depends(get_db)):
     caller = require_user_or_automation(request, db)
+    org_id = _caller_org_id(caller, db)
 
-    row = db.query(OpportunityBrief).filter(OpportunityBrief.opportunity_id == opp_id).first()
+    row = db.query(OpportunityBrief).filter(
+        OpportunityBrief.organization_id == org_id,
+        OpportunityBrief.opportunity_id == opp_id,
+    ).first()
     if not row:
-        row = OpportunityBrief(opportunity_id=opp_id)
+        row = OpportunityBrief(organization_id=org_id, opportunity_id=opp_id)
         db.add(row)
         db.flush()
 
@@ -533,10 +656,14 @@ def reset_enrichment(opp_id: int, request: Request, db: Session = Depends(get_db
 @router.post("/opps/{opp_id}/mark_pending")
 def mark_pending(opp_id: int, request: Request, db: Session = Depends(get_db)):
     caller = require_user_or_automation(request, db)
+    org_id = _caller_org_id(caller, db)
 
-    row = db.query(OpportunityBrief).filter(OpportunityBrief.opportunity_id == opp_id).first()
+    row = db.query(OpportunityBrief).filter(
+        OpportunityBrief.organization_id == org_id,
+        OpportunityBrief.opportunity_id == opp_id,
+    ).first()
     if not row:
-        row = OpportunityBrief(opportunity_id=opp_id)
+        row = OpportunityBrief(organization_id=org_id, opportunity_id=opp_id)
         db.add(row)
         db.flush()
 
@@ -554,16 +681,22 @@ def generate_brief(
     user = require_user(request, db)
     logger.info("Generate brief requested opp_id=%s user_id=%s", opp_id, getattr(user, "id", None))
 
-    opp = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
+    org_id = _user_org_id(user)
+    opp = db.query(Opportunity).filter(
+        Opportunity.id == opp_id,
+        Opportunity.organization_id == org_id,
+    ).first()
     if not opp:
         raise HTTPException(status_code=404, detail="Opportunity not found")
 
     row = db.query(OpportunityBrief).filter(
+        OpportunityBrief.organization_id == org_id,
         OpportunityBrief.opportunity_id == opp_id
     ).first()
 
     if not row:
         row = OpportunityBrief(
+            organization_id=org_id,
             opportunity_id=opp_id,
             status="generating",
         )
@@ -699,15 +832,22 @@ def generate_brief(
 @router.get("/opps/{opp_id}")
 def get_opp_for_enrichment(opp_id: int, request: Request, db: Session = Depends(get_db)):
     caller = require_user_or_automation(request, db)
-    o = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
+    org_id = _caller_org_id(caller, db)
+    o = db.query(Opportunity).filter(
+        Opportunity.id == opp_id,
+        Opportunity.organization_id == org_id,
+    ).first()
     if not o:
         raise HTTPException(status_code=404, detail="Not found")
 
     payload = build_brief_request_payload(o)
 
-    row = db.query(OpportunityBrief).filter(OpportunityBrief.opportunity_id == opp_id).first()
+    row = db.query(OpportunityBrief).filter(
+        OpportunityBrief.organization_id == org_id,
+        OpportunityBrief.opportunity_id == opp_id,
+    ).first()
     if not row:
-        row = OpportunityBrief(opportunity_id=opp_id)
+        row = OpportunityBrief(organization_id=org_id, opportunity_id=opp_id)
         db.add(row)
         db.flush()
     _apply_brief_source_metadata(row, payload)

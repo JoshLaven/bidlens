@@ -19,3 +19,4 @@ SESSION_COOKIE_NAME = "bidlens_session"
 SAM_API_KEY = os.getenv("SAM_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+COMPANY_PROFILE_WEBHOOK_URL = os.getenv("COMPANY_PROFILE_WEBHOOK_URL")

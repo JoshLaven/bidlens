@@ -6,6 +6,7 @@ from ..database import get_db
 from ..models import User
 from ..auth import create_session, clear_session
 from ..models import Organization
+from ..tenancy import ensure_membership, unique_org_slug
 
 router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
@@ -30,6 +31,8 @@ async def login(request: Request, email: str = Form(...), db: Session = Depends(
     if not user:
         org = Organization(
             name=org_name_for_email(email),
+            slug=unique_org_slug(db, org_name_for_email(email)),
+            email_domain=None if "@" not in email else email.split("@")[-1].lower().strip(),
             plan="free",
             is_active=True
         )
@@ -38,6 +41,8 @@ async def login(request: Request, email: str = Form(...), db: Session = Depends(
 
         user = User(email=email, organization_id=org.id)
         db.add(user)
+        db.flush()
+        ensure_membership(db, organization_id=org.id, user_id=user.id, role="admin")
         db.commit()
         db.refresh(user)
     else:
@@ -45,13 +50,16 @@ async def login(request: Request, email: str = Form(...), db: Session = Depends(
         if not getattr(user, "organization_id", None):
             org = Organization(
                 name=org_name_for_email(user.email),
+                slug=unique_org_slug(db, org_name_for_email(user.email)),
+                email_domain=None if "@" not in user.email else user.email.split("@")[-1].lower().strip(),
                 plan="free",
                 is_active=True
             )
             db.add(org)
             db.flush()
             user.organization_id = org.id
-            db.commit()
+        ensure_membership(db, organization_id=user.organization_id, user_id=user.id, role="admin")
+        db.commit()
 
     
     response = RedirectResponse(url="/", status_code=303)

@@ -18,7 +18,10 @@ def transition_state(
 ) -> OppState:
     from datetime import datetime as _dt
 
-    opp = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
+    opp = db.query(Opportunity).filter(
+        Opportunity.id == opp_id,
+        Opportunity.organization_id == org_id,
+    ).first()
     if not opp:
         raise ValueError(f"Opportunity {opp_id} not found")
 
@@ -67,7 +70,10 @@ def cast_vote(
     if vote not in ("PURSUE", "PASS"):
         raise ValueError("vote must be PURSUE or PASS")
 
-    opp = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
+    opp = db.query(Opportunity).filter(
+        Opportunity.id == opp_id,
+        Opportunity.organization_id == org_id,
+    ).first()
     if not opp:
         raise ValueError(f"Opportunity {opp_id} not found")
 

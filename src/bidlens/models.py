@@ -39,9 +39,11 @@ class OpportunityStatus(str, enum.Enum):
 
 class Opportunity(Base):
     __tablename__ = "opportunities"
+    __table_args__ = (UniqueConstraint("organization_id", "sam_notice_id", name="uq_opportunity_org_sam_notice"),)
 
     # internal DB PK (keep)
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
 
     # platform/public ID (new)
     bidlens_id = Column(
@@ -52,7 +54,7 @@ class Opportunity(Base):
         index=True
     )
 
-    sam_notice_id = Column(String, unique=True, nullable=False, index=True)
+    sam_notice_id = Column(String, nullable=False, index=True)
 
     title = Column(String, nullable=False)
     agency = Column(String, nullable=False)
@@ -87,9 +89,10 @@ class Opportunity(Base):
 
 class OpportunityBrief(Base):
     __tablename__ = "opportunity_briefs"
-    __table_args__ = (UniqueConstraint("opportunity_id", name="uq_brief_opp"),)
+    __table_args__ = (UniqueConstraint("organization_id", "opportunity_id", name="uq_brief_org_opp"),)
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
 
     brief_json = Column(JSON, nullable=True)
@@ -156,6 +159,8 @@ class Organization(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
+    slug = Column(String, unique=True, nullable=False, index=True)
+    email_domain = Column(String, nullable=True, index=True)
 
     # Billing / entitlement
     plan = Column(String, default="free", nullable=False)  # free, pro, etc.
@@ -164,6 +169,7 @@ class Organization(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     users = relationship("User", back_populates="organization")
+    memberships = relationship("OrganizationMembership", back_populates="organization", cascade="all, delete-orphan")
     
 class OrgProfile(Base):
     __tablename__ = "org_profiles"
@@ -190,20 +196,65 @@ class OrgProfile(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class CompanyProfile(Base):
+    __tablename__ = "company_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+
+    company_name = Column(String, nullable=True, index=True)
+    website_url = Column(String, nullable=True)
+    cage_code = Column(String, nullable=True, index=True)
+    duns = Column(String, nullable=True, index=True)
+    uei = Column(String, nullable=True, index=True)
+    profile_json = Column(JSON, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    @property
+    def organization_id(self):
+        return self.org_id
+
+    @organization_id.setter
+    def organization_id(self, value):
+        self.org_id = value
+
+
 
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, nullable=False, index=True)
+    name = Column(String, nullable=True)
 
+    # Compatibility home workspace. Current workspace is resolved from memberships
+    # and ?org_id in src/bidlens/tenancy.py until full auth/workspace switching exists.
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
     organization = relationship("Organization", back_populates="users")
+    memberships = relationship("OrganizationMembership", back_populates="user", cascade="all, delete-orphan")
     user_opportunities = relationship("UserOpportunity", back_populates="user")
     opportunity_notes = relationship("OpportunityNote", back_populates="user")
+
+
+class OrganizationMembership(Base):
+    __tablename__ = "organization_memberships"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "user_id", name="uq_org_membership"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    role = Column(String, nullable=False, default="member", server_default="member")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    organization = relationship("Organization", back_populates="memberships")
+    user = relationship("User", back_populates="memberships")
 
 
 class OpportunityNote(Base):
@@ -227,6 +278,7 @@ class UserOpportunity(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False)
 

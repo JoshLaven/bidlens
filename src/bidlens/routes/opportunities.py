@@ -19,6 +19,7 @@ from typing import Optional
 from sqlalchemy import func, case
 from ..models import Vote
 from ..models import OpportunityBrief
+from ..tenancy import current_org_id
 router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
 
@@ -101,7 +102,7 @@ def _build_brief_sections(brief: dict | None) -> list[dict]:
 
 def apply_org_filters(query, db: Session, user):
     """Apply OrgProfile keyword/agency/deadline filters to an Opportunity query."""
-    profile = db.query(OrgProfile).filter(OrgProfile.org_id == user.organization_id).first()
+    profile = db.query(OrgProfile).filter(OrgProfile.org_id == _user_org_id(user)).first()
     if not profile:
         return query
 
@@ -140,7 +141,12 @@ def require_user(request: Request, db: Session):
     user = get_current_user(request, db)
     if not user:
         return None
+    setattr(user, "current_organization_id", current_org_id(request, db, user))
     return user
+
+
+def _user_org_id(user) -> int:
+    return getattr(user, "current_organization_id", None) or user.organization_id
 
 
 def _apply_type_tab(query, tab: str):
@@ -220,7 +226,7 @@ def _export_view_query(
         if show_passed != "1":
             passed_opp_ids = (
                 db.query(Vote.opp_id)
-                .filter(Vote.user_id == user.id, Vote.vote == "PASS")
+                .filter(Vote.org_id == _user_org_id(user), Vote.user_id == user.id, Vote.vote == "PASS")
                 .subquery()
             )
             q = q.filter(~Opportunity.id.in_(passed_opp_ids))
@@ -308,7 +314,7 @@ def _enrich_opps(rows, db, user, watched_col=True):
     opp_ids = [o.id for o in opportunities]
     counts = get_vote_counts(db, opp_ids)
     user_votes = get_user_votes(db, user.id, opp_ids)
-    pursue_users_map, pass_users_map = get_vote_user_maps(db, org_id=user.organization_id, opp_ids=opp_ids)
+    pursue_users_map, pass_users_map = get_vote_user_maps(db, org_id=_user_org_id(user), opp_ids=opp_ids)
 
     for opp in opportunities:
         c = counts.get(opp.id, {"pursue": 0, "pass": 0})
@@ -335,6 +341,7 @@ def _opp_list_query(db: Session, user, decision_state: str, tab: str):
             ),
         )
         .filter(Opportunity.decision_state == decision_state)
+        .filter(Opportunity.organization_id == _user_org_id(user))
     )
     q = _apply_type_tab(q, tab)
     return q
@@ -348,6 +355,7 @@ def _my_shortlist_query(db: Session, user, tab: str):
             Vote,
             and_(
                 Vote.opp_id == Opportunity.id,
+                Vote.org_id == _user_org_id(user),
                 Vote.user_id == user.id,
                 Vote.vote == "PURSUE",
             ),
@@ -360,6 +368,7 @@ def _my_shortlist_query(db: Session, user, tab: str):
             ),
         )
         .filter(Opportunity.decision_state == "SHORTLISTED")
+        .filter(Opportunity.organization_id == _user_org_id(user))
     )
     q = _apply_type_tab(q, tab)
     return q
@@ -424,7 +433,7 @@ async def feed(
     if show_passed != "1":
         passed_opp_ids = (
             db.query(Vote.opp_id)
-            .filter(Vote.user_id == user.id, Vote.vote == "PASS")
+            .filter(Vote.org_id == _user_org_id(user), Vote.user_id == user.id, Vote.vote == "PASS")
             .subquery()
         )
         q = q.filter(~Opportunity.id.in_(passed_opp_ids))
@@ -620,7 +629,7 @@ async def export_opportunities_csv(
     opportunities = _sort_export_opportunities(db, opportunities, view=view, sort=sort)
     opp_ids = [opp.id for opp in opportunities]
 
-    vote_counts, shortlist_users_map, pass_users_map = _vote_export_maps(db, user.organization_id, opp_ids)
+    vote_counts, shortlist_users_map, pass_users_map = _vote_export_maps(db, _user_org_id(user), opp_ids)
     user_votes = get_user_votes(db, user.id, opp_ids)
 
     user_opp_rows = (
@@ -724,14 +733,18 @@ async def opportunity_detail(
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    opportunity = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == opp_id,
+        Opportunity.organization_id == _user_org_id(user),
+    ).first()
     if not opportunity:
         return RedirectResponse(url="/", status_code=303)
 
     resolved_description = _best_description_text(opportunity) or None
 
     brief_row = db.query(OpportunityBrief).filter(
-        OpportunityBrief.opportunity_id == opp_id
+        OpportunityBrief.opportunity_id == opp_id,
+        OpportunityBrief.organization_id == _user_org_id(user),
     ).first()
 
     brief = brief_row.brief_json if (brief_row and brief_row.brief_json) else None
@@ -761,7 +774,7 @@ async def opportunity_detail(
         .options(joinedload(OpportunityNote.user))
         .filter(
             OpportunityNote.opportunity_id == opp_id,
-            OpportunityNote.org_id == user.organization_id,
+            OpportunityNote.org_id == _user_org_id(user),
         )
         .order_by(OpportunityNote.created_at.desc())
         .all()
@@ -809,12 +822,13 @@ async def update_opportunity(
         return RedirectResponse(url="/login", status_code=303)
 
     user_opp = db.query(UserOpportunity).filter(
+        UserOpportunity.organization_id == _user_org_id(user),
         UserOpportunity.user_id == user.id,
         UserOpportunity.opportunity_id == opp_id,
     ).first()
 
     if not user_opp:
-        user_opp = UserOpportunity(user_id=user.id, opportunity_id=opp_id)
+        user_opp = UserOpportunity(organization_id=_user_org_id(user), user_id=user.id, opportunity_id=opp_id)
         db.add(user_opp)
         db.flush()
 
@@ -840,12 +854,13 @@ async def toggle_watch(
         return RedirectResponse(url="/login", status_code=303)
 
     uo = db.query(UserOpportunity).filter(
+        UserOpportunity.organization_id == _user_org_id(user),
         UserOpportunity.user_id == user.id,
         UserOpportunity.opportunity_id == opp_id,
     ).first()
 
     if not uo:
-        uo = UserOpportunity(user_id=user.id, opportunity_id=opp_id, watched=True)
+        uo = UserOpportunity(organization_id=_user_org_id(user), user_id=user.id, opportunity_id=opp_id, watched=True)
         db.add(uo)
     else:
         uo.watched = not bool(uo.watched)
@@ -867,7 +882,10 @@ async def add_opportunity_note(
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    opportunity = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == opp_id,
+        Opportunity.organization_id == _user_org_id(user),
+    ).first()
     if not opportunity:
         return RedirectResponse(url="/", status_code=303)
 
@@ -876,7 +894,7 @@ async def add_opportunity_note(
         return RedirectResponse(url=f"/opportunity/{opp_id}", status_code=303)
 
     note = OpportunityNote(
-        org_id=user.organization_id,
+        org_id=_user_org_id(user),
         opportunity_id=opp_id,
         user_id=user.id,
         body=note_body,
@@ -900,6 +918,7 @@ async def calendar_page(
 
     saved_items = db.query(UserOpportunity).filter(
         UserOpportunity.user_id == user.id,
+        UserOpportunity.organization_id == _user_org_id(user),
         UserOpportunity.status.in_([OpportunityStatus.SAVED, OpportunityStatus.IN_PROGRESS]),
     ).all()
 
@@ -944,11 +963,13 @@ def get_sidebar(db: Session, user: User):
             Vote,
             and_(
                 Vote.opp_id == Opportunity.id,
+                Vote.org_id == _user_org_id(user),
                 Vote.user_id == user.id,
                 Vote.vote == "PURSUE",
             ),
         )
         .filter(Opportunity.decision_state == "SHORTLISTED")
+        .filter(Opportunity.organization_id == _user_org_id(user))
         .order_by(Opportunity.response_deadline.asc())
         .limit(5)
         .all()
@@ -962,9 +983,11 @@ def get_sidebar(db: Session, user: User):
             and_(
                 UserOpportunity.opportunity_id == Opportunity.id,
                 UserOpportunity.user_id == user.id,
+                UserOpportunity.organization_id == _user_org_id(user),
             ),
         )
         .filter(UserOpportunity.watched.is_(True))
+        .filter(Opportunity.organization_id == _user_org_id(user))
         .order_by(Opportunity.response_deadline.asc())
         .limit(8)
         .all()
