@@ -23,6 +23,9 @@
   {% if generation_error %}
     <div class="alert alert-error">{{ generation_error }}</div>
   {% endif %}
+  {% if duplicate_warning %}
+    <div class="alert alert-warning">{{ duplicate_warning }}</div>
+  {% endif %}
 
   <form method="POST" action="/company-profile/generate" class="company-profile-generate-form" id="company-profile-generate-form">
     <div class="company-profile-generate-grid">
@@ -105,20 +108,36 @@
       <h2>Saved Company Profiles</h2>
       <p class="company-profile-preview-hint">Organization records available to load into the profile view.</p>
     </div>
+    <form method="GET" action="/company-profile" class="company-profile-archive-toggle">
+      {% if request.query_params.get('org_id') %}
+        <input type="hidden" name="org_id" value="{{ request.query_params.get('org_id') }}">
+      {% endif %}
+      <label>
+        <input
+          type="checkbox"
+          name="include_archived"
+          value="1"
+          {% if include_archived %}checked{% endif %}
+          onchange="this.form.submit()"
+        >
+        <span>Include archived</span>
+      </label>
+    </form>
   </div>
 
   {% if saved_profiles %}
     <div class="company-profile-saved-list">
       {% for profile in saved_profiles %}
-        <div class="company-profile-saved-row {{ 'is-active' if saved_profile and saved_profile.id == profile.id else '' }}">
+        <div class="company-profile-saved-row {{ 'is-active' if saved_profile and saved_profile.id == profile.id else '' }} {{ 'is-archived' if profile.display.archived else '' }}">
           <div>
-            <a href="/company-profile/{{ profile.id }}" class="company-profile-saved-name">
+            <a href="/company-profile/{{ profile.id }}{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="company-profile-saved-name">
               {{ profile.display.company_name }}
             </a>
             <div class="company-profile-saved-meta">
               {% if profile.display.duns %}<span>DUNS {{ profile.display.duns }}</span>{% endif %}
               {% if profile.display.uei %}<span>UEI {{ profile.display.uei }}</span>{% endif %}
               {% if profile.display.cage_code %}<span>CAGE {{ profile.display.cage_code }}</span>{% endif %}
+              {% if profile.display.archived %}<span>Archived {{ profile.display.archived_date }}</span>{% endif %}
               {% if not profile.display.duns and not profile.display.uei and not profile.display.cage_code %}
                 <span>No DUNS/UEI/CAGE on file</span>
               {% endif %}
@@ -129,7 +148,16 @@
               {{ profile.display.confidence|title }}
             </span>
             <span>{{ profile.display.updated_date }}</span>
-            <a href="/company-profile/{{ profile.id }}" class="btn btn-sm btn-outline-secondary">View</a>
+            <a href="/company-profile/{{ profile.id }}{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="btn btn-sm btn-outline-secondary">View</a>
+            {% if not profile.display.archived %}
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-secondary"
+                data-company-profile-archive="{{ profile.id }}"
+              >
+                Archive
+              </button>
+            {% endif %}
           </div>
         </div>
       {% endfor %}
@@ -296,6 +324,33 @@
     if (!button) return;
     button.disabled = true;
     button.textContent = 'Generating...';
+  });
+
+  document.querySelectorAll('[data-company-profile-archive]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const profileId = button.dataset.companyProfileArchive;
+      if (!profileId) return;
+      const confirmed = window.confirm('Archive this company profile? It will be hidden from the saved profile list by default.');
+      if (!confirmed) return;
+
+      button.disabled = true;
+      try {
+        const response = await fetch(`/api/company-profiles/${profileId}/archive${window.location.search}`, {
+          method: 'POST',
+          headers: {'Accept': 'application/json'},
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          window.alert(payload.detail || 'Unable to archive profile.');
+          button.disabled = false;
+          return;
+        }
+        window.location.reload();
+      } catch (error) {
+        window.alert('Unable to archive profile.');
+        button.disabled = false;
+      }
+    });
   });
 </script>
 {% endblock %}

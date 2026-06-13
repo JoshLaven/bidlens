@@ -298,28 +298,98 @@ def _profile_text(profile: dict[str, Any], keys: list[str]) -> str | None:
     return None
 
 
-def _automation_org_id(db: Session) -> int:
-    configured_org_id = os.getenv("AUTOMATION_ORG_ID")
-    if configured_org_id:
-        try:
-            org_id = int(configured_org_id)
-        except ValueError:
-            raise HTTPException(status_code=500, detail="AUTOMATION_ORG_ID must be an integer")
+def _normalized_company_name(value: str | None) -> str | None:
+    text = re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+    return re.sub(r"\s+", " ", text) or None
 
-        org = db.query(Organization).filter(Organization.id == org_id).first()
-        if not org:
-            raise HTTPException(status_code=500, detail="AUTOMATION_ORG_ID does not match an organization")
-        return org.id
 
-    org = db.query(Organization).order_by(Organization.id.asc()).first()
+def _company_profile_duplicate_matches(
+    db: Session,
+    *,
+    org_id: int,
+    company_name: str | None,
+    cage_code: str | None,
+    duns: str | None,
+    uei: str | None,
+    exclude_id: int | None = None,
+) -> list[CompanyProfile]:
+    normalized_name = _normalized_company_name(company_name)
+    query = db.query(CompanyProfile).filter(
+        CompanyProfile.org_id == org_id,
+        CompanyProfile.archived_at.is_(None),
+    )
+    if exclude_id is not None:
+        query = query.filter(CompanyProfile.id != exclude_id)
+
+    matches = []
+    for profile in query.all():
+        identifier_match = any(
+            [
+                uei and profile.uei == uei,
+                duns and profile.duns == duns,
+                cage_code and profile.cage_code == cage_code,
+            ]
+        )
+        name_match = normalized_name and _normalized_company_name(profile.company_name) == normalized_name
+        if identifier_match or name_match:
+            matches.append(profile)
+    return matches
+
+
+def _duplicate_warning_payload(matches: list[CompanyProfile]) -> dict[str, Any]:
+    possible_duplicates = [
+        {
+            "id": profile.id,
+            "company_name": profile.company_name or f"Company profile #{profile.id}",
+            "uei": profile.uei,
+            "duns": profile.duns,
+            "cage_code": profile.cage_code,
+        }
+        for profile in matches[:5]
+    ]
+    warning = None
+    if matches:
+        labels = [f"{item['company_name']} (#{item['id']})" for item in possible_duplicates[:3]]
+        extra = len(matches) - len(labels)
+        suffix = f" and {extra} more" if extra > 0 else ""
+        warning = f"Possible duplicate profile found: {', '.join(labels)}{suffix}."
+    return {"duplicate_warning": warning, "possible_duplicates": possible_duplicates}
+
+
+def _org_id_from_text(value: str | None, *, source: str, db: Session) -> int | None:
+    if not value:
+        return None
+    try:
+        org_id = int(value)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{source} must be an integer")
+
+    org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
-        raise HTTPException(status_code=500, detail="No organization available for automation profile save")
+        raise HTTPException(status_code=400, detail=f"{source} does not match an organization")
     return org.id
 
 
-def _caller_org_id(caller, db: Session) -> int:
+def _automation_org_id(request: Request, db: Session) -> int:
+    query_org_id = request.query_params.get("org_id")
+    org_id = _org_id_from_text(query_org_id, source="org_id", db=db)
+    if org_id is not None:
+        return org_id
+
+    default_org_id = os.getenv("DEFAULT_ORGANIZATION_ID")
+    org_id = _org_id_from_text(default_org_id, source="DEFAULT_ORGANIZATION_ID", db=db)
+    if org_id is not None:
+        return org_id
+
+    raise HTTPException(
+        status_code=400,
+        detail="Automation requests must include ?org_id=123 or configure DEFAULT_ORGANIZATION_ID.",
+    )
+
+
+def _caller_org_id(caller, request: Request, db: Session) -> int:
     if isinstance(caller, dict) and caller.get("automation") is True:
-        return _automation_org_id(db)
+        return _automation_org_id(request, db)
     return _user_org_id(caller)
 
 
@@ -340,8 +410,19 @@ def api_save_company_profile(
     duns = _clean_optional_text(payload.duns) or _profile_text(payload.profile, ["duns", "duns_number"])
     uei = _clean_optional_text(payload.uei) or _profile_text(payload.profile, ["uei", "uei_sam"])
 
+    org_id = _caller_org_id(caller, request, db)
+    logger.info("Company profile save resolved organization_id=%s automation=%s", org_id, isinstance(caller, dict) and caller.get("automation") is True)
+    duplicate_matches = _company_profile_duplicate_matches(
+        db,
+        org_id=org_id,
+        company_name=company_name,
+        cage_code=cage_code,
+        duns=duns,
+        uei=uei,
+    )
+
     profile = CompanyProfile(
-        org_id=_caller_org_id(caller, db),
+        org_id=org_id,
         company_name=company_name,
         website_url=website_url,
         cage_code=cage_code,
@@ -357,7 +438,66 @@ def api_save_company_profile(
         "status": "saved",
         "id": profile.id,
         "company_name": profile.company_name,
+        "organization_id": org_id,
+        **_duplicate_warning_payload(duplicate_matches),
     }
+
+
+@router.post("/company-profiles/{profile_id}/archive")
+def api_archive_company_profile(
+    profile_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    caller = require_user_or_automation(request, db)
+    org_id = _caller_org_id(caller, request, db)
+
+    profile = (
+        db.query(CompanyProfile)
+        .filter(
+            CompanyProfile.id == profile_id,
+            CompanyProfile.org_id == org_id,
+        )
+        .first()
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Company profile not found")
+
+    if profile.archived_at is None:
+        profile.archived_at = datetime.utcnow()
+        db.commit()
+
+    return {
+        "ok": True,
+        "id": profile.id,
+        "organization_id": org_id,
+        "archived_at": profile.archived_at.isoformat() if profile.archived_at else None,
+    }
+
+
+@router.delete("/company-profiles/{profile_id}")
+def api_delete_company_profile(
+    profile_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    caller = require_user_or_automation(request, db)
+    org_id = _caller_org_id(caller, request, db)
+
+    profile = (
+        db.query(CompanyProfile)
+        .filter(
+            CompanyProfile.id == profile_id,
+            CompanyProfile.org_id == org_id,
+        )
+        .first()
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Company profile not found")
+
+    db.delete(profile)
+    db.commit()
+    return {"ok": True, "id": profile_id, "organization_id": org_id, "deleted": True}
 
 
 
@@ -524,7 +664,8 @@ def pending_enrichment(request: Request, limit: int = 50, db: Session = Depends(
         pass
     else:
         raise HTTPException(status_code=401, detail="Automation only endpoint")
-    org_id = _caller_org_id(caller, db)
+    org_id = _caller_org_id(caller, request, db)
+    logger.info("Pending enrichment resolved organization_id=%s", org_id)
 
     # Pending work = no brief row OR brief.status in not_started/generating/failed
     q = (
@@ -555,6 +696,7 @@ def pending_enrichment(request: Request, limit: int = 50, db: Session = Depends(
         text_for_enrichment = _best_description_text(o)
         out.append({
             "id": o.id,
+            "organization_id": org_id,
             "title": o.title,
             "agency": o.agency,
             "opportunity_type": o.opportunity_type,
@@ -588,7 +730,8 @@ def _apply_brief_source_metadata(row: OpportunityBrief, payload: dict[str, Any])
 @router.post("/opps/{opp_id}/enrichment")
 def save_enrichment(opp_id: int, payload: BriefIn, request: Request, db: Session = Depends(get_db)):
     caller = require_user_or_automation(request, db)
-    org_id = _caller_org_id(caller, db)
+    org_id = _caller_org_id(caller, request, db)
+    logger.info("Enrichment save resolved organization_id=%s opp_id=%s", org_id, opp_id)
     opp = db.query(Opportunity).filter(
         Opportunity.id == opp_id,
         Opportunity.organization_id == org_id,
@@ -623,12 +766,12 @@ def save_enrichment(opp_id: int, payload: BriefIn, request: Request, db: Session
         )
 
     db.commit()
-    return {"ok": True, "opp_id": opp_id}
+    return {"ok": True, "opp_id": opp_id, "organization_id": org_id}
     
 @router.post("/opps/{opp_id}/enrichment/reset")
 def reset_enrichment(opp_id: int, request: Request, db: Session = Depends(get_db)):
     caller = require_user_or_automation(request, db)
-    org_id = _caller_org_id(caller, db)
+    org_id = _caller_org_id(caller, request, db)
 
     row = db.query(OpportunityBrief).filter(
         OpportunityBrief.organization_id == org_id,
@@ -651,12 +794,12 @@ def reset_enrichment(opp_id: int, request: Request, db: Session = Depends(get_db
     row.source_summary = None
 
     db.commit()
-    return {"ok": True, "opp_id": opp_id, "status": "not_started"}
+    return {"ok": True, "opp_id": opp_id, "organization_id": org_id, "status": "not_started"}
     
 @router.post("/opps/{opp_id}/mark_pending")
 def mark_pending(opp_id: int, request: Request, db: Session = Depends(get_db)):
     caller = require_user_or_automation(request, db)
-    org_id = _caller_org_id(caller, db)
+    org_id = _caller_org_id(caller, request, db)
 
     row = db.query(OpportunityBrief).filter(
         OpportunityBrief.organization_id == org_id,
@@ -670,7 +813,7 @@ def mark_pending(opp_id: int, request: Request, db: Session = Depends(get_db)):
     row.status = "generating"
     row.error_message = None
     db.commit()
-    return {"ok": True, "opp_id": opp_id, "status": "generating"}
+    return {"ok": True, "opp_id": opp_id, "organization_id": org_id, "status": "generating"}
 
 @router.post("/opps/{opp_id}/generate_brief")
 def generate_brief(
@@ -832,7 +975,7 @@ def generate_brief(
 @router.get("/opps/{opp_id}")
 def get_opp_for_enrichment(opp_id: int, request: Request, db: Session = Depends(get_db)):
     caller = require_user_or_automation(request, db)
-    org_id = _caller_org_id(caller, db)
+    org_id = _caller_org_id(caller, request, db)
     o = db.query(Opportunity).filter(
         Opportunity.id == opp_id,
         Opportunity.organization_id == org_id,
@@ -853,4 +996,5 @@ def get_opp_for_enrichment(opp_id: int, request: Request, db: Session = Depends(
     _apply_brief_source_metadata(row, payload)
     db.commit()
 
+    payload["organization_id"] = org_id
     return payload

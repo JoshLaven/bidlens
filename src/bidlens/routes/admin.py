@@ -5,7 +5,14 @@ from sqlalchemy.orm import Session
 from ..auth import get_current_user
 from ..database import get_db
 from ..models import Organization, OrganizationMembership, User
-from ..tenancy import current_organization, ensure_membership, unique_org_slug
+from ..tenancy import (
+    current_organization,
+    ensure_email_domain_membership,
+    ensure_membership,
+    normalize_email,
+    normalize_org_email_domain,
+    unique_org_slug,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -86,7 +93,7 @@ def create_organization(payload: OrganizationIn, request: Request, db: Session =
     org = Organization(
         name=name,
         slug=slug,
-        email_domain=(payload.email_domain or "").strip().lower() or None,
+        email_domain=normalize_org_email_domain(payload.email_domain),
     )
     db.add(org)
     db.commit()
@@ -131,10 +138,11 @@ def add_organization_user(
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    user = db.query(User).filter(User.email == payload.email).first()
+    email = normalize_email(payload.email)
+    user = db.query(User).filter(User.email == email).first()
     if not user:
         user = User(
-            email=payload.email,
+            email=email,
             name=payload.name,
             organization_id=organization_id,
         )
@@ -150,6 +158,7 @@ def add_organization_user(
         role=_role(payload.role),
     )
     membership.role = _role(payload.role)
+    ensure_email_domain_membership(db, user)
     db.commit()
     db.refresh(membership)
     return {

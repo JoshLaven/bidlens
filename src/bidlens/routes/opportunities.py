@@ -13,7 +13,7 @@ from ..database import get_db
 from ..models import Opportunity, User, UserOpportunity, OpportunityStatus, OrgProfile, OpportunityNote
 from ..auth import get_current_user
 from ..services import get_vote_counts, get_user_votes, get_last_activity, get_vote_user_maps
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, select
 from dataclasses import dataclass
 from typing import Optional
 from sqlalchemy import func, case
@@ -220,16 +220,9 @@ def _export_view_query(
     elif view == "my_shortlist":
         q = _my_shortlist_query(db, user, tab)
     else:
-        q = _opp_list_query(db, user, "INBOX", tab)
+        q = _feed_query(db, user, tab, show_passed=show_passed)
         q = apply_org_filters(q, db, user)
         q = _apply_past_due_filter(q, show_past_due=show_past_due)
-        if show_passed != "1":
-            passed_opp_ids = (
-                db.query(Vote.opp_id)
-                .filter(Vote.org_id == _user_org_id(user), Vote.user_id == user.id, Vote.vote == "PASS")
-                .subquery()
-            )
-            q = q.filter(~Opportunity.id.in_(passed_opp_ids))
 
         date_field = Opportunity.upserted_at
         if sort == "deadline":
@@ -338,12 +331,56 @@ def _opp_list_query(db: Session, user, decision_state: str, tab: str):
             and_(
                 UserOpportunity.opportunity_id == Opportunity.id,
                 UserOpportunity.user_id == user.id,
+                UserOpportunity.organization_id == _user_org_id(user),
             ),
         )
         .filter(Opportunity.decision_state == decision_state)
         .filter(Opportunity.organization_id == _user_org_id(user))
     )
     q = _apply_type_tab(q, tab)
+    return q
+
+
+def _feed_query(db: Session, user, tab: str, *, show_passed: str = ""):
+    """Main feed: org opportunities minus actions taken by the current user."""
+    q = (
+        db.query(Opportunity, UserOpportunity.watched.label("watched"))
+        .outerjoin(
+            UserOpportunity,
+            and_(
+                UserOpportunity.opportunity_id == Opportunity.id,
+                UserOpportunity.user_id == user.id,
+                UserOpportunity.organization_id == _user_org_id(user),
+            ),
+        )
+        .filter(Opportunity.organization_id == _user_org_id(user))
+        .filter(Opportunity.decision_state != "ARCHIVED")
+    )
+    q = _apply_type_tab(q, tab)
+
+    pursued_opp_ids = (
+        select(Vote.opp_id)
+        .where(
+            Vote.org_id == _user_org_id(user),
+            Vote.user_id == user.id,
+            Vote.vote == "PURSUE",
+        )
+    )
+    q = q.filter(~Opportunity.id.in_(pursued_opp_ids))
+
+    # Preserve the existing Include Passed behavior: by default current-user
+    # PASS hides a card, while ?show_passed=1 reveals it again.
+    if show_passed != "1":
+        passed_opp_ids = (
+            select(Vote.opp_id)
+            .where(
+                Vote.org_id == _user_org_id(user),
+                Vote.user_id == user.id,
+                Vote.vote == "PASS",
+            )
+        )
+        q = q.filter(~Opportunity.id.in_(passed_opp_ids))
+
     return q
 
 
@@ -365,6 +402,7 @@ def _my_shortlist_query(db: Session, user, tab: str):
             and_(
                 UserOpportunity.opportunity_id == Opportunity.id,
                 UserOpportunity.user_id == user.id,
+                UserOpportunity.organization_id == _user_org_id(user),
             ),
         )
         .filter(Opportunity.decision_state == "SHORTLISTED")
@@ -424,19 +462,9 @@ async def feed(
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    q = _opp_list_query(db, user, "INBOX", tab)
+    q = _feed_query(db, user, tab, show_passed=show_passed)
     q = apply_org_filters(q, db, user)
     q = _apply_past_due_filter(q, show_past_due=show_past_due)
-
-    # By default, hide items the current user voted PASS on.
-    # ?show_passed=1 reveals them.
-    if show_passed != "1":
-        passed_opp_ids = (
-            db.query(Vote.opp_id)
-            .filter(Vote.org_id == _user_org_id(user), Vote.user_id == user.id, Vote.vote == "PASS")
-            .subquery()
-        )
-        q = q.filter(~Opportunity.id.in_(passed_opp_ids))
 
     date_field = Opportunity.upserted_at
     if sort == "deadline":
@@ -635,6 +663,7 @@ async def export_opportunities_csv(
     user_opp_rows = (
         db.query(UserOpportunity)
         .filter(
+            UserOpportunity.organization_id == _user_org_id(user),
             UserOpportunity.user_id == user.id,
             UserOpportunity.opportunity_id.in_(opp_ids),
         )

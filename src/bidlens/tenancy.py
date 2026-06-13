@@ -5,6 +5,37 @@ from sqlalchemy.orm import Session
 
 from .models import Organization, OrganizationMembership, User
 
+PUBLIC_EMAIL_DOMAINS = {
+    "gmail.com",
+    "yahoo.com",
+    "outlook.com",
+    "hotmail.com",
+    "icloud.com",
+}
+
+
+def normalize_email(value: str | None) -> str:
+    return str(value or "").strip().lower()
+
+
+def email_domain(value: str | None) -> str | None:
+    email = normalize_email(value)
+    if "@" not in email:
+        return None
+    domain = email.rsplit("@", 1)[-1].strip().lower()
+    return domain or None
+
+
+def is_public_email_domain(domain: str | None) -> bool:
+    return (domain or "").strip().lower() in PUBLIC_EMAIL_DOMAINS
+
+
+def normalize_org_email_domain(value: str | None) -> str | None:
+    domain = str(value or "").strip().lower()
+    if not domain or is_public_email_domain(domain):
+        return None
+    return domain
+
 
 def slugify_org_name(name: str) -> str:
     base = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
@@ -42,6 +73,30 @@ def ensure_membership(db: Session, *, organization_id: int, user_id: int, role: 
     return membership
 
 
+def organization_for_email_domain(db: Session, email: str | None) -> Organization | None:
+    domain = email_domain(email)
+    if not domain or is_public_email_domain(domain):
+        return None
+    return (
+        db.query(Organization)
+        .filter(Organization.email_domain == domain)
+        .order_by(Organization.id.asc())
+        .first()
+    )
+
+
+def ensure_email_domain_membership(db: Session, user: User | None) -> Organization | None:
+    if not user or not user.email:
+        return None
+
+    matched_org = organization_for_email_domain(db, user.email)
+    if not matched_org:
+        return None
+
+    ensure_membership(db, organization_id=matched_org.id, user_id=user.id, role="member")
+    return matched_org
+
+
 def current_organization(request: Request, db: Session, user: User | None = None) -> Organization:
     """Temporary no-auth workspace resolver.
 
@@ -59,6 +114,10 @@ def current_organization(request: Request, db: Session, user: User | None = None
         if not org:
             raise HTTPException(status_code=404, detail="Organization not found")
         return org
+
+    matched_org = ensure_email_domain_membership(db, user)
+    if matched_org:
+        return matched_org
 
     default_org = db.query(Organization).filter(Organization.slug == "default-workspace").first()
     if default_org:

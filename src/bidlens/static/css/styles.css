@@ -836,6 +836,23 @@ h2 {
     background: #eff6ff;
 }
 
+.company-profile-saved-row.is-archived {
+    background: var(--gray-100);
+    opacity: 0.78;
+}
+
+.company-profile-archive-toggle {
+    color: var(--gray-600);
+    font-size: 0.875rem;
+}
+
+.company-profile-archive-toggle label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
 .company-profile-saved-name {
     color: var(--gray-900);
     font-weight: 600;

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from .database import get_db
 from .config import SECRET_KEY, SESSION_COOKIE_NAME
 from .models import User
+from .tenancy import ensure_email_domain_membership
 
 serializer = URLSafeSerializer(SECRET_KEY)
 
@@ -26,7 +27,12 @@ def get_current_user(request: Request, db: Session=Depends(get_db),) -> User | N
         data = serializer.loads(token)
         user_id = data.get("user_id")
         if user_id:
-            return db.query(User).filter(User.id == user_id).first()
+            user = db.query(User).filter(User.id == user_id).first()
+            if user:
+                matched_org = ensure_email_domain_membership(db, user)
+                if matched_org:
+                    db.commit()
+            return user
     except Exception:
         pass
     return None

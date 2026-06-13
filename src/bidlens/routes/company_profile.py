@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
@@ -194,6 +195,15 @@ def clean_optional_text(value: str | None):
     return text or None
 
 
+def include_archived_enabled(value: str = ""):
+    return str(value or "").lower() in {"1", "true", "yes", "on"}
+
+
+def normalized_company_name(value: str | None):
+    text = re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+    return re.sub(r"\s+", " ", text) or None
+
+
 def safe_webhook_host(webhook_url: str | None):
     if not webhook_url:
         return None
@@ -240,31 +250,72 @@ def profile_display(profile: CompanyProfile):
         "uei": profile.uei or identifiers["uei"],
         "confidence": confidence,
         "updated_date": profile.updated_at.strftime("%Y-%m-%d") if profile.updated_at else "Unknown date",
+        "archived": bool(profile.archived_at),
+        "archived_date": profile.archived_at.strftime("%Y-%m-%d") if profile.archived_at else None,
     }
 
 
-def saved_company_profiles(db: Session, user):
-    profiles = (
-        db.query(CompanyProfile)
-        .filter(CompanyProfile.org_id == _user_org_id(user))
-        .order_by(CompanyProfile.updated_at.desc(), CompanyProfile.id.desc())
-        .all()
-    )
+def saved_company_profiles(db: Session, user, include_archived: bool = False):
+    query = db.query(CompanyProfile).filter(CompanyProfile.org_id == _user_org_id(user))
+    if not include_archived:
+        query = query.filter(CompanyProfile.archived_at.is_(None))
+    profiles = query.order_by(CompanyProfile.updated_at.desc(), CompanyProfile.id.desc()).all()
     for profile in profiles:
         profile.display = profile_display(profile)
     return profiles
 
 
-def latest_company_profile(db: Session, user):
-    profile = (
-        db.query(CompanyProfile)
-        .filter(CompanyProfile.org_id == _user_org_id(user))
-        .order_by(CompanyProfile.updated_at.desc(), CompanyProfile.id.desc())
-        .first()
-    )
+def latest_company_profile(db: Session, user, include_archived: bool = False):
+    query = db.query(CompanyProfile).filter(CompanyProfile.org_id == _user_org_id(user))
+    if not include_archived:
+        query = query.filter(CompanyProfile.archived_at.is_(None))
+    profile = query.order_by(CompanyProfile.updated_at.desc(), CompanyProfile.id.desc()).first()
     if profile:
         profile.display = profile_display(profile)
     return profile
+
+
+def duplicate_company_profiles(db: Session, user, identifiers: dict, exclude_id: int | None = None):
+    normalized_name = normalized_company_name(identifiers.get("company_name"))
+    exact_matchers = []
+    if identifiers.get("uei"):
+        exact_matchers.append(CompanyProfile.uei == identifiers["uei"])
+    if identifiers.get("duns"):
+        exact_matchers.append(CompanyProfile.duns == identifiers["duns"])
+    if identifiers.get("cage_code"):
+        exact_matchers.append(CompanyProfile.cage_code == identifiers["cage_code"])
+
+    query = db.query(CompanyProfile).filter(
+        CompanyProfile.org_id == _user_org_id(user),
+        CompanyProfile.archived_at.is_(None),
+    )
+    if exclude_id is not None:
+        query = query.filter(CompanyProfile.id != exclude_id)
+
+    candidates = query.all()
+    matches = []
+    for profile in candidates:
+        exact_identifier_match = any(
+            [
+                identifiers.get("uei") and profile.uei == identifiers["uei"],
+                identifiers.get("duns") and profile.duns == identifiers["duns"],
+                identifiers.get("cage_code") and profile.cage_code == identifiers["cage_code"],
+            ]
+        )
+        name_match = normalized_name and normalized_company_name(profile.company_name) == normalized_name
+        if exact_identifier_match or name_match:
+            profile.display = profile_display(profile)
+            matches.append(profile)
+    return matches
+
+
+def duplicate_warning_from_matches(matches: list[CompanyProfile]):
+    if not matches:
+        return None
+    labels = [f"{profile.display.company_name} (#{profile.id})" for profile in matches[:3]]
+    extra = len(matches) - len(labels)
+    suffix = f" and {extra} more" if extra > 0 else ""
+    return f"Possible duplicate profile found: {', '.join(labels)}{suffix}."
 
 
 def find_existing_company_profile(db: Session, user, identifiers: dict):
@@ -273,6 +324,8 @@ def find_existing_company_profile(db: Session, user, identifiers: dict):
         matchers.append(CompanyProfile.uei == identifiers["uei"])
     if identifiers["duns"]:
         matchers.append(CompanyProfile.duns == identifiers["duns"])
+    if identifiers["cage_code"]:
+        matchers.append(CompanyProfile.cage_code == identifiers["cage_code"])
     if identifiers["company_name"]:
         matchers.append(CompanyProfile.company_name == identifiers["company_name"])
 
@@ -282,6 +335,7 @@ def find_existing_company_profile(db: Session, user, identifiers: dict):
     return (
         db.query(CompanyProfile)
         .filter(CompanyProfile.org_id == _user_org_id(user))
+        .filter(CompanyProfile.archived_at.is_(None))
         .filter(or_(*matchers))
         .order_by(CompanyProfile.updated_at.desc(), CompanyProfile.id.desc())
         .first()
@@ -301,6 +355,8 @@ def render_company_profile(
     generation_message: str | None = None,
     generation_error: str | None = None,
     generation_form: dict | None = None,
+    duplicate_warning: str | None = None,
+    include_archived: bool = False,
 ):
     if saved_profile:
         saved_profile.display = profile_display(saved_profile)
@@ -318,11 +374,13 @@ def render_company_profile(
             "parsed_profile_json": parsed_profile_json,
             "can_save_profile": can_save_profile,
             "saved_profile": saved_profile,
-            "saved_profiles": saved_company_profiles(db, user),
+            "saved_profiles": saved_company_profiles(db, user, include_archived=include_archived),
             "schema_keys": PROFILE_SCHEMA_KEYS,
             "generation_message": generation_message,
             "generation_error": generation_error,
             "generation_form": generation_form or {},
+            "duplicate_warning": duplicate_warning,
+            "include_archived": include_archived,
         },
     )
 
@@ -330,13 +388,15 @@ def render_company_profile(
 @router.get("/company-profile")
 async def company_profile_page(
     request: Request,
+    include_archived: str = "",
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    profile = latest_company_profile(db, user)
+    show_archived = include_archived_enabled(include_archived)
+    profile = latest_company_profile(db, user, include_archived=show_archived)
     if profile:
         profile_sections = profile_sections_from_payload(profile.profile_json)
         profile_json = json.dumps(profile.profile_json, indent=2)
@@ -349,6 +409,7 @@ async def company_profile_page(
             parsed_profile_json=profile_json,
             can_save_profile=True,
             saved_profile=profile,
+            include_archived=show_archived,
         )
 
     return render_company_profile(
@@ -356,6 +417,7 @@ async def company_profile_page(
         db,
         user,
         get_default_profile_sections(),
+        include_archived=show_archived,
     )
 
 
@@ -416,6 +478,8 @@ async def company_profile_save(
 
     identifiers = profile_identifiers(profile_payload)
     profile = find_existing_company_profile(db, user, identifiers)
+    duplicate_matches = duplicate_company_profiles(db, user, identifiers, exclude_id=profile.id if profile else None)
+    duplicate_warning = duplicate_warning_from_matches(duplicate_matches)
     if not profile:
         profile = CompanyProfile(org_id=_user_org_id(user))
         db.add(profile)
@@ -430,7 +494,20 @@ async def company_profile_save(
     db.commit()
     db.refresh(profile)
 
-    return RedirectResponse(url=f"/company-profile/{profile.id}", status_code=303)
+    profile.display = profile_display(profile)
+    profile_sections = profile_sections_from_payload(profile.profile_json)
+    saved_profile_json = json.dumps(profile.profile_json, indent=2)
+    return render_company_profile(
+        request,
+        db,
+        user,
+        profile_sections,
+        profile_json=saved_profile_json,
+        parsed_profile_json=saved_profile_json,
+        can_save_profile=True,
+        saved_profile=profile,
+        duplicate_warning=duplicate_warning,
+    )
 
 
 @router.post("/company-profile/generate")
@@ -599,6 +676,7 @@ async def company_profile_generate(
 async def company_profile_saved_detail(
     profile_id: int,
     request: Request,
+    include_archived: str = "",
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -628,4 +706,5 @@ async def company_profile_saved_detail(
         parsed_profile_json=profile_json,
         can_save_profile=True,
         saved_profile=profile,
+        include_archived=include_archived_enabled(include_archived),
     )

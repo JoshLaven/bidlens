@@ -66,9 +66,11 @@ def pull_now(
     db: Session = Depends(get_db),
 ):
     setattr(user, "current_organization_id", current_org_id(request, db, user))
+    org_id = _user_org_id(user)
     if sam_ingest_in_progress():
         return JSONResponse(status_code=409, content={
             "status": "busy",
+            "organization_id": org_id,
             "message": "A SAM pull is already in progress. Wait for it to finish before starting another.",
             "run_id": None,
             "inserted": 0,
@@ -79,9 +81,9 @@ def pull_now(
             "results": [],
         })
 
-    profile = db.query(OrgProfile).filter(OrgProfile.org_id == _user_org_id(user)).first()
+    profile = db.query(OrgProfile).filter(OrgProfile.org_id == org_id).first()
     if not profile:
-        profile = OrgProfile(org_id=_user_org_id(user), sam_naics_codes="541611,541690")
+        profile = OrgProfile(org_id=org_id, sam_naics_codes="541611,541690")
         db.add(profile)
         db.commit()
         db.refresh(profile)
@@ -92,6 +94,7 @@ def pull_now(
     if not naics_list:
         return JSONResponse(status_code=400, content={
             "status": "noop",
+            "organization_id": org_id,
             "message": "No NAICS codes are configured for this organization.",
             "run_id": None,
             "inserted": 0,
@@ -105,7 +108,7 @@ def pull_now(
     try:
         result = ingest_sam(
             db,
-            organization_id=_user_org_id(user),
+            organization_id=org_id,
             naics_list=naics_list,
             days_back=days_back,
             allowed_types=allowed_types,
@@ -116,6 +119,7 @@ def pull_now(
         if str(exc) == "A SAM pull is already in progress":
             return JSONResponse(status_code=409, content={
                 "status": "busy",
+                "organization_id": org_id,
                 "message": "A SAM pull is already in progress. Wait for it to finish before starting another.",
                 "run_id": None,
                 "inserted": 0,
@@ -154,6 +158,7 @@ def pull_now(
     result["retry_after"] = retry_after_display
     result["retry_after_seconds"] = retry_after_seconds
     result["failed_naics"] = _failed_naics(rate_limited_results or sam_unavailable_results)
+    result["organization_id"] = org_id
 
     if sam_unavailable_results:
         if result.get("status") == "failed":
