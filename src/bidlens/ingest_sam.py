@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from .sam_client import SamRateLimitError, SamTemporaryUnavailableError, resolve_notice_description, search_opportunities
 from .models import Opportunity, IngestionRun
+from .services.pursuit_lanes import refresh_opportunity_lane_matches
 
 logger = logging.getLogger(__name__)
 _INGEST_LOCK = threading.Lock()
@@ -320,8 +321,10 @@ def upsert_opportunity(db: Session, organization_id: int, data: Dict[str, Any]) 
     if existing is None:
         try:
             with db.begin_nested():
-                db.add(Opportunity(organization_id=organization_id, **data, upserted_at=dt.datetime.utcnow()))
+                opportunity = Opportunity(organization_id=organization_id, **data, upserted_at=dt.datetime.utcnow())
+                db.add(opportunity)
                 db.flush()
+                refresh_opportunity_lane_matches(db, organization_id, opportunity)
             return "inserted"
         except IntegrityError:
             logger.info("Skipping duplicate SAM notice sam_notice_id=%s", data["sam_notice_id"])
@@ -338,6 +341,7 @@ def upsert_opportunity(db: Session, organization_id: int, data: Dict[str, Any]) 
 
     if changed:
         existing.upserted_at = dt.datetime.utcnow()
+        refresh_opportunity_lane_matches(db, organization_id, existing)
         return "updated"
 
     return "skipped"

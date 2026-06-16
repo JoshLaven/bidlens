@@ -1,0 +1,183 @@
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import RedirectResponse
+from fastapi.templating import Jinja2Templates
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from ..auth import get_current_user
+from ..database import get_db
+from ..models import OrganizationMembership, OpportunityPursuitLaneMatch, PursuitLane, User
+from ..services.pursuit_lanes import parse_list, refresh_lane_matches, refresh_org_lane_matches
+from ..tenancy import current_org_id
+from .opportunities import get_sidebar
+
+router = APIRouter()
+templates = Jinja2Templates(directory="src/bidlens/templates")
+
+
+def require_user(request: Request, db: Session):
+    user = get_current_user(request, db)
+    if not user:
+        return None
+    setattr(user, "current_organization_id", current_org_id(request, db, user))
+    return user
+
+
+def _user_org_id(user) -> int:
+    return getattr(user, "current_organization_id", None) or user.organization_id
+
+
+def _can_manage_lanes(db: Session, user: User) -> bool:
+    """Temporary v1 lane management gate.
+
+    Until BidLens has full auth/workspace roles in the UI, any member of the
+    current workspace may manage pursuit lanes. Organization scoping still
+    prevents cross-workspace reads and writes.
+    """
+    membership = (
+        db.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.organization_id == _user_org_id(user),
+            OrganizationMembership.user_id == user.id,
+        )
+        .first()
+    )
+    return bool(membership)
+
+
+def _redirect(request: Request) -> RedirectResponse:
+    suffix = f"?{request.url.query}" if request.url.query else ""
+    return RedirectResponse(url=f"/pursuit-lanes{suffix}", status_code=303)
+
+
+@router.get("/pursuit-lanes")
+async def pursuit_lanes_page(request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    org_id = _user_org_id(user)
+    lanes = (
+        db.query(PursuitLane)
+        .filter(PursuitLane.organization_id == org_id)
+        .order_by(PursuitLane.is_active.desc(), PursuitLane.name.asc())
+        .all()
+    )
+    match_counts = {
+        lane_id: count
+        for lane_id, count in (
+            db.query(
+                OpportunityPursuitLaneMatch.pursuit_lane_id,
+                func.count(OpportunityPursuitLaneMatch.id),
+            )
+            .filter(OpportunityPursuitLaneMatch.organization_id == org_id)
+            .group_by(OpportunityPursuitLaneMatch.pursuit_lane_id)
+            .all()
+        )
+    }
+
+    return templates.TemplateResponse(
+        "pursuit_lanes.html",
+        {
+            "request": request,
+            "user": user,
+            "lanes": lanes,
+            "match_counts": match_counts,
+            "can_manage_lanes": _can_manage_lanes(db, user),
+            "active_page": "pursuit_lanes",
+            "sidebar": get_sidebar(db, user),
+        },
+    )
+
+
+@router.post("/pursuit-lanes")
+async def create_pursuit_lane(
+    request: Request,
+    name: str = Form(""),
+    description: str = Form(""),
+    agencies: str = Form(""),
+    naics: str = Form(""),
+    keywords: str = Form(""),
+    set_asides: str = Form(""),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    if not _can_manage_lanes(db, user):
+        return _redirect(request)
+
+    lane_name = name.strip()
+    if not lane_name:
+        return _redirect(request)
+
+    org_id = _user_org_id(user)
+    lane = PursuitLane(
+        organization_id=org_id,
+        name=lane_name,
+        description=description.strip() or None,
+        agencies=parse_list(agencies),
+        naics=parse_list(naics),
+        keywords=parse_list(keywords),
+        set_asides=parse_list(set_asides),
+        is_active=bool(is_active),
+    )
+    db.add(lane)
+    db.flush()
+    refresh_lane_matches(db, org_id, lane)
+    db.commit()
+    return _redirect(request)
+
+
+@router.post("/pursuit-lanes/{lane_id}")
+async def update_pursuit_lane(
+    request: Request,
+    lane_id: int,
+    name: str = Form(""),
+    description: str = Form(""),
+    agencies: str = Form(""),
+    naics: str = Form(""),
+    keywords: str = Form(""),
+    set_asides: str = Form(""),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    if not _can_manage_lanes(db, user):
+        return _redirect(request)
+
+    org_id = _user_org_id(user)
+    lane = (
+        db.query(PursuitLane)
+        .filter(PursuitLane.id == lane_id, PursuitLane.organization_id == org_id)
+        .first()
+    )
+    if not lane:
+        return _redirect(request)
+
+    lane_name = name.strip()
+    if lane_name:
+        lane.name = lane_name
+    lane.description = description.strip() or None
+    lane.agencies = parse_list(agencies)
+    lane.naics = parse_list(naics)
+    lane.keywords = parse_list(keywords)
+    lane.set_asides = parse_list(set_asides)
+    lane.is_active = bool(is_active)
+    refresh_lane_matches(db, org_id, lane)
+    db.commit()
+    return _redirect(request)
+
+
+@router.post("/pursuit-lanes/rematch")
+async def rematch_pursuit_lanes(request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    if _can_manage_lanes(db, user):
+        refresh_org_lane_matches(db, _user_org_id(user))
+        db.commit()
+    return _redirect(request)

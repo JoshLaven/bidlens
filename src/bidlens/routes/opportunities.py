@@ -17,7 +17,7 @@ from sqlalchemy import and_, or_, select
 from dataclasses import dataclass
 from typing import Optional
 from sqlalchemy import func, case
-from ..models import Vote
+from ..models import OpportunityPursuitLaneMatch, PursuitLane, Vote
 from ..models import OpportunityBrief
 from ..tenancy import current_org_id
 router = APIRouter()
@@ -211,6 +211,7 @@ def _export_view_query(
     date_to: str = "",
     show_passed: str = "",
     show_past_due: str = "",
+    lane_id: int | None = None,
 ):
     if view == "shortlist":
         q = _opp_list_query(db, user, "SHORTLISTED", tab)
@@ -222,6 +223,7 @@ def _export_view_query(
     else:
         q = _feed_query(db, user, tab, show_passed=show_passed)
         q = apply_org_filters(q, db, user)
+        q = _apply_lane_filter(q, db, user, lane_id=lane_id)
         q = _apply_past_due_filter(q, show_past_due=show_past_due)
 
         date_field = Opportunity.upserted_at
@@ -308,6 +310,28 @@ def _enrich_opps(rows, db, user, watched_col=True):
     counts = get_vote_counts(db, opp_ids)
     user_votes = get_user_votes(db, user.id, opp_ids)
     pursue_users_map, pass_users_map = get_vote_user_maps(db, org_id=_user_org_id(user), opp_ids=opp_ids)
+    lane_rows = (
+        db.query(OpportunityPursuitLaneMatch, PursuitLane)
+        .join(PursuitLane, PursuitLane.id == OpportunityPursuitLaneMatch.pursuit_lane_id)
+        .filter(
+            OpportunityPursuitLaneMatch.organization_id == _user_org_id(user),
+            OpportunityPursuitLaneMatch.opportunity_id.in_(opp_ids),
+            PursuitLane.organization_id == _user_org_id(user),
+            PursuitLane.is_active.is_(True),
+        )
+        .order_by(PursuitLane.name.asc())
+        .all()
+        if opp_ids else []
+    )
+    lane_map: dict[int, list[dict]] = {}
+    for match, lane in lane_rows:
+        lane_map.setdefault(match.opportunity_id, []).append(
+            {
+                "id": lane.id,
+                "name": lane.name,
+                "reasons": match.matched_reasons or [],
+            }
+        )
 
     for opp in opportunities:
         c = counts.get(opp.id, {"pursue": 0, "pass": 0})
@@ -316,6 +340,7 @@ def _enrich_opps(rows, db, user, watched_col=True):
         opp.user_vote = user_votes.get(opp.id)
         opp.pursue_users = pursue_users_map.get(opp.id, [])
         opp.pass_users = pass_users_map.get(opp.id, [])
+        opp.pursuit_lanes = lane_map.get(opp.id, [])
         opp.preview_description = _clean_preview_text(opp.description_text or opp.description or "")
         opp.preview_has_sam_fallback = bool((not opp.preview_description) and getattr(opp, "sam_url", None))
 
@@ -444,6 +469,44 @@ def _apply_past_due_filter(query, *, show_past_due: str = ""):
     )
 
 
+def _active_lanes(db: Session, user) -> list[PursuitLane]:
+    return (
+        db.query(PursuitLane)
+        .filter(
+            PursuitLane.organization_id == _user_org_id(user),
+            PursuitLane.is_active.is_(True),
+        )
+        .order_by(PursuitLane.name.asc())
+        .all()
+    )
+
+
+def _apply_lane_filter(query, db: Session, user, *, lane_id: int | None = None):
+    if not lane_id:
+        return query
+
+    lane = (
+        db.query(PursuitLane.id)
+        .filter(
+            PursuitLane.id == lane_id,
+            PursuitLane.organization_id == _user_org_id(user),
+            PursuitLane.is_active.is_(True),
+        )
+        .first()
+    )
+    if not lane:
+        return query
+
+    matched_opp_ids = (
+        select(OpportunityPursuitLaneMatch.opportunity_id)
+        .where(
+            OpportunityPursuitLaneMatch.organization_id == _user_org_id(user),
+            OpportunityPursuitLaneMatch.pursuit_lane_id == lane_id,
+        )
+    )
+    return query.filter(Opportunity.id.in_(matched_opp_ids))
+
+
 # ── Feed (INBOX) ──────────────────────────────────────────────
 
 @router.get("/")
@@ -456,6 +519,7 @@ async def feed(
     date_to: str = "",
     show_passed: str = "",
     show_past_due: str = "",
+    lane_id: int | None = None,
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -464,6 +528,7 @@ async def feed(
 
     q = _feed_query(db, user, tab, show_passed=show_passed)
     q = apply_org_filters(q, db, user)
+    q = _apply_lane_filter(q, db, user, lane_id=lane_id)
     q = _apply_past_due_filter(q, show_past_due=show_past_due)
 
     date_field = Opportunity.upserted_at
@@ -517,6 +582,8 @@ async def feed(
         "date_basis": sort,
         "show_passed": show_passed,
         "show_past_due": show_past_due,
+        "lane_id": lane_id,
+        "active_lanes": _active_lanes(db, user),
         "now": datetime.utcnow(),
     })
 
@@ -633,6 +700,7 @@ async def export_opportunities_csv(
     date_to: str = "",
     show_passed: str = "",
     show_past_due: str = "",
+    lane_id: int | None = None,
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -650,6 +718,7 @@ async def export_opportunities_csv(
         date_to=date_to,
         show_passed=show_passed,
         show_past_due=show_past_due,
+        lane_id=lane_id,
     )
 
     rows = q.all()

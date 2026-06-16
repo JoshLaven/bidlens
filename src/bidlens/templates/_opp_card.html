@@ -22,6 +22,7 @@
 {% set due_label = opp.response_deadline.strftime('%b %d, %Y') if opp.response_deadline else 'No deadline' %}
 {% set pursue_users = opp.pursue_users or [] %}
 {% set pass_users = opp.pass_users or [] %}
+{% set pursuit_lanes = opp.pursuit_lanes or [] %}
 {% set preview_text = opp.preview_description or '' %}
 {% set preview_has_sam_fallback = opp.preview_has_sam_fallback %}
 <div
@@ -64,6 +65,18 @@
         </div>
       </div>
       <div class="opp-card-agency" title="{{ agency_display }}">{{ agency_display|truncate(60, False, '…') }}</div>
+      {% if pursuit_lanes %}
+        <div class="opp-card-lane-group" aria-label="Matched pursuit lanes">
+          <div class="opp-card-lane-label">Matched Lanes</div>
+          <div class="opp-card-lanes">
+            {% for lane in pursuit_lanes %}
+              {% set lane_reasons = lane.reasons or [] %}
+              {% set lane_title = 'Matched pursuit lane' ~ (': ' ~ (lane_reasons|join('; ')) if lane_reasons else '') %}
+              <span class="pursuit-lane-pill" title="{{ lane_title }}">{{ lane.name }}</span>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
       <div class="opp-preview-inline" id="opp-preview-inline-{{ opp.id }}" data-preview-inline hidden>
         <div class="opp-preview-title">{{ opp.title }}</div>
         {% if preview_has_sam_fallback %}

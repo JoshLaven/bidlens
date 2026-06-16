@@ -86,6 +86,7 @@ class Opportunity(Base):
 
     user_opportunities = relationship("UserOpportunity", back_populates="opportunity")
     notes = relationship("OpportunityNote", back_populates="opportunity", cascade="all, delete-orphan")
+    pursuit_lane_matches = relationship("OpportunityPursuitLaneMatch", back_populates="opportunity", cascade="all, delete-orphan")
 
 class OpportunityBrief(Base):
     __tablename__ = "opportunity_briefs"
@@ -170,6 +171,60 @@ class Organization(Base):
 
     users = relationship("User", back_populates="organization")
     memberships = relationship("OrganizationMembership", back_populates="organization", cascade="all, delete-orphan")
+    pursuit_lanes = relationship("PursuitLane", back_populates="organization", cascade="all, delete-orphan")
+
+
+class PursuitLane(Base):
+    __tablename__ = "pursuit_lanes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    agencies = Column(JSON, nullable=False, default=list)
+    naics = Column(JSON, nullable=False, default=list)
+    keywords = Column(JSON, nullable=False, default=list)
+    set_asides = Column(JSON, nullable=False, default=list)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="1")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    organization = relationship("Organization", back_populates="pursuit_lanes")
+    assignments = relationship("PursuitLaneAssignment", back_populates="pursuit_lane", cascade="all, delete-orphan")
+    opportunity_matches = relationship("OpportunityPursuitLaneMatch", back_populates="pursuit_lane", cascade="all, delete-orphan")
+
+
+class PursuitLaneAssignment(Base):
+    __tablename__ = "pursuit_lane_assignments"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "pursuit_lane_id", "user_id", name="uq_lane_assignment"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    pursuit_lane_id = Column(Integer, ForeignKey("pursuit_lanes.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    pursuit_lane = relationship("PursuitLane", back_populates="assignments")
+    user = relationship("User")
+
+
+class OpportunityPursuitLaneMatch(Base):
+    __tablename__ = "opportunity_pursuit_lane_matches"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "opportunity_id", "pursuit_lane_id", name="uq_opp_lane_match"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
+    pursuit_lane_id = Column(Integer, ForeignKey("pursuit_lanes.id"), nullable=False, index=True)
+    matched_reasons = Column(JSON, nullable=False, default=list)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    opportunity = relationship("Opportunity", back_populates="pursuit_lane_matches")
+    pursuit_lane = relationship("PursuitLane", back_populates="opportunity_matches")
     
 class OrgProfile(Base):
     __tablename__ = "org_profiles"
