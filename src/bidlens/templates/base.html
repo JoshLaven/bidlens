@@ -17,10 +17,11 @@
                 {% if user %}
                     <div class="nav-workspace" aria-label="Workspace sections">
                       <a href="/" class="{{ 'active' if active_page == 'feed' else '' }}">Inbox</a>
-                      <a href="/shortlist" class="{{ 'active' if active_page == 'shortlist' else '' }}">Team Queue</a>
-                      <a href="/my-shortlist" class="{{ 'active' if active_page == 'my_shortlist' else '' }}">My Queue</a>
+                      <a href="/shortlist" class="{{ 'active' if active_page == 'shortlist' else '' }}">Team Interested</a>
+                      <a href="/my-shortlist" class="{{ 'active' if active_page == 'my_shortlist' else '' }}">My Interested</a>
                       <a href="/pursuit-lanes" class="{{ 'active' if active_page == 'pursuit_lanes' else '' }}">Pursuit Lanes</a>
                       <a href="/company-profile" class="{{ 'active' if active_page == 'company_profile' else '' }}">Company Profile</a>
+                      <a href="/imports/govwin" class="{{ 'active' if active_page == 'imports' else '' }}">Import</a>
                       <a href="/archive" class="{{ 'active' if active_page == 'archive' else '' }}">Archive</a>
                       <a href="/settings" class="{{ 'active' if active_page == 'settings' else '' }}">Settings</a>
                     </div>
@@ -46,7 +47,7 @@
         {% if user %}
           <aside class="layout-side">
             <div class="side-card">
-              <div class="side-card-title"><a href="/my-shortlist" class="side-card-link">My Shortlisted – Due Soon</a></div>
+              <div class="side-card-title"><a href="/my-shortlist" class="side-card-link">My Interested – Due Soon</a></div>
               <div id="sidebar-my-shortlisted-body">
                 {% if sidebar and sidebar.my_shortlisted and sidebar.my_shortlisted|length > 0 %}
                   <div class="side-list">
@@ -61,7 +62,7 @@
                   </div>
                   <a href="/my-shortlist" class="side-view-all">View all →</a>
                 {% else %}
-                  <div class="side-empty">Shortlist opps to see them here.</div>
+                  <div class="side-empty">Mark interest to see opportunities here.</div>
                 {% endif %}
               </div>
             </div>
@@ -201,7 +202,7 @@
 
     function refreshSidebar(sidebar) {
       if (!sidebar) return;
-      renderSidebarSection('sidebar-my-shortlisted-body', sidebar.my_shortlisted || [], 'Shortlist opps to see them here.', '/my-shortlist');
+      renderSidebarSection('sidebar-my-shortlisted-body', sidebar.my_shortlisted || [], 'Mark interest to see opportunities here.', '/my-shortlist');
       renderSidebarSection('sidebar-following-body', sidebar.following || [], 'Not following any yet.');
     }
 
@@ -242,7 +243,7 @@
       const passHelper = card.querySelector('[data-pass-helper]');
       if (pursueButton) {
         pursueButton.className = `btn btn-sm opp-card-button opp-card-button--primary ${vote === 'PURSUE' ? 'btn-success' : 'btn-primary'}`;
-        pursueButton.innerHTML = vote === 'PURSUE' ? '&#10003; Shortlisted' : 'Shortlist';
+        pursueButton.innerHTML = vote === 'PURSUE' ? '&#10003; Interested' : 'Interested';
       }
       if (passButton) {
         passButton.className = `btn btn-sm opp-card-button opp-card-button--secondary ${vote === 'PASS' ? 'btn-warning' : 'btn-outline-secondary'}`;
@@ -268,7 +269,7 @@
       }
       if (pursueSignal) {
         pursueSignal.hidden = pursueCount === 0;
-        applySignalTooltip(pursueSignal, 'Shortlisted by', pursueUsers);
+        applySignalTooltip(pursueSignal, 'Interested by', pursueUsers);
         pursueSignal.classList.toggle('opp-score-flap--fresh', vote === 'PURSUE');
       }
       if (passSignal) {
@@ -374,7 +375,7 @@
       if (!card) return false;
 
       const listView = list.dataset.listView;
-      const showPassed = document.querySelector('.feed-toolbar-checkbox input')?.checked;
+      const showPassed = new URLSearchParams(window.location.search).get('show_passed') === '1';
       return (
         (listView === 'feed' && vote === 'PURSUE') ||
         (listView === 'feed' && vote === 'PASS' && !showPassed) ||
@@ -430,22 +431,61 @@
           return;
         }
 
-        updateOpportunityCard(oppId, vote, data);
+        const effectiveVote = data.vote || null;
+        updateOpportunityCard(oppId, effectiveVote, data);
         refreshSidebar(data.sidebar);
-        const shouldRemove = shouldRemoveOpportunityCard(oppId, vote, data);
+        const shouldRemove = shouldRemoveOpportunityCard(oppId, effectiveVote, data);
         await new Promise((resolve) => window.setTimeout(resolve, 180));
-        await animateOpportunityCard(card, vote, shouldRemove);
+        await animateOpportunityCard(card, effectiveVote, shouldRemove);
 
         const currentListView = document.getElementById('opportunity-list')?.dataset.listView;
         const message =
           vote === 'PURSUE'
-            ? 'Opportunity added to Shortlist'
+            ? (data.in_my_shortlist ? 'Marked interested' : 'Interest removed')
+            : data.toggled_off
+              ? 'Pass removed'
             : currentListView === 'my_shortlist'
-              ? 'Removed from Shortlist'
+              ? 'Removed from My Interested'
               : 'Opportunity passed';
         showToast(message, 'success');
       } catch (error) {
         showToast('Action failed', 'error');
+      }
+    }
+
+    async function pushOpportunityToCrm(oppId) {
+      try {
+        const res = await fetch('/api/opportunities/push-crm', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            opp_id: Number(oppId),
+            ui_version: "v1"
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast(data.detail || 'CRM push failed', 'error');
+          return;
+        }
+
+        const card = document.getElementById(`opp-card-${oppId}`);
+        updateOpportunityCard(oppId, 'PURSUE', data);
+        refreshSidebar(data.sidebar);
+        const button = card?.querySelector('[data-push-crm-button]');
+        if (button) {
+          button.className = 'btn btn-sm opp-card-button opp-card-button--primary btn-success';
+          button.innerHTML = '&#10003; Pushed to CRM';
+          button.disabled = true;
+        }
+        card?.classList.add('opp-card--pursue');
+        if (document.getElementById('opportunity-list')?.dataset.listView === 'feed' && card) {
+          await animateOpportunityCard(card, 'PURSUE', true);
+        }
+        updateOpportunityEmptyState();
+        showToast('Marked as pushed to CRM', 'success');
+      } catch (error) {
+        showToast('CRM push failed', 'error');
       }
     }
     </script>

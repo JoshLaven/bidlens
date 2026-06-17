@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func, case
+from datetime import datetime
 
 from ..models import Opportunity, Vote, User
 from ..state_machine import OppState, validate_transition
@@ -63,9 +64,10 @@ def cast_vote(
     vote: str,  # "PURSUE" or "PASS"
     ui_version: str = "v1",
 ) -> dict:
-    """Cast or flip a per-user vote on an opportunity.
+    """Cast or flip a per-user signal on an opportunity.
 
-    Returns dict with vote, state, and whether auto-promotion fired.
+    PURSUE is the stored interest signal. It is toggleable and does not move
+    an opportunity into CRM or any org-level workflow state.
     """
     if vote not in ("PURSUE", "PASS"):
         raise ValueError("vote must be PURSUE or PASS")
@@ -86,23 +88,21 @@ def cast_vote(
         .first()
     )
 
+    toggled_off = False
     if not row:
         row = Vote(org_id=org_id, opp_id=opp_id, user_id=user_id, vote=vote)
         db.add(row)
+    elif row.vote == vote and vote in {"PURSUE", "PASS"}:
+        row.vote = None
+        toggled_off = True
     else:
         row.vote = vote
 
     db.flush()
 
-    promoted = False
-    if vote == "PURSUE" and opp.decision_state == "INBOX":
-        opp.decision_state = OppState.SHORTLISTED.value
-        if not opp.review_stage:
-            opp.review_stage = "Team Review"
-        promoted = True
-
     db.commit()
 
+    effective_vote = None if toggled_off else vote
     log_event(
         db,
         event_type="vote_cast",
@@ -110,25 +110,70 @@ def cast_vote(
         user_id=user_id,
         opp_id=opp_id,
         ui_version=ui_version,
-        payload={"vote": vote, "promoted": promoted},
+        payload={"vote": effective_vote, "requested_vote": vote, "toggled_off": toggled_off},
     )
 
-    if promoted:
+    return {
+        "vote": effective_vote,
+        "state": opp.decision_state,
+        "toggled_off": toggled_off,
+    }
+
+
+def push_opportunity_to_crm(
+    db: Session,
+    *,
+    org_id: int,
+    user_id: int,
+    opp_id: int,
+    ui_version: str = "v1",
+) -> Opportunity:
+    """Mark an opportunity as locally promoted to CRM.
+
+    This intentionally does not call an external CRM API. CRM remains the
+    downstream system of record; BidLens only records that the user promoted it.
+    """
+    opp = db.query(Opportunity).filter(
+        Opportunity.id == opp_id,
+        Opportunity.organization_id == org_id,
+    ).first()
+    if not opp:
+        raise ValueError(f"Opportunity {opp_id} not found")
+    if opp.decision_state == "ARCHIVED":
+        raise ValueError("Cannot push archived opportunities to CRM")
+
+    interest_row = (
+        db.query(Vote)
+        .filter(and_(Vote.org_id == org_id, Vote.opp_id == opp_id, Vote.user_id == user_id))
+        .first()
+    )
+    if not interest_row:
+        interest_row = Vote(org_id=org_id, opp_id=opp_id, user_id=user_id, vote="PURSUE")
+        db.add(interest_row)
+    else:
+        interest_row.vote = "PURSUE"
+
+    if not opp.crm_pushed:
+        opp.crm_pushed = True
+        opp.crm_pushed_at = datetime.utcnow()
+        opp.crm_pushed_by = user_id
+        db.commit()
         log_event(
             db,
-            event_type="state_changed",
+            event_type="crm_pushed",
             org_id=org_id,
             user_id=user_id,
             opp_id=opp_id,
             ui_version=ui_version,
-            payload={"from": "INBOX", "to": "SHORTLISTED", "trigger": "auto_promote"},
+            payload={"crm_pushed": True},
         )
-
-    return {
-        "vote": vote,
-        "state": opp.decision_state,
-        "promoted": promoted,
-    }
+    elif opp.crm_pushed_by != user_id:
+        # Preserve the original CRM promotion attribution. Other users can
+        # signal interest separately after the opportunity is in CRM.
+        db.commit()
+    else:
+        db.commit()
+    return opp
 
 
 def get_vote_counts(db: Session, opp_ids: list[int]) -> dict[int, dict]:

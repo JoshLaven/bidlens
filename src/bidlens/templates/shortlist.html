@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% from "_opp_card.html" import opp_card %}
-{% block title %}Shortlist - BidLens{% endblock %}
+{% block title %}Interested - BidLens{% endblock %}
 {% block content %}
 {% set export_url = '/opportunities/export.csv?view=shortlist&tab=' ~ current_tab ~ '&sort=' ~ sort ~ '&show_past_due=' ~ show_past_due %}
 <div class="page-header">
-  <h1>Team Queue</h1>
-  <p class="page-subtitle">Shared opportunities the team is carrying forward for closer review.</p>
+  <h1>Team Interested</h1>
+  <p class="page-subtitle">Shared opportunities that someone on the team has marked as interesting.</p>
 </div>
 
 <div class="tabs" style="margin-bottom:12px;">
@@ -17,7 +17,7 @@
   <div class="controls-left">
     <div class="feed-toolbar-group feed-toolbar-group--sort">
       <span class="feed-toolbar-label">Sort</span>
-      <a href="/shortlist?tab={{ current_tab }}&sort=pursue&show_past_due={{ show_past_due }}" class="btn btn-sm {{ 'btn-primary' if sort == 'pursue' else 'btn-outline-secondary' }}">Votes</a>
+      <a href="/shortlist?tab={{ current_tab }}&sort=pursue&show_past_due={{ show_past_due }}" class="btn btn-sm {{ 'btn-primary' if sort == 'pursue' else 'btn-outline-secondary' }}">Interest</a>
       <a href="/shortlist?tab={{ current_tab }}&sort=deadline&show_past_due={{ show_past_due }}" class="btn btn-sm {{ 'btn-primary' if sort == 'deadline' else 'btn-outline-secondary' }}">Deadline</a>
       <a href="/shortlist?tab={{ current_tab }}&sort=activity&show_past_due={{ show_past_due }}" class="btn btn-sm {{ 'btn-primary' if sort == 'activity' else 'btn-outline-secondary' }}">Activity</a>
     </div>
@@ -42,8 +42,8 @@
 {% endif %}
 </div>
 <div id="opportunity-empty-state" class="empty-state" {% if opportunities %}hidden{% endif %}>
-    <h2>No shortlisted opportunities</h2>
-    <p>Click <strong>Shortlist</strong> on an opportunity in the feed to move it here.</p>
+    <h2>No interested opportunities</h2>
+    <p>Click <strong>Interested</strong> on an opportunity in the feed to move it here.</p>
 </div>
 {% endblock %}
 {% block scripts %}

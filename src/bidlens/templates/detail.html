@@ -2,6 +2,8 @@
 {% block title %}{{ opportunity.title }} - BidLens{% endblock %}
 
 {% block content %}
+{% set source_value = opportunity.source or '' %}
+{% set source_label = 'SAM' if source_value == 'sam' else 'GovWin' if source_value == 'govwin_export' else source_value %}
 <div class="detail-page">
 
   <a href="/" class="btn btn-secondary btn-sm" style="margin-bottom: 24px;">
@@ -23,10 +25,13 @@
       <span class="badge {{ 'badge-rfi' if opportunity.opportunity_type in ['RFI', 'Sources Sought'] else 'badge-type' }}">
         {{ opportunity.opportunity_type }}
       </span>
-      <span class="badge">{{ decision_state }}</span>
+      {% if source_value %}
+        <span class="source-pill" title="Source: {{ source_value }}">{{ source_label }}</span>
+      {% endif %}
+      <span class="badge">{{ display_status }}</span>
       {% if pursue_count or pass_count %}
         <span class="badge" style="margin-left: 4px;">
-          {% if pursue_count %}Shortlist: {{ pursue_count }}{% endif %}
+          {% if pursue_count %}Interested: {{ pursue_count }}{% endif %}
           {% if pursue_count and pass_count %} · {% endif %}
           {% if pass_count %}Pass: {{ pass_count }}{% endif %}
         </span>
@@ -39,11 +44,24 @@
     <div class="card-actions" style="margin-bottom: 16px;">
       <div class="actions-left">
         {% if decision_state in ['INBOX', 'SHORTLISTED'] %}
-          <button type="button"
-                  class="btn btn-sm {{ 'btn-primary' if user_vote != 'PURSUE' else 'btn-success' }}"
-                  onclick="voteOpp('{{ opportunity.id }}', 'PURSUE')">
-            Shortlist{% if pursue_count %} ({{ pursue_count }}){% endif %}
-          </button>
+          {% if not opportunity.crm_pushed and user_vote != 'PURSUE' %}
+            <button type="button"
+                    class="btn btn-sm btn-primary"
+                    data-push-crm-button
+                    onclick="pushOpportunityToCrm('{{ opportunity.id }}')">
+              Push to CRM
+            </button>
+          {% elif opportunity.crm_pushed_by_current_user %}
+            <button type="button" class="btn btn-sm btn-success" disabled>
+              &#10003; Pushed to CRM
+            </button>
+          {% else %}
+            <button type="button"
+                    class="btn btn-sm {{ 'btn-primary' if user_vote != 'PURSUE' else 'btn-success' }}"
+                    onclick="voteOpp('{{ opportunity.id }}', 'PURSUE')">
+              {% if user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}{% if pursue_count %} ({{ pursue_count }}){% endif %}
+            </button>
+          {% endif %}
           <button type="button"
                   class="btn btn-sm {{ 'btn-secondary' if user_vote != 'PASS' else 'btn-warning' }}"
                   onclick="voteOpp('{{ opportunity.id }}', 'PASS')">
@@ -107,7 +125,12 @@
         {% if opportunity.naics %}
           <div class="key-info-row">
             <span class="key-info-label">NAICS</span>
-            <span class="key-info-value">{{ opportunity.naics }}</span>
+            <span class="key-info-value">
+              {{ opportunity.naics }}
+              {% if opportunity.naics_title %}
+                <span class="key-info-subvalue">{{ opportunity.naics_title }}</span>
+              {% endif %}
+            </span>
           </div>
         {% endif %}
 
@@ -115,6 +138,20 @@
           <div class="key-info-row">
             <span class="key-info-label">Set-Aside</span>
             <span class="key-info-value">{{ opportunity.set_aside }}</span>
+          </div>
+        {% endif %}
+
+        {% if opportunity.solicitation_number %}
+          <div class="key-info-row">
+            <span class="key-info-label">Solicitation #</span>
+            <span class="key-info-value">{{ opportunity.solicitation_number }}</span>
+          </div>
+        {% endif %}
+
+        {% if opportunity.crm_pushed and opportunity.crm_pushed_by_label %}
+          <div class="key-info-row">
+            <span class="key-info-label">CRM Owner</span>
+            <span class="key-info-value">Pushed to CRM by {{ opportunity.crm_pushed_by_label }}</span>
           </div>
         {% endif %}
 
@@ -130,11 +167,11 @@
           </div>
         {% endif %}
 
-        {% if opportunity.sam_url %}
-          <a href="{{ opportunity.sam_url }}" target="_blank"
+        {% if opportunity.source_url or opportunity.sam_url %}
+          <a href="{{ opportunity.source_url or opportunity.sam_url }}" target="_blank"
              class="btn btn-secondary btn-sm"
              style="margin-top: 12px; justify-content: center;">
-            View on SAM.gov &rarr;
+            View Source &rarr;
           </a>
         {% endif %}
 

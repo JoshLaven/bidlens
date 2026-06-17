@@ -5,7 +5,7 @@
 
 <div class="tabs">
   <a href="/saved?state=saved{% if type_filter %}&type={{ type_filter }}{% endif %}"
-     class="tab {{ 'active' if state_filter == 'saved' else '' }}">Shortlist</a>
+     class="tab {{ 'active' if state_filter == 'saved' else '' }}">Interested</a>
 
   <a href="/saved?state=bid{% if type_filter %}&type={{ type_filter }}{% endif %}"
      class="tab {{ 'active' if state_filter == 'bid' else '' }}">Bid</a>
@@ -34,13 +34,13 @@
             <div class="card-header">
                 <a href="/opportunity/{{ item.opportunity.id }}" class="card-title">{{ item.opportunity.title }}</a>
                 {% if state_filter == 'saved' %}
-                  <span class="badge badge-status-saved">Shortlisted</span>
+                  <span class="badge badge-status-saved">Interested</span>
                 {% elif state_filter == 'bid' %}
                   <span class="badge badge-status-in_progress">Go Bid</span>
                 {% elif state_filter == 'no_bid' %}
                   <span class="badge badge-status-dropped">No Bid</span>
                 {% else %}
-                  <span class="badge badge-status-saved">Shortlisted</span>
+                  <span class="badge badge-status-saved">Interested</span>
                 {% endif %}
             </div>
             <div class="card-meta">
@@ -62,7 +62,7 @@
             </div>
             {% endif %}
             <div class="signals-line">
-              SIGNALS &mdash; Shortlist &middot; {{ item.up_count }}  &nbsp; Pass &middot; {{ item.down_count }}
+              SIGNALS &mdash; Interested &middot; {{ item.up_count }}  &nbsp; Pass &middot; {{ item.down_count }}
             </div>
 
             <div class="card-actions">
@@ -100,14 +100,14 @@
 {% else %}
   <div class="empty-state">
     {% if state_filter == 'saved' %}
-      <h2>No shortlisted opportunities</h2>
-      <p>Start by browsing the <a href="/">feed</a> and shortlisting opportunities you're interested in.</p>
+      <h2>No interested opportunities</h2>
+      <p>Start by browsing the <a href="/">feed</a> and marking opportunities as interesting.</p>
     {% elif state_filter == 'bid' %}
       <h2>No Go Bid decisions yet</h2>
-      <p>Move an opportunity from Shortlist to Go Bid when you've decided to pursue it.</p>
+      <p>Move an opportunity from Interested to Go Bid when you've decided to pursue it.</p>
     {% elif state_filter == 'no_bid' %}
       <h2>No No Bid decisions yet</h2>
-      <p>Mark opportunities as No Bid from the Feed or Shortlist.</p>
+      <p>Mark opportunities as No Bid from the Feed or Interested.</p>
     {% else %}
       <h2>No opportunities</h2>
     {% endif %}

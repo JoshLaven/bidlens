@@ -23,8 +23,12 @@
 {% set pursue_users = opp.pursue_users or [] %}
 {% set pass_users = opp.pass_users or [] %}
 {% set pursuit_lanes = opp.pursuit_lanes or [] %}
+{% set crm_pushed = opp.crm_pushed %}
+{% set crm_pushed_by_current_user = opp.crm_pushed_by_current_user %}
 {% set preview_text = opp.preview_description or '' %}
 {% set preview_has_sam_fallback = opp.preview_has_sam_fallback %}
+{% set source_value = opp.source or '' %}
+{% set source_label = 'SAM' if source_value == 'sam' else 'GovWin' if source_value == 'govwin_export' else source_value %}
 <div
   id="opp-card-{{ opp.id }}"
   class="opp-card{% if view != 'archive' %}{% if opp.user_vote == 'PURSUE' %} opp-card--pursue{% elif opp.user_vote == 'PASS' %} opp-card--pass{% endif %}{% endif %}{% if view == 'archive' %} opp-card--archived{% endif %}"
@@ -52,8 +56,8 @@
               <div class="opp-preview-title">{{ opp.title }}</div>
               {% if preview_has_sam_fallback %}
                 <p>Detailed description available on SAM.gov</p>
-                {% if opp.sam_url %}
-                  <a href="{{ opp.sam_url }}" target="_blank" rel="noreferrer" class="opp-preview-link">View on SAM.gov</a>
+                {% if opp.source_url or opp.sam_url %}
+                  <a href="{{ opp.source_url or opp.sam_url }}" target="_blank" rel="noreferrer" class="opp-preview-link">View Source</a>
                 {% endif %}
               {% elif preview_text %}
                 <p>{{ preview_text[:300] }}{% if preview_text|length > 300 %}…{% endif %}</p>
@@ -64,7 +68,15 @@
           </div>
         </div>
       </div>
-      <div class="opp-card-agency" title="{{ agency_display }}">{{ agency_display|truncate(60, False, '…') }}</div>
+      <div class="opp-card-meta-line">
+        <div class="opp-card-agency" title="{{ agency_display }}">{{ agency_display|truncate(60, False, '…') }}</div>
+        {% if source_value %}
+          <span class="source-pill" title="Source: {{ source_value }}">{{ source_label }}</span>
+        {% endif %}
+      </div>
+      {% if crm_pushed and opp.crm_pushed_by_label %}
+        <div class="opp-card-crm-attribution">Pushed to CRM by {{ opp.crm_pushed_by_label }}</div>
+      {% endif %}
       {% if pursuit_lanes %}
         <div class="opp-card-lane-group" aria-label="Matched pursuit lanes">
           <div class="opp-card-lane-label">Matched Lanes</div>
@@ -81,8 +93,8 @@
         <div class="opp-preview-title">{{ opp.title }}</div>
         {% if preview_has_sam_fallback %}
           <p>Detailed description available on SAM.gov</p>
-          {% if opp.sam_url %}
-            <a href="{{ opp.sam_url }}" target="_blank" rel="noreferrer" class="opp-preview-link">View on SAM.gov</a>
+          {% if opp.source_url or opp.sam_url %}
+            <a href="{{ opp.source_url or opp.sam_url }}" target="_blank" rel="noreferrer" class="opp-preview-link">View Source</a>
           {% endif %}
         {% elif preview_text %}
           <p>{{ preview_text[:300] }}{% if preview_text|length > 300 %}…{% endif %}</p>
@@ -109,12 +121,28 @@
 
     {% if view != 'archive' %}
     <div class="opp-card-actions">
-      <button type="button"
-              class="btn btn-sm opp-card-button opp-card-button--primary {{ 'btn-success' if opp.user_vote == 'PURSUE' else 'btn-primary' }}"
-              data-vote-button="PURSUE"
-              onclick="voteOpp('{{ opp.id }}', 'PURSUE')">
-        {% if opp.user_vote == 'PURSUE' %}&#10003; Shortlisted{% else %}Shortlist{% endif %}
-      </button>
+      {% if not crm_pushed and opp.user_vote != 'PURSUE' %}
+        <button type="button"
+                class="btn btn-sm opp-card-button opp-card-button--primary btn-primary"
+                data-push-crm-button
+                onclick="pushOpportunityToCrm('{{ opp.id }}')">
+          Push to CRM
+        </button>
+      {% elif crm_pushed_by_current_user %}
+        <button type="button"
+                class="btn btn-sm opp-card-button opp-card-button--primary btn-success"
+                data-push-crm-button
+                disabled>
+          &#10003; Pushed to CRM
+        </button>
+      {% else %}
+        <button type="button"
+                class="btn btn-sm opp-card-button opp-card-button--primary {{ 'btn-success' if opp.user_vote == 'PURSUE' else 'btn-primary' }}"
+                data-vote-button="PURSUE"
+                onclick="voteOpp('{{ opp.id }}', 'PURSUE')">
+          {% if opp.user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}
+        </button>
+      {% endif %}
       <div class="opp-card-actions-secondary">
         <span class="opp-card-pass-label" data-pass-helper {% if opp.user_vote == 'PASS' %}hidden{% endif %}>Not a fit?</span>
         <button type="button"
@@ -145,7 +173,7 @@
         >
           <span class="opp-score-label">S</span>
           <span class="opp-score-value" data-pursue-count>{{ pursue_count }}</span>
-          <span class="opp-score-tooltip" data-signal-tooltip {% if not pursue_users %}hidden{% endif %}>Shortlisted by: {{ pursue_users|join(', ') }}</span>
+          <span class="opp-score-tooltip" data-signal-tooltip {% if not pursue_users %}hidden{% endif %}>Interested by: {{ pursue_users|join(', ') }}</span>
         </span>
         <span
           class="opp-score-flap opp-score-flap--pass"
@@ -163,7 +191,7 @@
         class="opp-icon-button opp-footer-icon"
         title="Email opportunity"
         aria-label="Email opportunity"
-        onclick='openOpportunityEmail({ title: {{ opp.title|tojson }}, agency: {{ agency_display|tojson }}, due: {{ due_label|tojson }}, path: {{ ("/opportunity/" ~ opp.id)|tojson }}, samUrl: {{ (opp.sam_url or "")|tojson }} })'>
+        onclick='openOpportunityEmail({ title: {{ opp.title|tojson }}, agency: {{ agency_display|tojson }}, due: {{ due_label|tojson }}, path: {{ ("/opportunity/" ~ opp.id)|tojson }}, samUrl: {{ (opp.source_url or opp.sam_url or "")|tojson }} })'>
         &#9993;
       </button>
     </summary>
@@ -186,7 +214,19 @@
         {% if opp.naics %}
           <div class="opp-detail-row">
             <span class="opp-detail-label">NAICS</span>
-            <span class="opp-detail-value">{{ opp.naics }}</span>
+            <span class="opp-detail-value">
+              {{ opp.naics }}
+              {% if opp.naics_title %}
+                <span class="opp-detail-subvalue">{{ opp.naics_title }}</span>
+              {% endif %}
+            </span>
+          </div>
+        {% endif %}
+
+        {% if opp.solicitation_number %}
+          <div class="opp-detail-row">
+            <span class="opp-detail-label">Solicitation #</span>
+            <span class="opp-detail-value">{{ opp.solicitation_number }}</span>
           </div>
         {% endif %}
 

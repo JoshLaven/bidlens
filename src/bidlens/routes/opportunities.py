@@ -177,16 +177,24 @@ def _agency_parts_for_export(raw_agency: str | None) -> tuple[str | None, str | 
 
 
 def _current_org_status(opp: Opportunity) -> str:
+    if getattr(opp, "crm_pushed", False):
+        return "Pushed to CRM"
     stage = (opp.review_stage or "").strip()
     if opp.decision_state == "SHORTLISTED" and stage:
-        return f"{opp.decision_state} / {stage}"
+        return f"Interested / {stage}"
+    if opp.decision_state == "SHORTLISTED":
+        return "Interested"
     if opp.decision_state == "ARCHIVED" and opp.archived_reason:
-        return f"{opp.decision_state} / {opp.archived_reason}"
-    return opp.decision_state
+        return f"Archived / {opp.archived_reason}"
+    return "Archived" if opp.decision_state == "ARCHIVED" else "Active"
 
 
 def _base_export_filename(view: str, tab: str) -> str:
     safe_view = (view or "feed").replace("-", "_")
+    if safe_view == "shortlist":
+        safe_view = "team_interested"
+    elif safe_view == "my_shortlist":
+        safe_view = "my_interested"
     safe_tab = (tab or "solicitations").replace("-", "_")
     return f"bidlens_{safe_view}_{safe_tab}_export.csv"
 
@@ -212,9 +220,10 @@ def _export_view_query(
     show_passed: str = "",
     show_past_due: str = "",
     lane_id: int | None = None,
+    search: str = "",
 ):
     if view == "shortlist":
-        q = _opp_list_query(db, user, "SHORTLISTED", tab)
+        q = _team_interest_query(db, user, tab)
         q = _apply_past_due_filter(q, show_past_due=show_past_due)
     elif view == "archive":
         q = _opp_list_query(db, user, "ARCHIVED", tab)
@@ -224,6 +233,7 @@ def _export_view_query(
         q = _feed_query(db, user, tab, show_passed=show_passed)
         q = apply_org_filters(q, db, user)
         q = _apply_lane_filter(q, db, user, lane_id=lane_id)
+        q = _apply_feed_search(q, search_term=search)
         q = _apply_past_due_filter(q, show_past_due=show_past_due)
 
         date_field = Opportunity.upserted_at
@@ -260,8 +270,8 @@ def _vote_export_maps(db: Session, org_id: int, opp_ids: list[int]) -> tuple[dic
         return {}, {}, {}
 
     counts = get_vote_counts(db, opp_ids)
-    shortlist_users, pass_users = get_vote_user_maps(db, org_id=org_id, opp_ids=opp_ids)
-    return counts, shortlist_users, pass_users
+    interest_users, pass_users = get_vote_user_maps(db, org_id=org_id, opp_ids=opp_ids)
+    return counts, interest_users, pass_users
 
 
 def _sort_export_opportunities(db: Session, opportunities: list[Opportunity], *, view: str, sort: str) -> list[Opportunity]:
@@ -332,6 +342,16 @@ def _enrich_opps(rows, db, user, watched_col=True):
                 "reasons": match.matched_reasons or [],
             }
         )
+    crm_user_ids = sorted({opp.crm_pushed_by for opp in opportunities if getattr(opp, "crm_pushed_by", None)})
+    crm_user_map = {
+        user_id: (name or email or f"User {user_id}")
+        for user_id, name, email in (
+            db.query(User.id, User.name, User.email)
+            .filter(User.id.in_(crm_user_ids))
+            .all()
+            if crm_user_ids else []
+        )
+    }
 
     for opp in opportunities:
         c = counts.get(opp.id, {"pursue": 0, "pass": 0})
@@ -341,8 +361,10 @@ def _enrich_opps(rows, db, user, watched_col=True):
         opp.pursue_users = pursue_users_map.get(opp.id, [])
         opp.pass_users = pass_users_map.get(opp.id, [])
         opp.pursuit_lanes = lane_map.get(opp.id, [])
+        opp.crm_pushed_by_current_user = bool(getattr(opp, "crm_pushed", False) and opp.crm_pushed_by == user.id)
+        opp.crm_pushed_by_label = crm_user_map.get(getattr(opp, "crm_pushed_by", None))
         opp.preview_description = _clean_preview_text(opp.description_text or opp.description or "")
-        opp.preview_has_sam_fallback = bool((not opp.preview_description) and getattr(opp, "sam_url", None))
+        opp.preview_has_sam_fallback = bool((not opp.preview_description) and (getattr(opp, "source_url", None) or getattr(opp, "sam_url", None)))
 
     return opportunities
 
@@ -367,7 +389,7 @@ def _opp_list_query(db: Session, user, decision_state: str, tab: str):
 
 
 def _feed_query(db: Session, user, tab: str, *, show_passed: str = ""):
-    """Main feed: org opportunities minus actions taken by the current user."""
+    """Main feed: organization opportunities the current user has not reviewed."""
     q = (
         db.query(Opportunity, UserOpportunity.watched.label("watched"))
         .outerjoin(
@@ -383,7 +405,7 @@ def _feed_query(db: Session, user, tab: str, *, show_passed: str = ""):
     )
     q = _apply_type_tab(q, tab)
 
-    pursued_opp_ids = (
+    interested_opp_ids = (
         select(Vote.opp_id)
         .where(
             Vote.org_id == _user_org_id(user),
@@ -391,10 +413,18 @@ def _feed_query(db: Session, user, tab: str, *, show_passed: str = ""):
             Vote.vote == "PURSUE",
         )
     )
-    q = q.filter(~Opportunity.id.in_(pursued_opp_ids))
+    q = q.filter(~Opportunity.id.in_(interested_opp_ids))
 
-    # Preserve the existing Include Passed behavior: by default current-user
-    # PASS hides a card, while ?show_passed=1 reveals it again.
+    q = q.filter(
+        or_(
+            Opportunity.crm_pushed.is_(False),
+            Opportunity.crm_pushed_by.is_(None),
+            Opportunity.crm_pushed_by != user.id,
+        )
+    )
+
+    # Preserve Include Passed: default hides current-user PASS, while
+    # ?show_passed=1 lets users review or undo their passes.
     if show_passed != "1":
         passed_opp_ids = (
             select(Vote.opp_id)
@@ -409,11 +439,38 @@ def _feed_query(db: Session, user, tab: str, *, show_passed: str = ""):
     return q
 
 
-def _my_shortlist_query(db: Session, user, tab: str):
-    """User's personal shortlist: org-shortlisted + this user voted PURSUE."""
+def _team_interest_query(db: Session, user, tab: str):
+    """Organization opportunities with at least one user's interest signal."""
+    interested_opp_ids = (
+        select(Vote.opp_id)
+        .where(
+            Vote.org_id == _user_org_id(user),
+            Vote.vote == "PURSUE",
+        )
+    )
     q = (
         db.query(Opportunity, UserOpportunity.watched.label("watched"))
-        .join(
+        .outerjoin(
+            UserOpportunity,
+            and_(
+                UserOpportunity.opportunity_id == Opportunity.id,
+                UserOpportunity.user_id == user.id,
+                UserOpportunity.organization_id == _user_org_id(user),
+            ),
+        )
+        .filter(Opportunity.organization_id == _user_org_id(user))
+        .filter(Opportunity.decision_state != "ARCHIVED")
+        .filter(Opportunity.id.in_(interested_opp_ids))
+    )
+    q = _apply_type_tab(q, tab)
+    return q
+
+
+def _my_shortlist_query(db: Session, user, tab: str):
+    """User's personal interested/promoted list."""
+    q = (
+        db.query(Opportunity, UserOpportunity.watched.label("watched"))
+        .outerjoin(
             Vote,
             and_(
                 Vote.opp_id == Opportunity.id,
@@ -430,8 +487,9 @@ def _my_shortlist_query(db: Session, user, tab: str):
                 UserOpportunity.organization_id == _user_org_id(user),
             ),
         )
-        .filter(Opportunity.decision_state == "SHORTLISTED")
+        .filter(Opportunity.decision_state != "ARCHIVED")
         .filter(Opportunity.organization_id == _user_org_id(user))
+        .filter(or_(Vote.id.isnot(None), Opportunity.crm_pushed_by == user.id))
     )
     q = _apply_type_tab(q, tab)
     return q
@@ -507,6 +565,93 @@ def _apply_lane_filter(query, db: Session, user, *, lane_id: int | None = None):
     return query.filter(Opportunity.id.in_(matched_opp_ids))
 
 
+def _apply_feed_search(query, *, search_term: str = ""):
+    term = (search_term or "").strip()
+    if not term:
+        return query
+
+    pattern = f"%{term}%"
+    return query.filter(
+        or_(
+            Opportunity.title.ilike(pattern),
+            Opportunity.agency.ilike(pattern),
+            Opportunity.solicitation_number.ilike(pattern),
+            Opportunity.sam_notice_id.ilike(pattern),
+            Opportunity.source_record_id.ilike(pattern),
+            Opportunity.naics.ilike(pattern),
+            Opportunity.naics_title.ilike(pattern),
+            Opportunity.description.ilike(pattern),
+            Opportunity.description_text.ilike(pattern),
+        )
+    )
+
+
+def _queue_counts(db: Session, user, tab: str) -> dict[str, int]:
+    org_id = _user_org_id(user)
+    base = (
+        db.query(Opportunity.id)
+        .filter(Opportunity.organization_id == org_id)
+        .filter(Opportunity.decision_state != "ARCHIVED")
+    )
+    base = _apply_type_tab(base, tab)
+
+    interested_opp_ids = (
+        select(Vote.opp_id)
+        .where(Vote.org_id == org_id, Vote.user_id == user.id, Vote.vote == "PURSUE")
+    )
+    passed_opp_ids = (
+        select(Vote.opp_id)
+        .where(Vote.org_id == org_id, Vote.user_id == user.id, Vote.vote == "PASS")
+    )
+
+    new_count = (
+        base
+        .filter(~Opportunity.id.in_(interested_opp_ids))
+        .filter(~Opportunity.id.in_(passed_opp_ids))
+        .filter(
+            or_(
+                Opportunity.crm_pushed.is_(False),
+                Opportunity.crm_pushed_by.is_(None),
+                Opportunity.crm_pushed_by != user.id,
+            )
+        )
+        .count()
+    )
+    my_interested_count_query = (
+        db.query(func.count(func.distinct(Opportunity.id)))
+        .outerjoin(
+            Vote,
+            and_(
+                Vote.opp_id == Opportunity.id,
+                Vote.org_id == org_id,
+                Vote.user_id == user.id,
+                Vote.vote == "PURSUE",
+            ),
+        )
+        .filter(Opportunity.organization_id == org_id)
+        .filter(Opportunity.decision_state != "ARCHIVED")
+        .filter(or_(Vote.id.isnot(None), Opportunity.crm_pushed_by == user.id))
+    )
+    my_interested_count = _apply_type_tab(my_interested_count_query, tab).scalar() or 0
+    passed_count = (
+        db.query(func.count(Vote.id))
+        .join(Opportunity, Opportunity.id == Vote.opp_id)
+        .filter(
+            Vote.org_id == org_id,
+            Vote.user_id == user.id,
+            Vote.vote == "PASS",
+            Opportunity.organization_id == org_id,
+            Opportunity.decision_state != "ARCHIVED",
+        )
+    )
+    passed_count = _apply_type_tab(passed_count, tab).scalar() or 0
+    return {
+        "new": new_count,
+        "my_interested": my_interested_count,
+        "passed": passed_count,
+    }
+
+
 # ── Feed (INBOX) ──────────────────────────────────────────────
 
 @router.get("/")
@@ -520,16 +665,19 @@ async def feed(
     show_passed: str = "",
     show_past_due: str = "",
     lane_id: int | None = None,
+    q: str = "",
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    q = _feed_query(db, user, tab, show_passed=show_passed)
-    q = apply_org_filters(q, db, user)
-    q = _apply_lane_filter(q, db, user, lane_id=lane_id)
-    q = _apply_past_due_filter(q, show_past_due=show_past_due)
+    search_query = q
+    query = _feed_query(db, user, tab, show_passed=show_passed)
+    query = apply_org_filters(query, db, user)
+    query = _apply_lane_filter(query, db, user, lane_id=lane_id)
+    query = _apply_feed_search(query, search_term=search_query)
+    query = _apply_past_due_filter(query, show_past_due=show_past_due)
 
     date_field = Opportunity.upserted_at
     if sort == "deadline":
@@ -540,33 +688,34 @@ async def feed(
     # Date filtering on the currently selected date basis
     today = date.today()
     if date_filter == "today":
-        q = q.filter(func.date(date_field) >= today)
+        query = query.filter(func.date(date_field) >= today)
     elif date_filter == "7d":
-        q = q.filter(func.date(date_field) >= today - timedelta(days=7))
+        query = query.filter(func.date(date_field) >= today - timedelta(days=7))
     elif date_filter == "30d":
-        q = q.filter(func.date(date_field) >= today - timedelta(days=30))
+        query = query.filter(func.date(date_field) >= today - timedelta(days=30))
     elif date_filter == "custom" and date_from:
         try:
             d_from = date.fromisoformat(date_from)
-            q = q.filter(func.date(date_field) >= d_from)
+            query = query.filter(func.date(date_field) >= d_from)
         except ValueError:
             pass
         if date_to:
             try:
                 d_to = date.fromisoformat(date_to)
-                q = q.filter(func.date(date_field) <= d_to)
+                query = query.filter(func.date(date_field) <= d_to)
             except ValueError:
                 pass
 
     # Sort
     if sort == "deadline":
-        q = q.order_by(Opportunity.response_deadline.asc())
+        query = query.order_by(Opportunity.response_deadline.asc())
     elif sort == "posted":
-        q = q.order_by(Opportunity.posted_date.desc())
+        query = query.order_by(Opportunity.posted_date.desc())
     else:  # "newest" — default
-        q = q.order_by(Opportunity.upserted_at.desc())
+        query = query.order_by(Opportunity.upserted_at.desc())
 
-    rows = q.limit(50).all()
+    result_count = query.count()
+    rows = query.limit(50).all()
 
     return templates.TemplateResponse("feed.html", {
         "request": request,
@@ -583,7 +732,10 @@ async def feed(
         "show_passed": show_passed,
         "show_past_due": show_past_due,
         "lane_id": lane_id,
+        "q": search_query,
+        "result_count": result_count,
         "active_lanes": _active_lanes(db, user),
+        "queue_counts": _queue_counts(db, user, tab),
         "now": datetime.utcnow(),
     })
 
@@ -591,7 +743,7 @@ async def feed(
 REVIEW_STAGES = ["Team Review", "Director Review", "Approved"]
 
 
-# ── Shortlist (SHORTLISTED) ──────────────────────────────────
+# ── Team Interest ────────────────────────────────────────────
 
 @router.get("/shortlist")
 async def shortlist(
@@ -605,7 +757,7 @@ async def shortlist(
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    q = _opp_list_query(db, user, "SHORTLISTED", tab)
+    q = _team_interest_query(db, user, tab)
     q = _apply_past_due_filter(q, show_past_due=show_past_due)
     rows = q.order_by(Opportunity.response_deadline.asc()).all()
 
@@ -637,7 +789,7 @@ async def shortlist(
     })
 
 
-# ── My Shortlist (SHORTLISTED + following) ───────────────────
+# ── My Interest ──────────────────────────────────────────────
 
 @router.get("/my-shortlist")
 async def my_shortlist(
@@ -701,6 +853,7 @@ async def export_opportunities_csv(
     show_passed: str = "",
     show_past_due: str = "",
     lane_id: int | None = None,
+    q: str = "",
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -719,6 +872,7 @@ async def export_opportunities_csv(
         show_passed=show_passed,
         show_past_due=show_past_due,
         lane_id=lane_id,
+        search=q,
     )
 
     rows = q.all()
@@ -726,7 +880,7 @@ async def export_opportunities_csv(
     opportunities = _sort_export_opportunities(db, opportunities, view=view, sort=sort)
     opp_ids = [opp.id for opp in opportunities]
 
-    vote_counts, shortlist_users_map, pass_users_map = _vote_export_maps(db, _user_org_id(user), opp_ids)
+    vote_counts, interest_users_map, pass_users_map = _vote_export_maps(db, _user_org_id(user), opp_ids)
     user_votes = get_user_votes(db, user.id, opp_ids)
 
     user_opp_rows = (
@@ -755,17 +909,21 @@ async def export_opportunities_csv(
         "Response Deadline",
         "Days Until Due",
         "NAICS",
+        "NAICS Title",
         "Set-Aside",
+        "Solicitation Number",
+        "Source",
+        "Source Record ID",
         "SAM Notice ID",
-        "SAM URL",
+        "Source URL",
         "Current Org-Level Status",
-        "Shortlist Count",
+        "Interested Count",
         "Pass Count",
-        "Users Who Shortlisted",
+        "Users Who Are Interested",
         "Users Who Passed",
         "Current User Vote",
         "Watched",
-        "My Shortlist",
+        "My Interested",
         "Internal Deadline",
         "Notes",
     ])
@@ -774,11 +932,12 @@ async def export_opportunities_csv(
     for opp in opportunities:
         department, sub_agency = _agency_parts_for_export(opp.agency)
         counts = vote_counts.get(opp.id, {"pursue": getattr(opp, "pursue_count", 0), "pass": getattr(opp, "pass_count", 0)})
-        shortlist_users = "; ".join(shortlist_users_map.get(opp.id, []))
+        interest_users = "; ".join(interest_users_map.get(opp.id, []))
         pass_users = "; ".join(pass_users_map.get(opp.id, []))
         user_opp = user_opp_map.get(opp.id)
         current_vote = user_votes.get(opp.id) or getattr(opp, "user_vote", None) or ""
-        my_shortlist = "Yes" if current_vote == "PURSUE" else "No"
+        current_vote_label = "Interested" if current_vote == "PURSUE" else "Pass" if current_vote == "PASS" else ""
+        my_interest = "Yes" if current_vote == "PURSUE" else "No"
         watched = "Yes" if bool(getattr(opp, "watched", False) or (user_opp and user_opp.watched)) else "No"
         days_until_due = ""
         if opp.response_deadline:
@@ -796,17 +955,21 @@ async def export_opportunities_csv(
             _format_date(opp.response_deadline),
             days_until_due,
             opp.naics or "",
+            opp.naics_title or "",
             opp.set_aside or "",
+            opp.solicitation_number or "",
+            opp.source or "",
+            opp.source_record_id or "",
             opp.sam_notice_id or "",
-            opp.sam_url or "",
+            opp.source_url or opp.sam_url or "",
             _current_org_status(opp),
             counts.get("pursue", 0),
             counts.get("pass", 0),
-            shortlist_users,
+            interest_users,
             pass_users,
-            current_vote,
+            current_vote_label,
             watched,
-            my_shortlist,
+            my_interest,
             _format_date(user_opp.internal_deadline) if user_opp else "",
             user_opp.notes if user_opp and user_opp.notes else "",
         ])
@@ -867,6 +1030,12 @@ async def opportunity_detail(
     counts = get_vote_counts(db, [opp_id])
     c = counts.get(opp_id, {"pursue": 0, "pass": 0})
     user_votes = get_user_votes(db, user.id, [opp_id])
+    opportunity.crm_pushed_by_current_user = bool(opportunity.crm_pushed and opportunity.crm_pushed_by == user.id)
+    opportunity.crm_pushed_by_label = None
+    if opportunity.crm_pushed_by:
+        crm_user = db.query(User).filter(User.id == opportunity.crm_pushed_by).first()
+        if crm_user:
+            opportunity.crm_pushed_by_label = crm_user.name or crm_user.email
     notes = (
         db.query(OpportunityNote)
         .options(joinedload(OpportunityNote.user))
@@ -884,6 +1053,7 @@ async def opportunity_detail(
         "opportunity": opportunity,
         "user_opp": user_opp,
         "decision_state": opportunity.decision_state,
+        "display_status": _current_org_status(opportunity),
         "days_until_due": days_until_due,
         "pursue_count": c["pursue"],
         "pass_count": c["pass"],
@@ -1051,13 +1221,13 @@ async def calendar_page(
 # ── Sidebar ───────────────────────────────────────────────────
 
 def get_sidebar(db: Session, user: User):
-    """Sidebar: My Shortlisted – Due Soon + Following."""
+    """Sidebar: My Interested Due Soon + Following."""
     today = date.today()
 
-    # My Shortlisted – Due Soon: SHORTLISTED + this user voted PURSUE
+    # My Interested Due Soon: current user's CRM pushes or interest signal.
     my_shortlisted = (
         db.query(Opportunity)
-        .join(
+        .outerjoin(
             Vote,
             and_(
                 Vote.opp_id == Opportunity.id,
@@ -1066,8 +1236,9 @@ def get_sidebar(db: Session, user: User):
                 Vote.vote == "PURSUE",
             ),
         )
-        .filter(Opportunity.decision_state == "SHORTLISTED")
+        .filter(Opportunity.decision_state != "ARCHIVED")
         .filter(Opportunity.organization_id == _user_org_id(user))
+        .filter(or_(Vote.id.isnot(None), Opportunity.crm_pushed_by == user.id))
         .order_by(Opportunity.response_deadline.asc())
         .limit(5)
         .all()

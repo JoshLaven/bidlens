@@ -209,7 +209,7 @@ def build_brief_request_payload(opportunity: Opportunity) -> dict[str, Any]:
             {
                 "type": "sam_description",
                 "label": "SAM description",
-                "url": opportunity.sam_url,
+                "url": opportunity.source_url or opportunity.sam_url,
             }
         )
     for doc in documents:
@@ -269,8 +269,14 @@ def build_brief_request_payload(opportunity: Opportunity) -> dict[str, Any]:
         "posted_date": opportunity.posted_date.isoformat() if opportunity.posted_date else None,
         "response_deadline": opportunity.response_deadline.isoformat() if opportunity.response_deadline else None,
         "naics": opportunity.naics,
+        "naics_title": opportunity.naics_title,
         "set_aside": opportunity.set_aside,
-        "url": opportunity.sam_url,
+        "url": opportunity.source_url or opportunity.sam_url,
+        "source": opportunity.source,
+        "source_url": opportunity.source_url or opportunity.sam_url,
+        "source_record_id": opportunity.source_record_id,
+        "solicitation_number": opportunity.solicitation_number,
+        "sam_notice_id": opportunity.sam_notice_id,
         "description": description,
         "source_text": source_text,
         "source_text_field": source_text_field,
@@ -399,7 +405,8 @@ def generate_local_brief(opportunity: Opportunity, payload: dict[str, Any]) -> d
     else:
         recommended_action.append("Review the SAM.gov notice directly and confirm whether additional attachments need review before advancing.")
     if opportunity.naics:
-        recommended_action.append(f"Verify fit against NAICS {opportunity.naics} and any related capability statements.")
+        naics_label = f"{opportunity.naics} ({opportunity.naics_title})" if opportunity.naics_title else opportunity.naics
+        recommended_action.append(f"Verify fit against NAICS {naics_label} and any related capability statements.")
     if opportunity.set_aside:
         recommended_action.append(f"Confirm eligibility for the {opportunity.set_aside} set-aside before advancing.")
 
@@ -421,7 +428,8 @@ def generate_local_brief(opportunity: Opportunity, payload: dict[str, Any]) -> d
 
     fit_signals: list[str] = []
     if opportunity.naics:
-        fit_signals.append(f"NAICS: {opportunity.naics}")
+        naics_label = f"{opportunity.naics} ({opportunity.naics_title})" if opportunity.naics_title else opportunity.naics
+        fit_signals.append(f"NAICS: {naics_label}")
     if opportunity.set_aside:
         fit_signals.append(f"Set-aside: {opportunity.set_aside}")
     if payload.get("used_solicitation_documents"):

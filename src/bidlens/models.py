@@ -39,7 +39,9 @@ class OpportunityStatus(str, enum.Enum):
 
 class Opportunity(Base):
     __tablename__ = "opportunities"
-    __table_args__ = (UniqueConstraint("organization_id", "sam_notice_id", name="uq_opportunity_org_sam_notice"),)
+    __table_args__ = (
+        UniqueConstraint("organization_id", "source", "source_record_id", name="uq_opportunity_org_source_record"),
+    )
 
     # internal DB PK (keep)
     id = Column(Integer, primary_key=True, index=True)
@@ -54,7 +56,14 @@ class Opportunity(Base):
         index=True
     )
 
-    sam_notice_id = Column(String, nullable=False, index=True)
+    source = Column(String, nullable=False, default="sam", server_default="sam", index=True)
+    source_record_id = Column(String, nullable=False, index=True)
+    solicitation_number = Column(String, nullable=True, index=True)
+    source_url = Column(String, nullable=True)
+    raw_source_payload = Column(JSON, nullable=True)
+
+    sam_notice_id = Column(String, nullable=True, index=True)
+    govwin_staging_id = Column(String, nullable=True, index=True)
 
     title = Column(String, nullable=False)
     agency = Column(String, nullable=False)
@@ -62,11 +71,12 @@ class Opportunity(Base):
     posted_date = Column(Date, nullable=False)
     response_deadline = Column(Date, nullable=False)
     naics = Column(String, nullable=True)
+    naics_title = Column(String, nullable=True)
     set_aside = Column(String, nullable=True)
     description = Column(Text, nullable=True)
     description_url = Column(Text, nullable=True)
     description_text = Column(Text, nullable=True)
-    sam_url = Column(String, nullable=False)
+    sam_url = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     upserted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)
@@ -83,6 +93,12 @@ class Opportunity(Base):
     archived_reason = Column(String, nullable=True)
     archived_at = Column(DateTime, nullable=True)
     archived_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    # Local v1 CRM promotion marker. This is intentionally not an external CRM
+    # integration; it records that BidLens users promoted the opportunity.
+    crm_pushed = Column(Boolean, nullable=False, default=False, server_default="0", index=True)
+    crm_pushed_at = Column(DateTime, nullable=True)
+    crm_pushed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     user_opportunities = relationship("UserOpportunity", back_populates="opportunity")
     notes = relationship("OpportunityNote", back_populates="opportunity", cascade="all, delete-orphan")

@@ -90,7 +90,7 @@ def _extract_notice_id(opportunity) -> str | None:
     if direct:
         return str(direct).strip()
 
-    sam_url = getattr(opportunity, "sam_url", None)
+    sam_url = getattr(opportunity, "sam_url", None) or getattr(opportunity, "source_url", None)
     if not _is_url_like(sam_url):
         return None
 
@@ -427,7 +427,7 @@ def _download_attachment(url: str) -> bytes | None:
 
 
 def fetch_opportunity_documents(opportunity) -> dict:
-    page_urls = [url for url in [getattr(opportunity, "sam_url", None)] if _is_url_like(url)]
+    page_urls = [url for url in [getattr(opportunity, "sam_url", None) or getattr(opportunity, "source_url", None)] if _is_url_like(url)]
 
     resources, summary = _fetch_public_file_resources(opportunity)
     if not resources and page_urls:

@@ -242,6 +242,12 @@ def normalize_sam_record(rec: Dict[str, Any], allowed_types: Set[str]) -> Option
     """
 
     sam_notice_id = rec.get("noticeId") or rec.get("noticeID") or rec.get("id")
+    solicitation_number = (
+        rec.get("solicitationNumber")
+        or rec.get("solicitationNo")
+        or rec.get("solicitationNbr")
+        or rec.get("solicitation")
+    )
 
     title = rec.get("title") or rec.get("solicitationTitle") or rec.get("fullTitle")
     agency = rec.get("department") or rec.get("organizationName") or rec.get("fullParentPathName")
@@ -285,6 +291,11 @@ def normalize_sam_record(rec: Dict[str, Any], allowed_types: Set[str]) -> Option
     description_text = None if description_url else description
 
     return {
+        "source": "sam",
+        "source_record_id": str(sam_notice_id),
+        "solicitation_number": str(solicitation_number).strip() if solicitation_number else None,
+        "source_url": str(sam_url),
+        "raw_source_payload": rec,
         "sam_notice_id": str(sam_notice_id),
         "title": str(title),
         "agency": str(agency),
@@ -307,13 +318,16 @@ def _description_needs_fetch(description: str | None) -> bool:
 def upsert_opportunity(db: Session, organization_id: int, data: Dict[str, Any]) -> str:
     """
     Returns: "inserted" | "updated" | "skipped"
-    Uses DB uniqueness on sam_notice_id; safe under concurrency.
+    Uses source-specific uniqueness; safe under concurrency.
     """
+    source = data.get("source") or "sam"
+    source_record_id = data.get("source_record_id") or data.get("sam_notice_id")
     existing = (
         db.query(Opportunity)
         .filter(
             Opportunity.organization_id == organization_id,
-            Opportunity.sam_notice_id == data["sam_notice_id"],
+            Opportunity.source == source,
+            Opportunity.source_record_id == source_record_id,
         )
         .one_or_none()
     )
@@ -321,19 +335,23 @@ def upsert_opportunity(db: Session, organization_id: int, data: Dict[str, Any]) 
     if existing is None:
         try:
             with db.begin_nested():
-                opportunity = Opportunity(organization_id=organization_id, **data, upserted_at=dt.datetime.utcnow())
+                opportunity = Opportunity(
+                    organization_id=organization_id,
+                    **data,
+                    upserted_at=dt.datetime.utcnow(),
+                )
                 db.add(opportunity)
                 db.flush()
                 refresh_opportunity_lane_matches(db, organization_id, opportunity)
             return "inserted"
         except IntegrityError:
-            logger.info("Skipping duplicate SAM notice sam_notice_id=%s", data["sam_notice_id"])
+            logger.info("Skipping duplicate source record source=%s source_record_id=%s", source, source_record_id)
             return "skipped"
 
     # Update only non-null values (don’t overwrite with None)
     changed = False
     for k, v in data.items():
-        if k == "sam_notice_id":
+        if k in {"source", "source_record_id"}:
             continue
         if v is not None and getattr(existing, k) != v:
             setattr(existing, k, v)

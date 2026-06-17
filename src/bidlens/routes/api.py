@@ -5,7 +5,7 @@ from typing import Any, Optional
 from ..database import get_db
 from ..auth import get_current_user
 from ..state_machine import OppState
-from ..services import transition_state, cast_vote
+from ..services import transition_state, cast_vote, push_opportunity_to_crm
 from ..models import CompanyProfile, Opportunity, OpportunityBrief, Organization
 from ..tenancy import current_org_id
 from sqlalchemy import and_, or_
@@ -80,15 +80,17 @@ def _build_preview_payload(opp: Opportunity) -> dict[str, Any]:
             "title": opp.title,
             "description": description[:300] + ("…" if len(description) > 300 else ""),
             "sam_url": opp.sam_url,
+            "source_url": opp.source_url or opp.sam_url,
         }
 
-    if opp.sam_url:
+    if opp.source_url or opp.sam_url:
         return {
             "ok": True,
             "state": "sam_fallback",
             "title": opp.title,
             "description": "Detailed description available on SAM.gov",
             "sam_url": opp.sam_url,
+            "source_url": opp.source_url or opp.sam_url,
         }
 
     return {
@@ -97,6 +99,7 @@ def _build_preview_payload(opp: Opportunity) -> dict[str, Any]:
         "title": opp.title,
         "description": "No description available.",
         "sam_url": None,
+        "source_url": None,
     }
 
 
@@ -212,11 +215,16 @@ def _build_n8n_payload(opp: Opportunity, brief_payload: dict[str, Any]) -> dict[
         "source_text": source_text,
         "source_text_field": source_text_field,
         "sam_url": opp.sam_url,
+        "source": opp.source,
+        "source_url": opp.source_url or opp.sam_url,
+        "source_record_id": opp.source_record_id,
+        "solicitation_number": opp.solicitation_number,
         "sam_notice_id": opp.sam_notice_id,
         "notice_id": opp.sam_notice_id,
         "response_deadline": brief_payload.get("response_deadline"),
         "posted_date": brief_payload.get("posted_date"),
         "naics": opp.naics,
+        "naics_title": opp.naics_title,
         "set_aside": opp.set_aside,
         "attachments": attachment_payload.get("attachments", []),
         "attachment_count": len(attachment_payload.get("attachments", [])),
@@ -531,6 +539,11 @@ class VoteIn(BaseModel):
     ui_version: str = "v1"
 
 
+class CrmPushIn(BaseModel):
+    opp_id: int
+    ui_version: str = "v1"
+
+
 def _serialize_sidebar(sidebar: dict) -> dict:
     def _serialize_items(items):
         out = []
@@ -588,7 +601,45 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
             "pass_count": counts["pass"],
             "pursue_users": pursue_users_map.get(payload.opp_id, []),
             "pass_users": pass_users_map.get(payload.opp_id, []),
-            "in_my_shortlist": result["state"] == "SHORTLISTED" and result["vote"] == "PURSUE",
+            "in_my_shortlist": result["vote"] == "PURSUE",
+            "sidebar": _serialize_sidebar(sidebar),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/opportunities/push-crm")
+def api_push_crm(payload: CrmPushIn, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+
+    try:
+        opp = push_opportunity_to_crm(
+            db,
+            org_id=_user_org_id(user),
+            user_id=user.id,
+            opp_id=payload.opp_id,
+            ui_version=payload.ui_version,
+        )
+        counts = get_vote_counts(db, [payload.opp_id]).get(payload.opp_id, {"pursue": 0, "pass": 0})
+        pursue_users_map, pass_users_map = get_vote_user_maps(
+            db,
+            org_id=_user_org_id(user),
+            opp_ids=[payload.opp_id],
+        )
+        from .opportunities import get_sidebar
+
+        sidebar = get_sidebar(db, user)
+        return {
+            "ok": True,
+            "opp_id": opp.id,
+            "crm_pushed": bool(opp.crm_pushed),
+            "crm_pushed_by": opp.crm_pushed_by,
+            "crm_pushed_by_current_user": opp.crm_pushed_by == user.id,
+            "pursue_count": counts["pursue"],
+            "pass_count": counts["pass"],
+            "pursue_users": pursue_users_map.get(payload.opp_id, []),
+            "pass_users": pass_users_map.get(payload.opp_id, []),
+            "in_my_shortlist": True,
             "sidebar": _serialize_sidebar(sidebar),
         }
     except ValueError as e:
@@ -642,7 +693,7 @@ def api_set_stage(payload: StageIn, request: Request, db: Session = Depends(get_
         raise HTTPException(status_code=404, detail="Opportunity not found")
 
     if opp.decision_state != "SHORTLISTED":
-        raise HTTPException(status_code=400, detail="Stage only applies to shortlisted opportunities")
+        raise HTTPException(status_code=400, detail="Stage only applies to interested opportunities")
 
     current = opp.review_stage or "Team Review"
     allowed = STAGE_TRANSITIONS.get(current, set())
@@ -703,8 +754,14 @@ def pending_enrichment(request: Request, limit: int = 50, db: Session = Depends(
             "posted_date": o.posted_date.isoformat() if o.posted_date else None,
             "response_deadline": o.response_deadline.isoformat() if o.response_deadline else None,
             "naics": o.naics,
+            "naics_title": o.naics_title,
             "set_aside": o.set_aside,
-            "url": o.sam_url,
+            "url": o.source_url or o.sam_url,
+            "source": o.source,
+            "source_url": o.source_url or o.sam_url,
+            "source_record_id": o.source_record_id,
+            "solicitation_number": o.solicitation_number,
+            "sam_notice_id": o.sam_notice_id,
             "text_for_brief": text_for_enrichment[:20000],  # guardrail
             "text_for_enrichment": text_for_enrichment[:20000],  # backward compatibility
         })

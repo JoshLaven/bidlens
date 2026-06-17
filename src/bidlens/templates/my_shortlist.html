@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% from "_opp_card.html" import opp_card %}
-{% block title %}My Shortlist - BidLens{% endblock %}
+{% block title %}My Interested - BidLens{% endblock %}
 {% block content %}
 {% set export_url = '/opportunities/export.csv?view=my_shortlist&tab=' ~ current_tab %}
 <div class="page-header">
-  <h1>My Queue</h1>
-  <p class="page-subtitle">Your personally shortlisted opportunities, ready for follow-up and decision-making.</p>
+  <h1>My Interested</h1>
+  <p class="page-subtitle">Opportunities you marked as interesting for follow-up and qualification.</p>
 </div>
 
 <div class="tabs">
@@ -28,8 +28,8 @@
 {% endif %}
 </div>
 <div id="opportunity-empty-state" class="empty-state" {% if opportunities %}hidden{% endif %}>
-    <h2>No shortlisted opportunities yet</h2>
-    <p>Click <strong>Shortlist</strong> on an opportunity to add it here right away.</p>
+    <h2>No interested opportunities yet</h2>
+    <p>Click <strong>Interested</strong> on an opportunity to add it here right away.</p>
 </div>
 {% endblock %}
 {% include "_archive_modal.html" %}

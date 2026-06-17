@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Import GovWin Export - BidLens{% endblock %}
+{% block content %}
+<h1>Import GovWin Export</h1>
+<p class="muted">Upload a GovWin .xlsx export to create or update opportunities in this workspace.</p>
+
+{% if error %}
+  <div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<section class="card" style="margin-top:20px;">
+  <form method="POST" action="/imports/govwin{% if request.url.query %}?{{ request.url.query }}{% endif %}" enctype="multipart/form-data" class="form">
+    <div class="form-row">
+      <label for="govwin-file">GovWin Excel export</label>
+      <input id="govwin-file" type="file" name="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+      <small>Rows display GovWin Title and upsert by source, workspace, and GovWin Staging Name.</small>
+    </div>
+    <button type="submit" class="btn btn-primary">Import GovWin Export</button>
+  </form>
+</section>
+
+{% if result %}
+  <section class="card" style="margin-top:20px;">
+    <div class="card-header">
+      <div>
+        <h2 style="margin-bottom:4px;">Import Result</h2>
+        <p class="muted" style="margin:0;">No briefs, CRM pushes, or automations were triggered.</p>
+      </div>
+    </div>
+
+    <div class="metric-grid metric-grid--compact" style="margin-top:12px;">
+      <div class="metric-card">
+        <span class="metric-label">Rows Processed</span>
+        <strong>{{ result.processed }}</strong>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Created</span>
+        <strong>{{ result.created }}</strong>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Updated</span>
+        <strong>{{ result.updated }}</strong>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Unchanged</span>
+        <strong>{{ result.unchanged }}</strong>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Skipped</span>
+        <strong>{{ result.skipped }}</strong>
+      </div>
+    </div>
+
+    {% if result.skipped_reasons %}
+      <div style="margin-top:16px;">
+        <h3 style="margin-bottom:8px;">Skipped Rows</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Row</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for skipped in result.skipped_reasons[:25] %}
+                <tr>
+                  <td>{{ skipped.row }}</td>
+                  <td>{{ skipped.reason }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if result.skipped_reasons|length > 25 %}
+          <p class="muted">Showing first 25 skipped rows.</p>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {% if result.duplicate_diagnostics %}
+      <div style="margin-top:16px;">
+        <h3 style="margin-bottom:8px;">Possible Cross-Source Matches</h3>
+        <p class="muted" style="margin-top:0;">These records were not merged. BidLens is only flagging likely matches for review.</p>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Row</th>
+                <th>Imported Record</th>
+                <th>Possible Match</th>
+                <th>Signals</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for diagnostic in result.duplicate_diagnostics[:25] %}
+                <tr>
+                  <td>{{ diagnostic.row }}</td>
+                  <td>#{{ diagnostic.opportunity_id }} / {{ diagnostic.source_record_id }}</td>
+                  <td>{{ diagnostic.matched_source }} #{{ diagnostic.matched_opportunity_id }} / {{ diagnostic.matched_source_record_id }}</td>
+                  <td>{{ diagnostic.reasons|join(', ') }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if result.duplicate_diagnostics|length > 25 %}
+          <p class="muted">Showing first 25 possible matches.</p>
+        {% endif %}
+      </div>
+    {% endif %}
+  </section>
+{% endif %}
+{% endblock %}
