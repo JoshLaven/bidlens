@@ -28,7 +28,7 @@
 {% set preview_text = opp.preview_description or '' %}
 {% set preview_has_sam_fallback = opp.preview_has_sam_fallback %}
 {% set source_value = opp.source or '' %}
-{% set source_label = 'SAM' if source_value == 'sam' else 'GovWin' if source_value == 'govwin_export' else source_value %}
+{% set source_label = 'SAM' if source_value == 'sam' else 'GovWin' if source_value == 'govwin_export' else 'Grants.gov' if source_value == 'grants_gov' else source_value %}
 <div
   id="opp-card-{{ opp.id }}"
   class="opp-card{% if view != 'archive' %}{% if opp.user_vote == 'PURSUE' %} opp-card--pursue{% elif opp.user_vote == 'PASS' %} opp-card--pass{% endif %}{% endif %}{% if view == 'archive' %} opp-card--archived{% endif %}"

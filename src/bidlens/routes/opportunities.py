@@ -1,8 +1,10 @@
 from datetime import date, datetime, timedelta
 import html
+import logging
 import re
 import csv
 import io
+import requests
 from fastapi import APIRouter, Request, Form, Depends
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -20,10 +22,13 @@ from sqlalchemy import func, case
 from ..models import OpportunityPursuitLaneMatch, PursuitLane, Vote
 from ..models import OpportunityBrief
 from ..tenancy import current_org_id
+from ..grants_gov_client import GrantsGovApiError
+from ..ingest_grants_gov import enrich_grants_gov_opportunity_detail
 router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
+logger = logging.getLogger(__name__)
 
-SOLICITATION_TYPES = ["Solicitation", "Combined Synopsis/Solicitation", "Award Notice"]
+SOLICITATION_TYPES = ["Solicitation", "Combined Synopsis/Solicitation", "Award Notice", "Grant"]
 RFI_TYPES = ["RFI", "Sources Sought", "Special Notice", "Pre-Solicitation"]
 BRIEF_SECTION_DEFS = [
     ("executive_summary", "Executive Summary"),
@@ -1001,7 +1006,20 @@ async def opportunity_detail(
     if not opportunity:
         return RedirectResponse(url="/", status_code=303)
 
-    resolved_description = _best_description_text(opportunity) or None
+    resolved_description = _best_description_text(opportunity)
+    if opportunity.source == "grants_gov" and not resolved_description:
+        try:
+            if enrich_grants_gov_opportunity_detail(db, opportunity):
+                resolved_description = _best_description_text(opportunity)
+        except (GrantsGovApiError, requests.RequestException) as exc:
+            db.rollback()
+            logger.warning(
+                "Grants.gov detail enrichment failed opportunity_id=%s source_record_id=%s error=%s",
+                opportunity.id,
+                opportunity.source_record_id,
+                exc,
+            )
+    resolved_description = resolved_description or None
 
     brief_row = db.query(OpportunityBrief).filter(
         OpportunityBrief.opportunity_id == opp_id,

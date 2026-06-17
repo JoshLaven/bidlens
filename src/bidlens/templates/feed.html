@@ -162,6 +162,7 @@
   <div class="feed-admin-action">
     <span class="feed-toolbar-label">Admin Test</span>
     <button type="button" id="feed-sam-pull-button" class="btn btn-sm btn-outline-secondary">Pull SAM Opps</button>
+    <button type="button" id="feed-grants-pull-button" class="btn btn-sm btn-outline-secondary">Pull Grants.gov Opps</button>
   </div>
   <a href="{{ export_url }}" class="btn btn-sm btn-outline-secondary">Export CSV</a>
 </div>
@@ -210,7 +211,7 @@ function toggleQueryParam(name, enabled) {
   window.location = url.toString();
 }
 
-function renderFeedSamPullResult(payload, type) {
+function renderFeedPullResult(payload, type, fallbackMessage = 'Pull completed.') {
   const container = document.getElementById('feed-sam-pull-result');
   if (!container) return;
 
@@ -224,13 +225,24 @@ function renderFeedSamPullResult(payload, type) {
 
   container.hidden = false;
   container.className = `feed-sam-pull-result alert alert-${type}`;
+  const received = payload.received !== undefined
+    ? `Received ${Number(payload.received || 0)} · `
+    : '';
+  const inserted = payload.inserted !== undefined
+    ? `Inserted ${Number(payload.inserted || 0)} · `
+    : '';
+  const created = payload.created !== undefined
+    ? `Created ${Number(payload.created || 0)} · `
+    : '';
   container.innerHTML = `
-    <div><strong>${escapeHtml(payload.message || 'SAM pull completed.')}</strong></div>
+    <div><strong>${escapeHtml(payload.message || fallbackMessage)}</strong></div>
     <div style="margin-top:6px;">
-      Inserted ${Number(payload.inserted || 0)} ·
+      ${received}
+      ${inserted}
+      ${created}
       Updated ${Number(payload.updated || 0)} ·
       Skipped ${Number(payload.skipped || 0)} ·
-      Filtered ${Number(payload.filtered || 0)} ·
+      ${payload.filtered !== undefined ? `Filtered ${Number(payload.filtered || 0)} ·` : ''}
       Errors ${Number(payload.errors || 0)}
     </div>
     ${failedNaics}
@@ -259,29 +271,29 @@ async function runFeedSamPull() {
     const payload = await response.json().catch(() => ({}));
 
     if (response.status === 429) {
-      renderFeedSamPullResult(payload, 'error');
+      renderFeedPullResult(payload, 'error', 'SAM pull failed.');
       showToast(payload.message || 'SAM.gov quota exceeded. Try again later.', 'error');
       return;
     }
 
     if (!response.ok) {
-      renderFeedSamPullResult(payload, 'error');
+      renderFeedPullResult(payload, 'error', 'SAM pull failed.');
       showToast(payload.message || 'SAM pull failed.', 'error');
       return;
     }
 
     if (payload.status === 'partial_success') {
-      renderFeedSamPullResult(payload, 'warning');
+      renderFeedPullResult(payload, 'warning', 'SAM pull partially completed.');
       showToast(payload.message || 'SAM pull partially completed.', 'error');
       return;
     }
 
-    renderFeedSamPullResult(payload, 'success');
+    renderFeedPullResult(payload, 'success', 'SAM pull completed.');
     showToast(payload.message || 'SAM pull completed.', 'success');
     window.setTimeout(() => window.location.reload(), 900);
   } catch (error) {
     const payload = {message: 'Unable to run SAM pull right now.', inserted: 0, updated: 0, skipped: 0, filtered: 0, errors: 1};
-    renderFeedSamPullResult(payload, 'error');
+    renderFeedPullResult(payload, 'error', 'SAM pull failed.');
     showToast(payload.message, 'error');
   } finally {
     button.disabled = false;
@@ -290,5 +302,46 @@ async function runFeedSamPull() {
 }
 
 document.getElementById('feed-sam-pull-button')?.addEventListener('click', runFeedSamPull);
+
+async function runFeedGrantsPull() {
+  const button = document.getElementById('feed-grants-pull-button');
+  const result = document.getElementById('feed-sam-pull-result');
+  if (!button) return;
+
+  button.disabled = true;
+  button.textContent = 'Pulling...';
+  if (result) {
+    result.hidden = true;
+    result.innerHTML = '';
+    result.className = 'feed-sam-pull-result';
+  }
+
+  try {
+    const response = await fetch('/grants/pull-now', {
+      method: 'POST',
+      headers: {'Accept': 'application/json'},
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      renderFeedPullResult(payload, 'error', 'Grants.gov pull failed.');
+      showToast(payload.message || 'Grants.gov pull failed.', 'error');
+      return;
+    }
+
+    renderFeedPullResult(payload, payload.errors ? 'warning' : 'success', 'Grants.gov pull completed.');
+    showToast(payload.message || 'Grants.gov pull completed.', payload.errors ? 'error' : 'success');
+    window.setTimeout(() => window.location.reload(), 900);
+  } catch (error) {
+    const payload = {message: 'Unable to run Grants.gov pull right now.', received: 0, created: 0, updated: 0, skipped: 0, errors: 1};
+    renderFeedPullResult(payload, 'error', 'Grants.gov pull failed.');
+    showToast(payload.message, 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Pull Grants.gov Opps';
+  }
+}
+
+document.getElementById('feed-grants-pull-button')?.addEventListener('click', runFeedGrantsPull);
 </script>
 {% endblock %}

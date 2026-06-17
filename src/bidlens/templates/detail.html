@@ -3,7 +3,7 @@
 
 {% block content %}
 {% set source_value = opportunity.source or '' %}
-{% set source_label = 'SAM' if source_value == 'sam' else 'GovWin' if source_value == 'govwin_export' else source_value %}
+{% set source_label = 'SAM' if source_value == 'sam' else 'GovWin' if source_value == 'govwin_export' else 'Grants.gov' if source_value == 'grants_gov' else source_value %}
 <div class="detail-page">
 
   <a href="/" class="btn btn-secondary btn-sm" style="margin-bottom: 24px;">
@@ -285,7 +285,7 @@
     <!-- Original description -->
     {% if resolved_description %}
       <details class="accordion">
-        <summary class="accordion-summary">Original SAM.gov Description</summary>
+        <summary class="accordion-summary">Original Description</summary>
         <div class="accordion-body prewrap">
           {{ resolved_description }}
         </div>
