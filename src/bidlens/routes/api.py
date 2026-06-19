@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Any, Optional
@@ -6,6 +7,13 @@ from ..database import get_db
 from ..auth import get_current_user
 from ..state_machine import OppState
 from ..services import transition_state, cast_vote, push_opportunity_to_crm
+from ..services.salesforce import (
+    PROSPECT_FEED_STATUS,
+    SalesforceApiError,
+    SalesforceConfigError,
+    SalesforceService,
+    generate_pkce_pair,
+)
 from ..models import CompanyProfile, Opportunity, OpportunityBrief, Organization
 from ..tenancy import current_org_id
 from sqlalchemy import and_, or_
@@ -15,6 +23,8 @@ import logging
 import os
 import re
 import requests
+import secrets
+from .. import config
 from ..services import get_vote_counts, get_vote_user_maps
 from ..sam_client import _is_url_like
 from ..services.research.brief_generator import (
@@ -26,6 +36,7 @@ from ..services.research.brief_generator import (
 from ..services.research.document_fetcher import fetch_opportunity_attachment_metadata
 router = APIRouter(prefix="/api", tags=["api"])
 logger = logging.getLogger(__name__)
+_SALESFORCE_OAUTH_PKCE: dict[str, str] = {}
 N8N_PROVIDER = "n8n"
 N8N_MODEL = "n8n-webhook"
 BRIEF_SECTION_KEYS = [
@@ -283,6 +294,12 @@ def require_user_or_automation(request: Request, db: Session):
         return {"automation": True}
 
     return require_user(request, db)
+
+
+def _salesforce_redirect_uri(request: Request) -> str:
+    if config.SALESFORCE_REDIRECT_URI:
+        return config.SALESFORCE_REDIRECT_URI
+    return str(request.url_for("salesforce_oauth_callback"))
 
 
 def _clean_optional_text(value: str | None) -> str | None:
@@ -644,6 +661,140 @@ def api_push_crm(payload: CrmPushIn, request: Request, db: Session = Depends(get
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/salesforce/oauth/start")
+def salesforce_oauth_start(request: Request, db: Session = Depends(get_db)):
+    require_user(request, db)
+    state = secrets.token_urlsafe(24)
+    code_verifier, code_challenge = generate_pkce_pair()
+    _SALESFORCE_OAUTH_PKCE[state] = code_verifier
+    service = SalesforceService()
+    try:
+        authorization_url = service.build_authorization_url(
+            _salesforce_redirect_uri(request),
+            state,
+            code_challenge,
+        )
+    except SalesforceConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return RedirectResponse(authorization_url)
+
+
+@router.get("/salesforce/oauth/callback", name="salesforce_oauth_callback")
+def salesforce_oauth_callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None):
+    if error:
+        raise HTTPException(status_code=400, detail=f"Salesforce OAuth failed: {error}")
+    if not code or not state or state not in _SALESFORCE_OAUTH_PKCE:
+        raise HTTPException(status_code=400, detail="Invalid Salesforce OAuth callback")
+
+    code_verifier = _SALESFORCE_OAUTH_PKCE.pop(state)
+    service = SalesforceService()
+    try:
+        service.exchange_authorization_code(code, _salesforce_redirect_uri(request), code_verifier)
+    except SalesforceConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    except SalesforceApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    return HTMLResponse(
+        "<h1>Salesforce connected</h1>"
+        "<p>BidLens can now query and update matching Salesforce Opportunities for this local POC.</p>"
+    )
+
+
+@router.post("/opps/{opp_id}/push-to-crm")
+def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    org_id = _user_org_id(user)
+    opp = db.query(Opportunity).filter(
+        Opportunity.id == opp_id,
+        Opportunity.organization_id == org_id,
+    ).first()
+    if not opp:
+        logger.info(
+            "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s success=false error=%s",
+            opp_id,
+            None,
+            "Opportunity not found",
+        )
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+
+    source_record_id = (opp.source_record_id or "").strip()
+    if not source_record_id:
+        logger.info(
+            "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s success=false error=%s",
+            opp.id,
+            source_record_id,
+            "Opportunity is missing source_record_id",
+        )
+        raise HTTPException(status_code=400, detail="Opportunity is missing source_record_id")
+
+    service = SalesforceService()
+    salesforce_opp_id = None
+    try:
+        sf_opp = service.find_opportunity_by_external_source_id(source_record_id)
+        if not sf_opp:
+            message = (
+                "No matching Salesforce Opportunity found for "
+                f"External_Source_ID_c__c={source_record_id}"
+            )
+            logger.info(
+                "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s salesforce_opp_id=%s success=false error=%s",
+                opp.id,
+                source_record_id,
+                None,
+                message,
+            )
+            raise HTTPException(status_code=404, detail=message)
+
+        salesforce_opp_id = sf_opp.id
+        previous_status = sf_opp.intake_status
+        service.update_intake_status(sf_opp.id, PROSPECT_FEED_STATUS)
+        logger.info(
+            "Salesforce CRM push succeeded bidlens_opp_id=%s source_record_id=%s salesforce_opp_id=%s success=true",
+            opp.id,
+            source_record_id,
+            sf_opp.id,
+        )
+        return {
+            "success": True,
+            "bidlens_opportunity_id": opp.id,
+            "source_record_id": source_record_id,
+            "salesforce_opportunity_id": sf_opp.id,
+            "salesforce_opportunity_name": sf_opp.name,
+            "previous_intake_status": previous_status,
+            "new_intake_status": PROSPECT_FEED_STATUS,
+        }
+    except HTTPException:
+        raise
+    except SalesforceConfigError as exc:
+        logger.info(
+            "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s salesforce_opp_id=%s success=false error=%s",
+            opp.id,
+            source_record_id,
+            salesforce_opp_id,
+            str(exc),
+        )
+        raise HTTPException(status_code=500, detail=str(exc))
+    except SalesforceApiError as exc:
+        logger.info(
+            "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s salesforce_opp_id=%s success=false error=%s",
+            opp.id,
+            source_record_id,
+            salesforce_opp_id,
+            str(exc),
+        )
+        raise HTTPException(status_code=502, detail=str(exc))
+    except requests.RequestException as exc:
+        logger.info(
+            "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s salesforce_opp_id=%s success=false error=%s",
+            opp.id,
+            source_record_id,
+            salesforce_opp_id,
+            str(exc),
+        )
+        raise HTTPException(status_code=502, detail="Salesforce request failed")
 
 
 @router.get("/opps/{opp_id}/preview")

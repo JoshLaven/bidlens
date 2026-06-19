@@ -121,7 +121,7 @@
 
     {% if view != 'archive' %}
     <div class="opp-card-actions">
-      {% if not crm_pushed and opp.user_vote != 'PURSUE' %}
+      {% if not crm_pushed %}
         <button type="button"
                 class="btn btn-sm opp-card-button opp-card-button--primary btn-primary"
                 data-push-crm-button
@@ -135,14 +135,13 @@
                 disabled>
           &#10003; Pushed to CRM
         </button>
-      {% else %}
-        <button type="button"
-                class="btn btn-sm opp-card-button opp-card-button--primary {{ 'btn-success' if opp.user_vote == 'PURSUE' else 'btn-primary' }}"
-                data-vote-button="PURSUE"
-                onclick="voteOpp('{{ opp.id }}', 'PURSUE')">
-          {% if opp.user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}
-        </button>
       {% endif %}
+      <button type="button"
+              class="btn btn-sm opp-card-button opp-card-button--primary {{ 'btn-success' if opp.user_vote == 'PURSUE' else 'btn-primary' }}"
+              data-vote-button="PURSUE"
+              onclick="voteOpp('{{ opp.id }}', 'PURSUE')">
+        {% if opp.user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}
+      </button>
       <div class="opp-card-actions-secondary">
         <span class="opp-card-pass-label" data-pass-helper {% if opp.user_vote == 'PASS' %}hidden{% endif %}>Not a fit?</span>
         <button type="button"

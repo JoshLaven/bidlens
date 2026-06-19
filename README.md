@@ -29,6 +29,29 @@ python seed.py
 - `SAM_API_KEY`: SAM.gov API key used for opportunity pulls and notice description fetches
 - `DATABASE_URL`: PostgreSQL connection string
 - `SECRET_KEY`: Session encryption key (defaults to dev key)
+- `SALESFORCE_INSTANCE_URL`: Salesforce My Domain URL, for example `https://your-domain.my.salesforce.com`
+- `SALESFORCE_CLIENT_ID`: Salesforce Connected App consumer key
+- `SALESFORCE_CLIENT_SECRET`: Salesforce Connected App consumer secret
+- `SALESFORCE_REDIRECT_URI`: OAuth callback URL, for example `http://127.0.0.1:8000/api/salesforce/oauth/callback`
+
+## Salesforce OAuth POC Setup
+
+BidLens uses the Salesforce OAuth 2.0 Authorization Code flow for the local CRM update proof-of-concept. This avoids the disabled Username-Password flow and lets a Salesforce user authorize BidLens in the browser.
+
+Connected App settings:
+
+- Enable OAuth settings.
+- Callback URL: set this to the exact `SALESFORCE_REDIRECT_URI` value used by BidLens.
+- OAuth scopes: include `api` and `refresh_token` / `offline_access`.
+- Client type: confidential app with a consumer secret.
+- The authorizing Salesforce user needs access to query `Opportunity.External_Source_ID_c__c` and update `Opportunity.Intake_Status__c`.
+
+Local authorization:
+
+1. Start BidLens with the Salesforce environment variables configured.
+2. While logged in to BidLens, open `/api/salesforce/oauth/start`.
+3. Sign in to Salesforce and approve the Connected App.
+4. After the callback succeeds, use the temporary "Push to CRM" button. The local POC stores the OAuth token in process memory, so restart requires authorizing again.
 
 ## Rotating SAM API Key
 

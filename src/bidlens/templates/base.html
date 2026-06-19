@@ -455,14 +455,7 @@
 
     async function pushOpportunityToCrm(oppId) {
       try {
-        const res = await fetch('/api/opportunities/push-crm', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({
-            opp_id: Number(oppId),
-            ui_version: "v1"
-          })
-        });
+        const res = await fetch(`/api/opps/${oppId}/push-to-crm`, { method: 'POST' });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           showToast(data.detail || 'CRM push failed', 'error');
@@ -470,20 +463,24 @@
         }
 
         const card = document.getElementById(`opp-card-${oppId}`);
-        updateOpportunityCard(oppId, 'PURSUE', data);
-        refreshSidebar(data.sidebar);
         const button = card?.querySelector('[data-push-crm-button]');
         if (button) {
           button.className = 'btn btn-sm opp-card-button opp-card-button--primary btn-success';
           button.innerHTML = '&#10003; Pushed to CRM';
           button.disabled = true;
         }
-        card?.classList.add('opp-card--pursue');
-        if (document.getElementById('opportunity-list')?.dataset.listView === 'feed' && card) {
-          await animateOpportunityCard(card, 'PURSUE', true);
-        }
-        updateOpportunityEmptyState();
-        showToast('Marked as pushed to CRM', 'success');
+        document
+          .querySelectorAll(`[data-push-crm-button][onclick*="'${oppId}'"]`)
+          .forEach((button) => {
+            button.classList.remove('btn-primary');
+            button.classList.remove('opp-card-button--primary');
+            button.classList.add('btn-success');
+            button.innerHTML = '&#10003; Pushed to CRM';
+            button.disabled = true;
+        });
+        const sfName = data.salesforce_opportunity_name || data.salesforce_opportunity_id;
+        const status = data.new_intake_status || 'Prospect_Feed';
+        showToast(`Salesforce updated: ${sfName} to ${status}`, 'success');
       } catch (error) {
         showToast('CRM push failed', 'error');
       }

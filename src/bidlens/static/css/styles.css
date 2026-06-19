@@ -1791,6 +1791,57 @@ details[open] .accordion-summary::after {
   color: var(--warning);
 }
 
+.opportunity-document-folder {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.opportunity-document-folder:first-child {
+  padding-top: 0;
+}
+
+.opportunity-document-folder:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.opportunity-document-folder-title,
+.opportunity-document-name {
+  color: var(--gray-900);
+  font-weight: 600;
+}
+
+.opportunity-document-folder-meta,
+.opportunity-document-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.opportunity-document-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.opportunity-document-item {
+  padding: 10px 12px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  background: var(--gray-50);
+}
+
+.opportunity-document-description {
+  color: var(--gray-700);
+  font-size: 0.9rem;
+  margin-top: 3px;
+}
+
+.opportunity-document-actions {
+  margin-top: 10px;
+}
+
 
 .detail-actions {
     background: white;

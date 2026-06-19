@@ -44,7 +44,7 @@
     <div class="card-actions" style="margin-bottom: 16px;">
       <div class="actions-left">
         {% if decision_state in ['INBOX', 'SHORTLISTED'] %}
-          {% if not opportunity.crm_pushed and user_vote != 'PURSUE' %}
+          {% if not opportunity.crm_pushed %}
             <button type="button"
                     class="btn btn-sm btn-primary"
                     data-push-crm-button
@@ -55,13 +55,12 @@
             <button type="button" class="btn btn-sm btn-success" disabled>
               &#10003; Pushed to CRM
             </button>
-          {% else %}
-            <button type="button"
-                    class="btn btn-sm {{ 'btn-primary' if user_vote != 'PURSUE' else 'btn-success' }}"
-                    onclick="voteOpp('{{ opportunity.id }}', 'PURSUE')">
-              {% if user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}{% if pursue_count %} ({{ pursue_count }}){% endif %}
-            </button>
           {% endif %}
+          <button type="button"
+                  class="btn btn-sm {{ 'btn-primary' if user_vote != 'PURSUE' else 'btn-success' }}"
+                  onclick="voteOpp('{{ opportunity.id }}', 'PURSUE')">
+            {% if user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}{% if pursue_count %} ({{ pursue_count }}){% endif %}
+          </button>
           <button type="button"
                   class="btn btn-sm {{ 'btn-secondary' if user_vote != 'PASS' else 'btn-warning' }}"
                   onclick="voteOpp('{{ opportunity.id }}', 'PASS')">
@@ -121,6 +120,36 @@
           <span class="key-info-label">Posted Date</span>
           <span class="key-info-value">{{ opportunity.posted_date.strftime('%B %d, %Y') }}</span>
         </div>
+
+        {% if grants_gov_metadata %}
+          {% if grants_gov_metadata.source %}
+            <div class="key-info-row">
+              <span class="key-info-label">Source</span>
+              <span class="key-info-value">{{ grants_gov_metadata.source }}</span>
+            </div>
+          {% endif %}
+
+          {% if grants_gov_metadata.status %}
+            <div class="key-info-row">
+              <span class="key-info-label">Opportunity Status</span>
+              <span class="key-info-value">{{ grants_gov_metadata.status }}</span>
+            </div>
+          {% endif %}
+
+          {% if grants_gov_metadata.version %}
+            <div class="key-info-row">
+              <span class="key-info-label">Version</span>
+              <span class="key-info-value">{{ grants_gov_metadata.version }}</span>
+            </div>
+          {% endif %}
+
+          {% if grants_gov_metadata.last_updated %}
+            <div class="key-info-row">
+              <span class="key-info-label">Last Updated</span>
+              <span class="key-info-value">{{ grants_gov_metadata.last_updated }}</span>
+            </div>
+          {% endif %}
+        {% endif %}
 
         {% if opportunity.naics %}
           <div class="key-info-row">
@@ -288,6 +317,80 @@
         <summary class="accordion-summary">Original Description</summary>
         <div class="accordion-body prewrap">
           {{ resolved_description }}
+        </div>
+      </details>
+    {% endif %}
+
+    {% if grants_gov_documents and (grants_gov_documents.folders or grants_gov_documents.document_urls) %}
+      <details class="accordion">
+        <summary class="accordion-summary">Opportunity Documents</summary>
+        <div class="accordion-body">
+          {% for folder in grants_gov_documents.folders %}
+            <div class="opportunity-document-folder">
+              <div class="opportunity-document-folder-title">
+                {{ folder.folder_name or folder.folder_type or "Attachment Folder" }}
+              </div>
+              {% if folder.folder_type or folder.zip_size %}
+                <div class="muted opportunity-document-folder-meta">
+                  {% if folder.folder_type %}<span>{{ folder.folder_type }}</span>{% endif %}
+                  {% if folder.folder_type and folder.zip_size %}<span>·</span>{% endif %}
+                  {% if folder.zip_size %}<span>ZIP {{ folder.zip_size }}</span>{% endif %}
+                </div>
+              {% endif %}
+
+              <div class="opportunity-document-list">
+                {% for attachment in folder.attachments %}
+                  <div class="opportunity-document-item">
+                    <div class="opportunity-document-name">
+                      {% if attachment.download_url %}
+                        <a href="{{ attachment.download_url }}" target="_blank" rel="noopener" class="details-link">
+                          {{ attachment.file_name or "Unnamed attachment" }}
+                        </a>
+                      {% else %}
+                        {{ attachment.file_name or "Unnamed attachment" }}
+                      {% endif %}
+                    </div>
+                    {% if attachment.file_description %}
+                      <div class="opportunity-document-description">{{ attachment.file_description }}</div>
+                    {% endif %}
+                    <div class="muted opportunity-document-meta">
+                      {% if attachment.mime_type %}<span>{{ attachment.mime_type }}</span>{% endif %}
+                      {% if attachment.mime_type and attachment.file_size %}<span>·</span>{% endif %}
+                      {% if attachment.file_size %}<span>{{ attachment.file_size }}</span>{% endif %}
+                      {% if (attachment.mime_type or attachment.file_size) and attachment.id %}<span>·</span>{% endif %}
+                      {% if attachment.id %}<span>Attachment ID {{ attachment.id }}</span>{% endif %}
+                    </div>
+                    {% if attachment.download_url %}
+                      <div class="opportunity-document-actions">
+                        <a href="{{ attachment.download_url }}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">
+                          Download
+                        </a>
+                      </div>
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+
+          {% if grants_gov_documents.document_urls %}
+            <div class="opportunity-document-folder">
+              <div class="opportunity-document-folder-title">Document URLs</div>
+              <div class="opportunity-document-list">
+                {% for document_url in grants_gov_documents.document_urls %}
+                  <div class="opportunity-document-item">
+                    {% if document_url.url %}
+                      <a href="{{ document_url.url }}" target="_blank" rel="noopener" class="details-link">
+                        {{ document_url.label or document_url.url }}
+                      </a>
+                    {% else %}
+                      <div class="opportunity-document-name">{{ document_url.label }}</div>
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
         </div>
       </details>
     {% endif %}

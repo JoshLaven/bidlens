@@ -512,6 +512,241 @@ def _best_description_text(opportunity: Opportunity) -> str:
     return ""
 
 
+def _raw_path(payload: dict, *path: str):
+    value = payload
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+        if value in (None, ""):
+            return None
+    return value
+
+
+def _first_raw_value(payload: dict, *paths: tuple[str, ...]):
+    for path in paths:
+        value = _raw_path(payload, *path)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _format_grants_gov_date(value) -> str | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    candidates = [text]
+    if "," in text and " " in text:
+        candidates.append(text.rsplit(" ", 1)[0])
+    for candidate in candidates:
+        for fmt in (
+            "%m/%d/%Y",
+            "%Y-%m-%d",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d-%H-%M-%S",
+            "%b %d, %Y %I:%M:%S %p",
+        ):
+            for candidate_value in (candidate, candidate[:19], candidate[:10]):
+                try:
+                    parsed = datetime.strptime(candidate_value, fmt).date()
+                    return parsed.strftime("%B %-d, %Y")
+                except ValueError:
+                    pass
+    return text
+
+
+def _normalize_grants_gov_status(value) -> str | None:
+    if not value:
+        return None
+    normalized = str(value).strip().lower()
+    status_map = {
+        "forecast": "Forecast",
+        "forecasted": "Forecast",
+        "posted": "Open",
+        "synopsis": "Open",
+        "open": "Open",
+        "closed": "Closed",
+        "archived": "Archived",
+    }
+    return status_map.get(normalized, str(value).strip().title())
+
+
+def _grants_gov_detail_metadata(opportunity: Opportunity) -> dict[str, str | None]:
+    if opportunity.source != "grants_gov" or not isinstance(opportunity.raw_source_payload, dict):
+        return {}
+
+    raw = opportunity.raw_source_payload
+    status = _normalize_grants_gov_status(
+        _first_raw_value(
+            raw,
+            ("oppStatus",),
+            ("search_result", "oppStatus"),
+            ("ost",),
+            ("detail_payload", "data", "ost"),
+            ("docType",),
+            ("search_result", "docType"),
+        )
+    )
+
+    doc_type = str(
+        _first_raw_value(
+            raw,
+            ("docType",),
+            ("search_result", "docType"),
+            ("detail_payload", "data", "docType"),
+        )
+        or ""
+    ).lower()
+    version_value = _first_raw_value(
+        raw,
+        ("forecast", "version"),
+        ("detail_payload", "data", "forecast", "version"),
+        ("synopsis", "version"),
+        ("detail_payload", "data", "synopsis", "version"),
+        ("version",),
+        ("revision",),
+        ("detail_payload", "data", "revision"),
+    )
+    version = None
+    if version_value not in (None, ""):
+        if doc_type == "forecast" or status == "Forecast":
+            version = f"Forecast {version_value}"
+        else:
+            version = f"Version {version_value}"
+
+    last_updated = _format_grants_gov_date(
+        _first_raw_value(
+            raw,
+            ("forecast", "lastUpdatedDate"),
+            ("detail_payload", "data", "forecast", "lastUpdatedDate"),
+            ("synopsis", "lastUpdatedDate"),
+            ("detail_payload", "data", "synopsis", "lastUpdatedDate"),
+            ("lastUpdatedDate",),
+            ("detail_payload", "data", "lastUpdatedDate"),
+            ("search_result", "lastUpdatedDate"),
+            ("updatedDate",),
+            ("updateDate",),
+        )
+    )
+
+    return {
+        "source": "Grants.gov",
+        "status": status,
+        "version": version,
+        "last_updated": last_updated,
+    }
+
+
+def _format_file_size(value) -> str | None:
+    if value in (None, ""):
+        return None
+    try:
+        size = int(value)
+    except (TypeError, ValueError):
+        return str(value)
+    for unit in ("bytes", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            if unit == "bytes":
+                return f"{size} {unit}"
+            return f"{size:.1f} {unit}"
+        size = size / 1024
+    return str(value)
+
+
+def _coerce_document_url(value) -> dict[str, str | None] | None:
+    if isinstance(value, str):
+        text = value.strip()
+        return {"label": text, "url": text} if text else None
+    if not isinstance(value, dict):
+        return None
+    url = (
+        value.get("url")
+        or value.get("URL")
+        or value.get("link")
+        or value.get("href")
+        or value.get("documentUrl")
+        or value.get("documentURL")
+    )
+    label = (
+        value.get("label")
+        or value.get("name")
+        or value.get("title")
+        or value.get("description")
+        or value.get("fileName")
+        or url
+    )
+    if not url and not label:
+        return None
+    return {"label": str(label).strip() if label else None, "url": str(url).strip() if url else None}
+
+
+def _grants_gov_attachment_download_url(attachment_id) -> str | None:
+    if attachment_id in (None, ""):
+        return None
+    return f"https://www.grants.gov/grantsws/rest/opportunity/att/download/{attachment_id}"
+
+
+def _grants_gov_document_metadata(opportunity: Opportunity) -> dict:
+    if opportunity.source != "grants_gov" or not isinstance(opportunity.raw_source_payload, dict):
+        return {"folders": [], "document_urls": []}
+
+    raw = opportunity.raw_source_payload
+    folders = _first_raw_value(
+        raw,
+        ("synopsisAttachmentFolders",),
+        ("detail_payload", "data", "synopsisAttachmentFolders"),
+    )
+    normalized_folders = []
+    if isinstance(folders, list):
+        for folder in folders:
+            if not isinstance(folder, dict):
+                continue
+            attachments = []
+            for attachment in folder.get("synopsisAttachments") or []:
+                if not isinstance(attachment, dict):
+                    continue
+                attachment_id = attachment.get("id")
+                file_name = attachment.get("fileName")
+                file_description = attachment.get("fileDescription")
+                mime_type = attachment.get("mimeType")
+                file_size = _format_file_size(attachment.get("fileLobSize"))
+                if any((attachment_id, file_name, file_description, mime_type, file_size)):
+                    attachments.append(
+                        {
+                            "id": attachment_id,
+                            "file_name": file_name,
+                            "file_description": file_description,
+                            "mime_type": mime_type,
+                            "file_size": file_size,
+                            "download_url": _grants_gov_attachment_download_url(attachment_id),
+                        }
+                    )
+            if attachments:
+                normalized_folders.append(
+                    {
+                        "folder_name": folder.get("folderName"),
+                        "folder_type": folder.get("folderType"),
+                        "zip_size": _format_file_size(folder.get("zipLobSize")),
+                        "attachments": attachments,
+                    }
+                )
+
+    document_urls = _first_raw_value(
+        raw,
+        ("synopsisDocumentURLs",),
+        ("detail_payload", "data", "synopsisDocumentURLs"),
+    )
+    normalized_urls = []
+    if isinstance(document_urls, list):
+        for document_url in document_urls:
+            normalized = _coerce_document_url(document_url)
+            if normalized:
+                normalized_urls.append(normalized)
+
+    return {"folders": normalized_folders, "document_urls": normalized_urls}
+
+
 def _clean_preview_text(value: str | None) -> str:
     if not value:
         return ""
@@ -1007,7 +1242,11 @@ async def opportunity_detail(
         return RedirectResponse(url="/", status_code=303)
 
     resolved_description = _best_description_text(opportunity)
-    if opportunity.source == "grants_gov" and not resolved_description:
+    raw_payload = opportunity.raw_source_payload if isinstance(opportunity.raw_source_payload, dict) else {}
+    needs_grants_gov_detail = opportunity.source == "grants_gov" and (
+        not resolved_description or not raw_payload.get("detail_payload")
+    )
+    if needs_grants_gov_detail:
         try:
             if enrich_grants_gov_opportunity_detail(db, opportunity):
                 resolved_description = _best_description_text(opportunity)
@@ -1020,6 +1259,8 @@ async def opportunity_detail(
                 exc,
             )
     resolved_description = resolved_description or None
+    grants_gov_metadata = _grants_gov_detail_metadata(opportunity)
+    grants_gov_documents = _grants_gov_document_metadata(opportunity)
 
     brief_row = db.query(OpportunityBrief).filter(
         OpportunityBrief.opportunity_id == opp_id,
@@ -1088,6 +1329,8 @@ async def opportunity_detail(
         "brief_source_files": brief_source_files,
         "brief_source_summary": brief_source_summary,
         "resolved_description": resolved_description,
+        "grants_gov_metadata": grants_gov_metadata,
+        "grants_gov_documents": grants_gov_documents,
         "opportunity_notes": notes,
         "sidebar": get_sidebar(db, user),
     })
