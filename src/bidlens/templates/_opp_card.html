@@ -137,6 +137,12 @@
         </button>
       {% endif %}
       <button type="button"
+              class="btn btn-sm opp-card-button opp-card-button--secondary btn-outline-secondary"
+              data-create-crm-button
+              onclick="createOpportunityInCrm('{{ opp.id }}')">
+        Create in CRM
+      </button>
+      <button type="button"
               class="btn btn-sm opp-card-button opp-card-button--primary {{ 'btn-success' if opp.user_vote == 'PURSUE' else 'btn-primary' }}"
               data-vote-button="PURSUE"
               onclick="voteOpp('{{ opp.id }}', 'PURSUE')">

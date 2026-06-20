@@ -17,7 +17,7 @@ from ..services.salesforce import (
 from ..models import CompanyProfile, Opportunity, OpportunityBrief, Organization
 from ..tenancy import current_org_id
 from sqlalchemy import and_, or_
-from datetime import datetime
+from datetime import date, datetime, timedelta
 import html
 import logging
 import os
@@ -229,6 +229,7 @@ def _build_n8n_payload(opp: Opportunity, brief_payload: dict[str, Any]) -> dict[
         "source": opp.source,
         "source_url": opp.source_url or opp.sam_url,
         "source_record_id": opp.source_record_id,
+        "external_source_key": opp.external_source_key,
         "solicitation_number": opp.solicitation_number,
         "sam_notice_id": opp.sam_notice_id,
         "notice_id": opp.sam_notice_id,
@@ -300,6 +301,28 @@ def _salesforce_redirect_uri(request: Request) -> str:
     if config.SALESFORCE_REDIRECT_URI:
         return config.SALESFORCE_REDIRECT_URI
     return str(request.url_for("salesforce_oauth_callback"))
+
+
+def _salesforce_opportunity_name(opp: Opportunity) -> str:
+    name = (opp.title or f"BidLens Opportunity {opp.id}").strip()
+    if len(name) <= 120:
+        return name
+    return f"{name[:117]}..."
+
+
+def _salesforce_payload_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    summary = dict(payload)
+    if summary.get("Description"):
+        description = str(summary["Description"])
+        summary["Description"] = description[:500] + ("..." if len(description) > 500 else "")
+        summary["description_included"] = True
+    return summary
+
+
+def _select_intake_source_value(values: list[str]) -> str | None:
+    if "BidLens" in values:
+        return "BidLens"
+    return values[0] if values else None
 
 
 def _clean_optional_text(value: str | None) -> str | None:
@@ -703,6 +726,44 @@ def salesforce_oauth_callback(request: Request, code: str | None = None, state: 
     )
 
 
+@router.get("/salesforce/opportunity-create-requirements")
+def salesforce_opportunity_create_requirements(request: Request, db: Session = Depends(get_db)):
+    require_user(request, db)
+    service = SalesforceService()
+    try:
+        if not service.is_authorized():
+            return {
+                "auth_available": False,
+                "required_fields": [],
+                "valid_stage_names": [],
+                "intake_source_values": [],
+                "selected_intake_source": None,
+                "error": "Salesforce is not authorized yet. Visit /api/salesforce/oauth/start first.",
+            }
+        intake_source_values = service.opportunity_picklist_values("Intake_Source_c__c")
+        return {
+            "auth_available": True,
+            "required_fields": service.required_createable_opportunity_fields(),
+            "valid_stage_names": service.stage_name_values(),
+            "intake_source_values": intake_source_values,
+            "selected_intake_source": _select_intake_source_value(intake_source_values),
+            "error": None,
+        }
+    except SalesforceConfigError as exc:
+        return {
+            "auth_available": False,
+            "required_fields": [],
+            "valid_stage_names": [],
+            "intake_source_values": [],
+            "selected_intake_source": None,
+            "error": str(exc),
+        }
+    except SalesforceApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"Salesforce request failed: {exc}")
+
+
 @router.post("/opps/{opp_id}/push-to-crm")
 def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
@@ -721,11 +782,13 @@ def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depe
         raise HTTPException(status_code=404, detail="Opportunity not found")
 
     source_record_id = (opp.source_record_id or "").strip()
+    external_source_key = opp.external_source_key
     if not source_record_id:
         logger.info(
-            "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s success=false error=%s",
+            "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s success=false error=%s",
             opp.id,
             source_record_id,
+            external_source_key,
             "Opportunity is missing source_record_id",
         )
         raise HTTPException(status_code=400, detail="Opportunity is missing source_record_id")
@@ -740,9 +803,10 @@ def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depe
                 f"External_Source_ID_c__c={source_record_id}"
             )
             logger.info(
-                "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s salesforce_opp_id=%s success=false error=%s",
+                "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s salesforce_opp_id=%s success=false error=%s",
                 opp.id,
                 source_record_id,
+                external_source_key,
                 None,
                 message,
             )
@@ -752,15 +816,17 @@ def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depe
         previous_status = sf_opp.intake_status
         service.update_intake_status(sf_opp.id, PROSPECT_FEED_STATUS)
         logger.info(
-            "Salesforce CRM push succeeded bidlens_opp_id=%s source_record_id=%s salesforce_opp_id=%s success=true",
+            "Salesforce CRM push succeeded bidlens_opp_id=%s source_record_id=%s external_source_key=%s salesforce_opp_id=%s success=true",
             opp.id,
             source_record_id,
+            external_source_key,
             sf_opp.id,
         )
         return {
             "success": True,
             "bidlens_opportunity_id": opp.id,
             "source_record_id": source_record_id,
+            "external_source_key": external_source_key,
             "salesforce_opportunity_id": sf_opp.id,
             "salesforce_opportunity_name": sf_opp.name,
             "previous_intake_status": previous_status,
@@ -770,28 +836,150 @@ def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depe
         raise
     except SalesforceConfigError as exc:
         logger.info(
-            "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s salesforce_opp_id=%s success=false error=%s",
+            "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s salesforce_opp_id=%s success=false error=%s",
             opp.id,
             source_record_id,
+            external_source_key,
             salesforce_opp_id,
             str(exc),
         )
         raise HTTPException(status_code=500, detail=str(exc))
     except SalesforceApiError as exc:
         logger.info(
-            "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s salesforce_opp_id=%s success=false error=%s",
+            "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s salesforce_opp_id=%s success=false error=%s",
             opp.id,
             source_record_id,
+            external_source_key,
             salesforce_opp_id,
             str(exc),
         )
         raise HTTPException(status_code=502, detail=str(exc))
     except requests.RequestException as exc:
         logger.info(
-            "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s salesforce_opp_id=%s success=false error=%s",
+            "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s salesforce_opp_id=%s success=false error=%s",
             opp.id,
             source_record_id,
+            external_source_key,
             salesforce_opp_id,
+            str(exc),
+        )
+        raise HTTPException(status_code=502, detail="Salesforce request failed")
+
+
+@router.post("/opps/{opp_id}/create-in-crm")
+def api_create_opp_in_salesforce(opp_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    org_id = _user_org_id(user)
+    opp = db.query(Opportunity).filter(
+        Opportunity.id == opp_id,
+        Opportunity.organization_id == org_id,
+    ).first()
+    if not opp:
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+
+    source_record_id = (opp.source_record_id or "").strip()
+    if not source_record_id:
+        raise HTTPException(status_code=400, detail="Opportunity is missing source_record_id")
+
+    close_date = opp.response_deadline or (date.today() + timedelta(days=30))
+    payload: dict[str, Any] = {
+        "Name": _salesforce_opportunity_name(opp),
+        "StageName": "Prospecting",
+        "CloseDate": close_date.isoformat(),
+        "External_Source_ID_c__c": source_record_id,
+        "Intake_Status__c": PROSPECT_FEED_STATUS,
+    }
+    description = _best_description_text(opp)
+    if description:
+        payload["Description"] = description[:32000]
+
+    service = SalesforceService()
+    try:
+        if not service.is_authorized():
+            raise HTTPException(
+                status_code=401,
+                detail="Salesforce is not authorized yet. Visit /api/salesforce/oauth/start first.",
+            )
+
+        required_fields = service.required_createable_opportunity_fields()
+        valid_stage_names = service.stage_name_values()
+        intake_source_values = service.opportunity_picklist_values("Intake_Source_c__c")
+        selected_intake_source = _select_intake_source_value(intake_source_values)
+        if "Prospecting" not in valid_stage_names:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Salesforce StageName 'Prospecting' is not valid in this org.",
+                    "valid_stage_names": valid_stage_names,
+                    "created": False,
+                },
+            )
+        if not selected_intake_source:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Salesforce Intake_Source_c__c has no active picklist values.",
+                    "intake_source_values": intake_source_values,
+                    "created": False,
+                },
+            )
+        payload["Intake_Source_c__c"] = selected_intake_source
+
+        provided_fields = set(payload)
+        missing_required_fields = [
+            field for field in required_fields if field.get("name") and field["name"] not in provided_fields
+        ]
+        if missing_required_fields:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Salesforce Opportunity has required createable fields outside this POC payload.",
+                    "missing_required_fields": missing_required_fields,
+                    "required_fields": required_fields,
+                    "created": False,
+                },
+            )
+
+        salesforce_opp_id = service.create_opportunity(payload)
+        salesforce_opp_url = service.opportunity_record_url(salesforce_opp_id)
+        logger.info(
+            "Salesforce Opportunity create succeeded bidlens_opp_id=%s source_record_id=%s external_source_key=%s salesforce_opp_id=%s success=true",
+            opp.id,
+            source_record_id,
+            opp.external_source_key,
+            salesforce_opp_id,
+        )
+        return {
+            "success": True,
+            "created": True,
+            "bidlens_opportunity_id": opp.id,
+            "source_record_id": source_record_id,
+            "external_source_key": opp.external_source_key,
+            "salesforce_opportunity_id": salesforce_opp_id,
+            "salesforce_opportunity_url": salesforce_opp_url,
+            "selected_intake_source": selected_intake_source,
+            "intake_source_values": intake_source_values,
+            "created_payload_summary": _salesforce_payload_summary(payload),
+        }
+    except HTTPException:
+        raise
+    except SalesforceConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    except SalesforceApiError as exc:
+        logger.info(
+            "Salesforce Opportunity create failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s success=false error=%s",
+            opp.id,
+            source_record_id,
+            opp.external_source_key,
+            str(exc),
+        )
+        raise HTTPException(status_code=502, detail=str(exc))
+    except requests.RequestException as exc:
+        logger.info(
+            "Salesforce Opportunity create failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s success=false error=%s",
+            opp.id,
+            source_record_id,
+            opp.external_source_key,
             str(exc),
         )
         raise HTTPException(status_code=502, detail="Salesforce request failed")
@@ -911,6 +1099,7 @@ def pending_enrichment(request: Request, limit: int = 50, db: Session = Depends(
             "source": o.source,
             "source_url": o.source_url or o.sam_url,
             "source_record_id": o.source_record_id,
+            "external_source_key": o.external_source_key,
             "solicitation_number": o.solicitation_number,
             "sam_notice_id": o.sam_notice_id,
             "text_for_brief": text_for_enrichment[:20000],  # guardrail

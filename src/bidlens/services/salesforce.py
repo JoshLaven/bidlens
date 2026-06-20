@@ -152,6 +152,63 @@ class SalesforceService:
             )
         return f"{_TOKEN_CACHE['instance_url']}/services/data/{SALESFORCE_API_VERSION}/{path.lstrip('/')}"
 
+    def opportunity_record_url(self, opportunity_id: str) -> str:
+        instance_url = _TOKEN_CACHE.get("instance_url")
+        if not instance_url and not self._refresh_access_token():
+            raise SalesforceConfigError(
+                "Salesforce is not connected. Visit /api/salesforce/oauth/start to authorize BidLens."
+            )
+        return f"{_TOKEN_CACHE['instance_url']}/lightning/r/Opportunity/{opportunity_id}/view"
+
+    def is_authorized(self) -> bool:
+        return bool(_TOKEN_CACHE.get("access_token") or self._refresh_access_token())
+
+    def describe_opportunity(self) -> dict[str, Any]:
+        response = requests.get(
+            self._api_url("sobjects/Opportunity/describe"),
+            headers=self._headers(),
+            timeout=20,
+        )
+        if response.status_code == 401 and self._refresh_access_token():
+            response = requests.get(
+                self._api_url("sobjects/Opportunity/describe"),
+                headers=self._headers(),
+                timeout=20,
+            )
+        if not response.ok:
+            raise SalesforceApiError(f"Salesforce Opportunity describe failed: {response.status_code} {response.text}")
+        return response.json()
+
+    def required_createable_opportunity_fields(self) -> list[dict[str, Any]]:
+        required_fields = []
+        for field in self.describe_opportunity().get("fields") or []:
+            if (
+                field.get("createable") is True
+                and field.get("nillable") is False
+                and field.get("defaultedOnCreate") is False
+            ):
+                required_fields.append(
+                    {
+                        "name": field.get("name"),
+                        "label": field.get("label"),
+                        "type": field.get("type"),
+                    }
+                )
+        return required_fields
+
+    def stage_name_values(self) -> list[str]:
+        return self.opportunity_picklist_values("StageName")
+
+    def opportunity_picklist_values(self, field_name: str) -> list[str]:
+        for field in self.describe_opportunity().get("fields") or []:
+            if field.get("name") == field_name:
+                return [
+                    value.get("value")
+                    for value in field.get("picklistValues") or []
+                    if value.get("active") is True and value.get("value")
+                ]
+        return []
+
     @staticmethod
     def _escape_soql_literal(value: str) -> str:
         return value.replace("\\", "\\\\").replace("'", "\\'")
@@ -212,3 +269,27 @@ class SalesforceService:
             raise SalesforceApiError(
                 f"Salesforce Opportunity update failed: {response.status_code} {response.text}"
             )
+
+    def create_opportunity(self, payload: dict[str, Any]) -> str:
+        response = requests.post(
+            self._api_url("sobjects/Opportunity"),
+            headers=self._headers(),
+            json=payload,
+            timeout=20,
+        )
+        if response.status_code == 401 and self._refresh_access_token():
+            response = requests.post(
+                self._api_url("sobjects/Opportunity"),
+                headers=self._headers(),
+                json=payload,
+                timeout=20,
+            )
+        if response.status_code != 201:
+            raise SalesforceApiError(
+                f"Salesforce Opportunity create failed: {response.status_code} {response.text}"
+            )
+
+        record_id = response.json().get("id")
+        if not record_id:
+            raise SalesforceApiError("Salesforce Opportunity create response did not include an id")
+        return record_id

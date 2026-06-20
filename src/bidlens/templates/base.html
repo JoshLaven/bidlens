@@ -119,6 +119,42 @@
       }, 2500);
     }
 
+    function showToastWithLink(message, linkText, linkUrl, type = 'success') {
+      const region = document.getElementById('toast-region');
+      if (!region || !linkUrl) {
+        showToast(message, type);
+        return;
+      }
+
+      const toast = document.createElement('div');
+      toast.className = `toast toast--${type}`;
+
+      const text = document.createElement('span');
+      text.textContent = message;
+      toast.appendChild(text);
+
+      const link = document.createElement('a');
+      link.href = linkUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = linkText;
+      link.style.display = 'block';
+      link.style.marginTop = '4px';
+      link.style.color = 'inherit';
+      link.style.fontWeight = '700';
+      link.style.textDecoration = 'underline';
+      toast.appendChild(link);
+
+      region.appendChild(toast);
+
+      requestAnimationFrame(() => toast.classList.add('is-visible'));
+
+      window.setTimeout(() => {
+        toast.classList.remove('is-visible');
+        window.setTimeout(() => toast.remove(), 220);
+      }, 5000);
+    }
+
     async function copyTextToClipboard(text) {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(text);
@@ -483,6 +519,49 @@
         showToast(`Salesforce updated: ${sfName} to ${status}`, 'success');
       } catch (error) {
         showToast('CRM push failed', 'error');
+      }
+    }
+
+    function crmErrorMessage(data, fallback) {
+      if (!data || !data.detail) {
+        return fallback;
+      }
+      if (typeof data.detail === 'string') {
+        return data.detail;
+      }
+      if (data.detail.message) {
+        return data.detail.message;
+      }
+      return fallback;
+    }
+
+    async function createOpportunityInCrm(oppId) {
+      try {
+        const res = await fetch(`/api/opps/${oppId}/create-in-crm`, { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast(crmErrorMessage(data, 'CRM create failed'), 'error');
+          return;
+        }
+
+        document
+          .querySelectorAll(`[data-create-crm-button][onclick*="'${oppId}'"]`)
+          .forEach((button) => {
+            button.classList.remove('btn-secondary');
+            button.classList.remove('btn-outline-secondary');
+            button.classList.add('btn-success');
+            button.innerHTML = '&#10003; Created in CRM';
+            button.disabled = true;
+          });
+
+        showToastWithLink(
+          'Salesforce Opportunity created.',
+          'Open in Salesforce',
+          data.salesforce_opportunity_url,
+          'success'
+        );
+      } catch (error) {
+        showToast('CRM create failed', 'error');
       }
     }
     </script>

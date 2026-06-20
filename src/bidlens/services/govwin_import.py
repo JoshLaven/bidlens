@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import Opportunity
+from .account_type_classifier import classify_account_type
 from .pursuit_lanes import refresh_opportunity_lane_matches
 
 
@@ -231,10 +232,12 @@ def _normalize_row(row: dict[str, Any], row_number: int) -> tuple[dict[str, Any]
     payload = _raw_payload(row)
     source_url = _clean(row.get("Source URL"))
     sam_notice_id = extract_sam_notice_id_from_url(source_url)
+    account_type = classify_account_type(agency)
     payload["_bidlens_import"] = {
         "source": SOURCE,
         "row_number": row_number,
         "extracted_sam_notice_id": sam_notice_id,
+        "account_type_reason": account_type.reason,
     }
 
     return {
@@ -254,6 +257,9 @@ def _normalize_row(row: dict[str, Any], row_number: int) -> tuple[dict[str, Any]
         "naics": _clean(row.get("Primary NAICS Id")),
         "naics_title": _clean(row.get("Primary NAICS Title")),
         "set_aside": None,
+        "account_type": account_type.account_type,
+        "account_type_confidence": account_type.confidence,
+        "account_type_source": account_type.source,
         "description": _clean(row.get("GW Description")),
         "description_url": None,
         "description_text": _clean(row.get("GW Description")),
@@ -287,6 +293,8 @@ def upsert_govwin_opportunity(db: Session, organization_id: int, data: dict[str,
     changed = False
     for key, value in data.items():
         if key in {"source", "source_record_id"}:
+            continue
+        if key in {"account_type", "account_type_confidence", "account_type_source"} and existing.account_type_source == "manual":
             continue
         if value is not None and getattr(existing, key) != value:
             setattr(existing, key, value)

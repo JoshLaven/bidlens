@@ -57,6 +57,12 @@
             </button>
           {% endif %}
           <button type="button"
+                  class="btn btn-sm btn-secondary"
+                  data-create-crm-button
+                  onclick="createOpportunityInCrm('{{ opportunity.id }}')">
+            Create in CRM (POC)
+          </button>
+          <button type="button"
                   class="btn btn-sm {{ 'btn-primary' if user_vote != 'PURSUE' else 'btn-success' }}"
                   onclick="voteOpp('{{ opportunity.id }}', 'PURSUE')">
             {% if user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}{% if pursue_count %} ({{ pursue_count }}){% endif %}
@@ -170,10 +176,31 @@
           </div>
         {% endif %}
 
+        {% if opportunity.account_type %}
+          <div class="key-info-row">
+            <span class="key-info-label">Suggested Account Type</span>
+            <span class="key-info-value">
+              {{ opportunity.account_type }}
+              {% if opportunity.account_type_confidence or opportunity.account_type_source %}
+                <span class="key-info-subvalue">
+                  {{ opportunity.account_type_confidence or "unknown" }}{% if opportunity.account_type_source %} · {{ opportunity.account_type_source }}{% endif %}
+                </span>
+              {% endif %}
+            </span>
+          </div>
+        {% endif %}
+
         {% if opportunity.solicitation_number %}
           <div class="key-info-row">
             <span class="key-info-label">Solicitation #</span>
             <span class="key-info-value">{{ opportunity.solicitation_number }}</span>
+          </div>
+        {% endif %}
+
+        {% if opportunity.external_source_key %}
+          <div class="key-info-row">
+            <span class="key-info-label">External Source Key</span>
+            <span class="key-info-value">{{ opportunity.external_source_key }}</span>
           </div>
         {% endif %}
 

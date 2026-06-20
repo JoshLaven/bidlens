@@ -73,6 +73,9 @@ class Opportunity(Base):
     naics = Column(String, nullable=True)
     naics_title = Column(String, nullable=True)
     set_aside = Column(String, nullable=True)
+    account_type = Column(String, nullable=True)
+    account_type_confidence = Column(String, nullable=True)
+    account_type_source = Column(String, nullable=True)
     description = Column(Text, nullable=True)
     description_url = Column(Text, nullable=True)
     description_text = Column(Text, nullable=True)
@@ -99,6 +102,14 @@ class Opportunity(Base):
     crm_pushed = Column(Boolean, nullable=False, default=False, server_default="0", index=True)
     crm_pushed_at = Column(DateTime, nullable=True)
     crm_pushed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    @property
+    def external_source_key(self) -> str | None:
+        source = str(self.source or "").strip()
+        source_record_id = str(self.source_record_id or "").strip()
+        if not source or not source_record_id:
+            return None
+        return f"{source}:{source_record_id}"
 
     user_opportunities = relationship("UserOpportunity", back_populates="opportunity")
     notes = relationship("OpportunityNote", back_populates="opportunity", cascade="all, delete-orphan")

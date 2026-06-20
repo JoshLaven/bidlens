@@ -275,6 +275,7 @@ def build_brief_request_payload(opportunity: Opportunity) -> dict[str, Any]:
         "source": opportunity.source,
         "source_url": opportunity.source_url or opportunity.sam_url,
         "source_record_id": opportunity.source_record_id,
+        "external_source_key": opportunity.external_source_key,
         "solicitation_number": opportunity.solicitation_number,
         "sam_notice_id": opportunity.sam_notice_id,
         "description": description,
