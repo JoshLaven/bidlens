@@ -73,6 +73,9 @@
         {% if source_value %}
           <span class="source-pill" title="Source: {{ source_value }}">{{ source_label }}</span>
         {% endif %}
+        {% if opp.account_type %}
+          <span class="source-pill" title="Suggested account type">Account: {{ opp.account_type }}</span>
+        {% endif %}
       </div>
       {% if crm_pushed and opp.crm_pushed_by_label %}
         <div class="opp-card-crm-attribution">Pushed to CRM by {{ opp.crm_pushed_by_label }}</div>
@@ -119,7 +122,22 @@
       </div>
     </div>
 
-    {% if view != 'archive' %}
+    {% if view == 'triage' %}
+    <div class="opp-card-actions">
+      <button type="button"
+              class="btn btn-sm opp-card-button opp-card-button--primary btn-primary"
+              data-triage-action="qualify"
+              onclick="setQualificationStatus('{{ opp.id }}', 'qualify')">
+        Qualify
+      </button>
+      <button type="button"
+              class="btn btn-sm opp-card-button opp-card-button--secondary btn-outline-secondary"
+              data-triage-action="reject"
+              onclick="setQualificationStatus('{{ opp.id }}', 'reject')">
+        Reject
+      </button>
+    </div>
+    {% elif view != 'archive' %}
     <div class="opp-card-actions">
       {% if not crm_pushed %}
         <button type="button"
@@ -235,6 +253,34 @@
           </div>
         {% endif %}
 
+        {% if opp.source_record_id %}
+          <div class="opp-detail-row">
+            <span class="opp-detail-label">Source Record ID</span>
+            <span class="opp-detail-value">{{ opp.source_record_id }}</span>
+          </div>
+        {% endif %}
+
+        {% if opp.external_source_key %}
+          <div class="opp-detail-row">
+            <span class="opp-detail-label">External Key</span>
+            <span class="opp-detail-value">{{ opp.external_source_key }}</span>
+          </div>
+        {% endif %}
+
+        {% if opp.govwin_staging_id %}
+          <div class="opp-detail-row">
+            <span class="opp-detail-label">GovWin Staging ID</span>
+            <span class="opp-detail-value">{{ opp.govwin_staging_id }}</span>
+          </div>
+        {% endif %}
+
+        {% if opp.sam_notice_id %}
+          <div class="opp-detail-row">
+            <span class="opp-detail-label">SAM Notice ID</span>
+            <span class="opp-detail-value">{{ opp.sam_notice_id }}</span>
+          </div>
+        {% endif %}
+
         {% if opp.posted_date %}
           <div class="opp-detail-row">
             <span class="opp-detail-label">Posted</span>
@@ -251,7 +297,9 @@
       </div>
 
       <div class="opp-detail-actions">
-        {% if view != 'archive' %}
+        {% if view == 'triage' %}
+          <a href="/opportunity/{{ opp.id }}" class="details-link">Details &rarr;</a>
+        {% elif view != 'archive' %}
           <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
             <button class="btn btn-sm {{ 'btn-success' if opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if opp.watched else 'Follow' }}">
               {% if opp.watched %}&#9733; Following{% else %}&#9734; Follow{% endif %}
@@ -265,7 +313,9 @@
             <span class="opp-detail-badge">&#9733; Following</span>
           {% endif %}
         {% endif %}
-        <a href="/opportunity/{{ opp.id }}" class="details-link">Details &rarr;</a>
+        {% if view != 'triage' %}
+          <a href="/opportunity/{{ opp.id }}" class="details-link">Details &rarr;</a>
+        {% endif %}
       </div>
 
     </div>

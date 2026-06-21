@@ -11,14 +11,17 @@
         <div class="container nav-shell">
             <div class="nav-brand">
               <a href="/" class="logo">BidLens</a>
-              <span class="nav-tagline">Opportunity Inbox</span>
+              <span class="nav-tagline">Opportunity Feed</span>
             </div>
             <div class="nav-links">
                 {% if user %}
                     <div class="nav-workspace" aria-label="Workspace sections">
-                      <a href="/" class="{{ 'active' if active_page == 'feed' else '' }}">Inbox</a>
+                      <a href="/" class="{{ 'active' if active_page == 'feed' else '' }}">Feed</a>
                       <a href="/shortlist" class="{{ 'active' if active_page == 'shortlist' else '' }}">Team Interested</a>
                       <a href="/my-shortlist" class="{{ 'active' if active_page == 'my_shortlist' else '' }}">My Interested</a>
+                      {% if user.current_role == 'admin' %}
+                        <a href="/triage" class="{{ 'active' if active_page == 'triage' else '' }}">Triage</a>
+                      {% endif %}
                       <a href="/pursuit-lanes" class="{{ 'active' if active_page == 'pursuit_lanes' else '' }}">Pursuit Lanes</a>
                       <a href="/company-profile" class="{{ 'active' if active_page == 'company_profile' else '' }}">Company Profile</a>
                       <a href="/imports/govwin" class="{{ 'active' if active_page == 'imports' else '' }}">Import</a>

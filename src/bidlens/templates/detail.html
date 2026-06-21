@@ -4,6 +4,7 @@
 {% block content %}
 {% set source_value = opportunity.source or '' %}
 {% set source_label = 'SAM' if source_value == 'sam' else 'GovWin' if source_value == 'govwin_export' else 'Grants.gov' if source_value == 'grants_gov' else source_value %}
+{% set is_qualified = opportunity.qualification_status == 'qualified' %}
 <div class="detail-page">
 
   <a href="/" class="btn btn-secondary btn-sm" style="margin-bottom: 24px;">
@@ -29,7 +30,7 @@
         <span class="source-pill" title="Source: {{ source_value }}">{{ source_label }}</span>
       {% endif %}
       <span class="badge">{{ display_status }}</span>
-      {% if pursue_count or pass_count %}
+      {% if is_qualified and (pursue_count or pass_count) %}
         <span class="badge" style="margin-left: 4px;">
           {% if pursue_count %}Interested: {{ pursue_count }}{% endif %}
           {% if pursue_count and pass_count %} · {% endif %}
@@ -43,7 +44,7 @@
 
     <div class="card-actions" style="margin-bottom: 16px;">
       <div class="actions-left">
-        {% if decision_state in ['INBOX', 'SHORTLISTED'] %}
+        {% if is_qualified and decision_state in ['INBOX', 'SHORTLISTED'] %}
           {% if not opportunity.crm_pushed %}
             <button type="button"
                     class="btn btn-sm btn-primary"
@@ -73,7 +74,7 @@
             Pass{% if pass_count %} ({{ pass_count }}){% endif %}
           </button>
         {% endif %}
-        {% if decision_state == 'SHORTLISTED' %}
+        {% if is_qualified and decision_state == 'SHORTLISTED' %}
           <button type="button" class="btn btn-outline-danger btn-sm"
                   onclick="showArchiveModal('{{ opportunity.id }}')">
             Archive
@@ -85,7 +86,7 @@
       </div>
 
       <div class="actions-right">
-        {% if decision_state != 'ARCHIVED' %}
+        {% if is_qualified and decision_state != 'ARCHIVED' %}
         <form method="POST" action="/opportunity/{{ opportunity.id }}/watch" style="display:inline;">
           <button class="btn btn-sm {{ 'btn-success' if user_opp and user_opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if user_opp and user_opp.watched else 'Follow' }}">
             {% if user_opp and user_opp.watched %}★ Following{% else %}☆ Follow{% endif %}

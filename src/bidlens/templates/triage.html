@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "_opp_card.html" import opp_card %}
+{% block title %}Triage - BidLens{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Triage</h1>
+  <p class="page-subtitle">Review newly ingested opportunities before they enter the qualified feed.</p>
+  <div class="queue-counts" aria-label="Triage counts">
+    <span class="queue-count-pill">Unreviewed ({{ triage_counts.unreviewed }})</span>
+    <span class="queue-count-pill">Qualified ({{ triage_counts.qualified }})</span>
+    <span class="queue-count-pill">Rejected ({{ triage_counts.rejected }})</span>
+  </div>
+</div>
+
+<div id="opportunity-list" data-list-view="triage">
+  {% if opportunities %}
+    {% for opp in opportunities %}
+      {{ opp_card(opp, view='triage', now=now) }}
+    {% endfor %}
+  {% endif %}
+</div>
+
+<div id="opportunity-empty-state" class="empty-state" {% if opportunities %}hidden{% endif %}>
+  <h2>No opportunities waiting for triage</h2>
+  <p>New imports will appear here before they enter the Feed.</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function setQualificationStatus(oppId, action) {
+  const endpoint = `/api/opps/${oppId}/${action}`;
+  try {
+    const response = await fetch(endpoint, { method: 'POST' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      showToast(data.detail || 'Unable to update triage status', 'error');
+      return;
+    }
+
+    const card = document.getElementById(`opp-card-${oppId}`);
+    if (card) {
+      card.remove();
+    }
+    showToast(`Opportunity ${data.qualification_status}.`, 'success');
+    updateEmptyState();
+  } catch (error) {
+    showToast('Unable to update triage status', 'error');
+  }
+}
+</script>
+{% endblock %}

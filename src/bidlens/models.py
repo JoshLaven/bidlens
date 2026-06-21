@@ -76,6 +76,7 @@ class Opportunity(Base):
     account_type = Column(String, nullable=True)
     account_type_confidence = Column(String, nullable=True)
     account_type_source = Column(String, nullable=True)
+    qualification_status = Column(String, nullable=False, default="unreviewed", server_default="unreviewed", index=True)
     description = Column(Text, nullable=True)
     description_url = Column(Text, nullable=True)
     description_text = Column(Text, nullable=True)

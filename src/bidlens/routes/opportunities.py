@@ -12,7 +12,15 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm import joinedload
 from collections import OrderedDict
 from ..database import get_db
-from ..models import Opportunity, User, UserOpportunity, OpportunityStatus, OrgProfile, OpportunityNote
+from ..models import (
+    Opportunity,
+    User,
+    UserOpportunity,
+    OpportunityStatus,
+    OrgProfile,
+    OpportunityNote,
+    OrganizationMembership,
+)
 from ..auth import get_current_user
 from ..services import get_vote_counts, get_user_votes, get_last_activity, get_vote_user_maps
 from sqlalchemy import and_, or_, select
@@ -30,6 +38,14 @@ logger = logging.getLogger(__name__)
 
 SOLICITATION_TYPES = ["Solicitation", "Combined Synopsis/Solicitation", "Award Notice", "Grant"]
 RFI_TYPES = ["RFI", "Sources Sought", "Special Notice", "Pre-Solicitation"]
+QUALIFICATION_UNREVIEWED = "unreviewed"
+QUALIFICATION_QUALIFIED = "qualified"
+QUALIFICATION_REJECTED = "rejected"
+QUALIFICATION_STATUSES = {
+    QUALIFICATION_UNREVIEWED,
+    QUALIFICATION_QUALIFIED,
+    QUALIFICATION_REJECTED,
+}
 BRIEF_SECTION_DEFS = [
     ("executive_summary", "Executive Summary"),
     ("key_dates", "Key Dates"),
@@ -147,11 +163,29 @@ def require_user(request: Request, db: Session):
     if not user:
         return None
     setattr(user, "current_organization_id", current_org_id(request, db, user))
+    setattr(user, "current_role", _current_user_role(db, user))
     return user
 
 
 def _user_org_id(user) -> int:
     return getattr(user, "current_organization_id", None) or user.organization_id
+
+
+def _current_user_role(db: Session, user) -> str:
+    org_id = _user_org_id(user)
+    membership = (
+        db.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.organization_id == org_id,
+            OrganizationMembership.user_id == user.id,
+        )
+        .first()
+    )
+    return membership.role if membership else "member"
+
+
+def _is_admin(user) -> bool:
+    return getattr(user, "current_role", "member") == "admin"
 
 
 def _apply_type_tab(query, tab: str):
@@ -407,6 +441,7 @@ def _feed_query(db: Session, user, tab: str, *, show_passed: str = ""):
         )
         .filter(Opportunity.organization_id == _user_org_id(user))
         .filter(Opportunity.decision_state != "ARCHIVED")
+        .filter(Opportunity.qualification_status == QUALIFICATION_QUALIFIED)
     )
     q = _apply_type_tab(q, tab)
 
@@ -465,6 +500,7 @@ def _team_interest_query(db: Session, user, tab: str):
         )
         .filter(Opportunity.organization_id == _user_org_id(user))
         .filter(Opportunity.decision_state != "ARCHIVED")
+        .filter(Opportunity.qualification_status == QUALIFICATION_QUALIFIED)
         .filter(Opportunity.id.in_(interested_opp_ids))
     )
     q = _apply_type_tab(q, tab)
@@ -494,6 +530,7 @@ def _my_shortlist_query(db: Session, user, tab: str):
         )
         .filter(Opportunity.decision_state != "ARCHIVED")
         .filter(Opportunity.organization_id == _user_org_id(user))
+        .filter(Opportunity.qualification_status == QUALIFICATION_QUALIFIED)
         .filter(or_(Vote.id.isnot(None), Opportunity.crm_pushed_by == user.id))
     )
     q = _apply_type_tab(q, tab)
@@ -832,6 +869,7 @@ def _queue_counts(db: Session, user, tab: str) -> dict[str, int]:
         db.query(Opportunity.id)
         .filter(Opportunity.organization_id == org_id)
         .filter(Opportunity.decision_state != "ARCHIVED")
+        .filter(Opportunity.qualification_status == QUALIFICATION_QUALIFIED)
     )
     base = _apply_type_tab(base, tab)
 
@@ -870,6 +908,7 @@ def _queue_counts(db: Session, user, tab: str) -> dict[str, int]:
         )
         .filter(Opportunity.organization_id == org_id)
         .filter(Opportunity.decision_state != "ARCHIVED")
+        .filter(Opportunity.qualification_status == QUALIFICATION_QUALIFIED)
         .filter(or_(Vote.id.isnot(None), Opportunity.crm_pushed_by == user.id))
     )
     my_interested_count = _apply_type_tab(my_interested_count_query, tab).scalar() or 0
@@ -882,6 +921,7 @@ def _queue_counts(db: Session, user, tab: str) -> dict[str, int]:
             Vote.vote == "PASS",
             Opportunity.organization_id == org_id,
             Opportunity.decision_state != "ARCHIVED",
+            Opportunity.qualification_status == QUALIFICATION_QUALIFIED,
         )
     )
     passed_count = _apply_type_tab(passed_count, tab).scalar() or 0
@@ -890,6 +930,22 @@ def _queue_counts(db: Session, user, tab: str) -> dict[str, int]:
         "my_interested": my_interested_count,
         "passed": passed_count,
     }
+
+
+def _triage_counts(db: Session, user) -> dict[str, int]:
+    org_id = _user_org_id(user)
+    rows = (
+        db.query(Opportunity.qualification_status, func.count(Opportunity.id))
+        .filter(Opportunity.organization_id == org_id)
+        .group_by(Opportunity.qualification_status)
+        .all()
+    )
+    counts = {status: 0 for status in QUALIFICATION_STATUSES}
+    for status, count in rows:
+        if status in counts:
+            counts[status] = count or 0
+    counts["all"] = sum(counts.values())
+    return counts
 
 
 # ── Feed (INBOX) ──────────────────────────────────────────────
@@ -978,6 +1034,55 @@ async def feed(
         "queue_counts": _queue_counts(db, user, tab),
         "now": datetime.utcnow(),
     })
+
+
+@router.get("/triage")
+async def triage_queue(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    if not _is_admin(user):
+        return RedirectResponse(url="/", status_code=303)
+
+    query = (
+        db.query(Opportunity, UserOpportunity.watched.label("watched"))
+        .outerjoin(
+            UserOpportunity,
+            and_(
+                UserOpportunity.opportunity_id == Opportunity.id,
+                UserOpportunity.user_id == user.id,
+                UserOpportunity.organization_id == _user_org_id(user),
+            ),
+        )
+        .filter(Opportunity.organization_id == _user_org_id(user))
+        .filter(Opportunity.decision_state != "ARCHIVED")
+        .filter(Opportunity.qualification_status == QUALIFICATION_UNREVIEWED)
+    )
+
+    rows = (
+        query
+        .order_by(Opportunity.upserted_at.desc(), Opportunity.id.desc())
+        .limit(100)
+        .all()
+    )
+
+    return templates.TemplateResponse("triage.html", {
+        "request": request,
+        "user": user,
+        "opportunities": _enrich_opps(rows, db, user),
+        "active_page": "triage",
+        "sidebar": get_sidebar(db, user),
+        "triage_counts": _triage_counts(db, user),
+        "now": datetime.utcnow(),
+    })
+
+
+@router.get("/intake")
+async def intake_redirect():
+    return RedirectResponse(url="/triage", status_code=303)
 
 
 REVIEW_STAGES = ["Team Review", "Director Review", "Approved"]
@@ -1248,6 +1353,8 @@ async def opportunity_detail(
     ).first()
     if not opportunity:
         return RedirectResponse(url="/", status_code=303)
+    if opportunity.qualification_status != QUALIFICATION_QUALIFIED and not _is_admin(user):
+        return RedirectResponse(url="/", status_code=303)
 
     resolved_description = _best_description_text(opportunity)
     raw_payload = opportunity.raw_source_payload if isinstance(opportunity.raw_source_payload, dict) else {}
@@ -1507,6 +1614,7 @@ def get_sidebar(db: Session, user: User):
         )
         .filter(Opportunity.decision_state != "ARCHIVED")
         .filter(Opportunity.organization_id == _user_org_id(user))
+        .filter(Opportunity.qualification_status == QUALIFICATION_QUALIFIED)
         .filter(or_(Vote.id.isnot(None), Opportunity.crm_pushed_by == user.id))
         .order_by(Opportunity.response_deadline.asc())
         .limit(5)
@@ -1526,6 +1634,7 @@ def get_sidebar(db: Session, user: User):
         )
         .filter(UserOpportunity.watched.is_(True))
         .filter(Opportunity.organization_id == _user_org_id(user))
+        .filter(Opportunity.qualification_status == QUALIFICATION_QUALIFIED)
         .order_by(Opportunity.response_deadline.asc())
         .limit(8)
         .all()

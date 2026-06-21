@@ -81,6 +81,8 @@ def cast_vote(
 
     if opp.decision_state == "ARCHIVED":
         raise ValueError("Cannot vote on archived opportunities")
+    if opp.qualification_status != "qualified":
+        raise ValueError("Opportunity must be qualified before users can act on it")
 
     row = (
         db.query(Vote)
@@ -141,6 +143,8 @@ def push_opportunity_to_crm(
         raise ValueError(f"Opportunity {opp_id} not found")
     if opp.decision_state == "ARCHIVED":
         raise ValueError("Cannot push archived opportunities to CRM")
+    if opp.qualification_status != "qualified":
+        raise ValueError("Opportunity must be qualified before users can act on it")
 
     interest_row = (
         db.query(Vote)

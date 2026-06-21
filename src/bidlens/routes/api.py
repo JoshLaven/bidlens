@@ -14,7 +14,7 @@ from ..services.salesforce import (
     SalesforceService,
     generate_pkce_pair,
 )
-from ..models import CompanyProfile, Opportunity, OpportunityBrief, Organization
+from ..models import CompanyProfile, Opportunity, OpportunityBrief, Organization, OrganizationMembership
 from ..tenancy import current_org_id
 from sqlalchemy import and_, or_
 from datetime import date, datetime, timedelta
@@ -52,6 +52,9 @@ BRIEF_SECTION_KEYS = [
     "open_questions",
     "recommended_action",
 ]
+QUALIFICATION_UNREVIEWED = "unreviewed"
+QUALIFICATION_QUALIFIED = "qualified"
+QUALIFICATION_REJECTED = "rejected"
 
 
 def _normalize_brief_status(value: str | None) -> str:
@@ -286,6 +289,26 @@ def require_user(request: Request, db: Session):
 
 def _user_org_id(user) -> int:
     return getattr(user, "current_organization_id", None) or user.organization_id
+
+
+def _current_user_role(db: Session, user) -> str:
+    membership = (
+        db.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.organization_id == _user_org_id(user),
+            OrganizationMembership.user_id == user.id,
+        )
+        .first()
+    )
+    return membership.role if membership else "member"
+
+
+def require_admin(request: Request, db: Session):
+    user = require_user(request, db)
+    if _current_user_role(db, user) != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
+    return user
+
 
 def require_user_or_automation(request: Request, db: Session):
     expected = os.getenv("AUTOMATION_API_KEY")
@@ -764,6 +787,38 @@ def salesforce_opportunity_create_requirements(request: Request, db: Session = D
         raise HTTPException(status_code=502, detail=f"Salesforce request failed: {exc}")
 
 
+def _set_qualification_status(opp_id: int, status: str, request: Request, db: Session) -> dict[str, Any]:
+    user = require_admin(request, db)
+    opp = (
+        db.query(Opportunity)
+        .filter(
+            Opportunity.id == opp_id,
+            Opportunity.organization_id == _user_org_id(user),
+        )
+        .first()
+    )
+    if not opp:
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+
+    opp.qualification_status = status
+    db.commit()
+    return {
+        "success": True,
+        "opportunity_id": opp.id,
+        "qualification_status": opp.qualification_status,
+    }
+
+
+@router.post("/opps/{opp_id}/qualify")
+def qualify_opportunity(opp_id: int, request: Request, db: Session = Depends(get_db)):
+    return _set_qualification_status(opp_id, QUALIFICATION_QUALIFIED, request, db)
+
+
+@router.post("/opps/{opp_id}/reject")
+def reject_opportunity(opp_id: int, request: Request, db: Session = Depends(get_db)):
+    return _set_qualification_status(opp_id, QUALIFICATION_REJECTED, request, db)
+
+
 @router.post("/opps/{opp_id}/push-to-crm")
 def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
@@ -792,6 +847,8 @@ def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depe
             "Opportunity is missing source_record_id",
         )
         raise HTTPException(status_code=400, detail="Opportunity is missing source_record_id")
+    if opp.qualification_status != QUALIFICATION_QUALIFIED:
+        raise HTTPException(status_code=400, detail="Opportunity must be qualified before CRM actions")
 
     service = SalesforceService()
     salesforce_opp_id = None
@@ -880,6 +937,8 @@ def api_create_opp_in_salesforce(opp_id: int, request: Request, db: Session = De
     source_record_id = (opp.source_record_id or "").strip()
     if not source_record_id:
         raise HTTPException(status_code=400, detail="Opportunity is missing source_record_id")
+    if opp.qualification_status != QUALIFICATION_QUALIFIED:
+        raise HTTPException(status_code=400, detail="Opportunity must be qualified before CRM actions")
 
     close_date = opp.response_deadline or (date.today() + timedelta(days=30))
     payload: dict[str, Any] = {
