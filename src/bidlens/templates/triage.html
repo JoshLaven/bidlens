@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% from "_opp_card.html" import opp_card %}
+{% from "_date_filter_controls.html" import date_filter_controls %}
 {% block title %}Triage - BidLens{% endblock %}
 {% block content %}
+{% set org_id_param = request.query_params.get('org_id') %}
+{% set org_param = '&org_id=' ~ org_id_param if org_id_param else '' %}
 <div class="page-header">
   <h1>Triage</h1>
   <p class="page-subtitle">Review newly ingested opportunities before they enter the qualified feed.</p>
@@ -11,6 +14,14 @@
     <span class="queue-count-pill">Rejected ({{ triage_counts.rejected }})</span>
   </div>
 </div>
+
+<div class="feed-toolbar feed-toolbar--compact">
+  {{ date_filter_controls('/triage', date_type, date_filter, org_param) }}
+</div>
+
+{% if triage_enabled and user.current_role == 'admin' %}
+  {% include "_source_controls.html" %}
+{% endif %}
 
 <div id="opportunity-list" data-list-view="triage">
   {% if opportunities %}
@@ -43,7 +54,7 @@ async function setQualificationStatus(oppId, action) {
       card.remove();
     }
     showToast(`Opportunity ${data.qualification_status}.`, 'success');
-    updateEmptyState();
+    updateOpportunityEmptyState();
   } catch (error) {
     showToast('Unable to update triage status', 'error');
   }

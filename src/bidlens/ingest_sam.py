@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from .sam_client import SamRateLimitError, SamTemporaryUnavailableError, resolve_notice_description, search_opportunities
 from .models import Opportunity, IngestionRun
+from .services.qualification import new_opportunity_qualification_status
 from .services.pursuit_lanes import refresh_opportunity_lane_matches
 
 logger = logging.getLogger(__name__)
@@ -338,6 +339,7 @@ def upsert_opportunity(db: Session, organization_id: int, data: Dict[str, Any]) 
                 opportunity = Opportunity(
                     organization_id=organization_id,
                     **data,
+                    qualification_status=new_opportunity_qualification_status(db, organization_id),
                     upserted_at=dt.datetime.utcnow(),
                 )
                 db.add(opportunity)

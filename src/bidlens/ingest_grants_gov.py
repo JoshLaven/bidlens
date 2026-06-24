@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from .grants_gov_client import GrantsGovApiError, fetch_opportunity_detail, search_recent_opportunities
 from .models import Opportunity
+from .services.qualification import new_opportunity_qualification_status
 from .services.pursuit_lanes import refresh_opportunity_lane_matches
 
 
@@ -238,7 +239,12 @@ def upsert_grants_gov_opportunity(db: Session, organization_id: int, data: dict[
     if existing is None:
         try:
             with db.begin_nested():
-                opportunity = Opportunity(organization_id=organization_id, **data, upserted_at=dt.datetime.utcnow())
+                opportunity = Opportunity(
+                    organization_id=organization_id,
+                    **data,
+                    qualification_status=new_opportunity_qualification_status(db, organization_id),
+                    upserted_at=dt.datetime.utcnow(),
+                )
                 db.add(opportunity)
                 db.flush()
                 refresh_opportunity_lane_matches(db, organization_id, opportunity)

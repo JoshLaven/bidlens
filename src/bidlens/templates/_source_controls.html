@@ -1,0 +1,121 @@
+<div class="feed-toolbar-actions">
+  <div class="feed-admin-action">
+    <span class="feed-toolbar-label">Source Intake</span>
+    <button type="button" id="source-sam-pull-button" class="btn btn-sm btn-outline-secondary">Pull SAM Opps</button>
+    <button type="button" id="source-grants-pull-button" class="btn btn-sm btn-outline-secondary">Pull Grants.gov Opps</button>
+    <a href="/imports/govwin{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary">Import GovWin</a>
+  </div>
+</div>
+<div id="source-pull-result" class="feed-sam-pull-result" hidden></div>
+
+<script>
+function renderSourcePullResult(payload, type, fallbackMessage = 'Pull completed.') {
+  const container = document.getElementById('source-pull-result');
+  if (!container) return;
+
+  const failedNaics = Array.isArray(payload.failed_naics) && payload.failed_naics.length
+    ? `<div><strong>Failed NAICS:</strong> ${payload.failed_naics.map(escapeHtml).join(', ')}</div>`
+    : '';
+
+  const retryAfter = payload.retry_after
+    ? `<div><strong>Retry after:</strong> ${escapeHtml(payload.retry_after)}</div>`
+    : '';
+
+  container.hidden = false;
+  container.className = `feed-sam-pull-result alert alert-${type}`;
+  const received = payload.received !== undefined
+    ? `Received ${Number(payload.received || 0)} &middot; `
+    : '';
+  const inserted = payload.inserted !== undefined
+    ? `Inserted ${Number(payload.inserted || 0)} &middot; `
+    : '';
+  const created = payload.created !== undefined
+    ? `Created ${Number(payload.created || 0)} &middot; `
+    : '';
+  container.innerHTML = `
+    <div><strong>${escapeHtml(payload.message || fallbackMessage)}</strong></div>
+    <div style="margin-top:6px;">
+      ${received}
+      ${inserted}
+      ${created}
+      Updated ${Number(payload.updated || 0)} &middot;
+      Skipped ${Number(payload.skipped || 0)} &middot;
+      ${payload.filtered !== undefined ? `Filtered ${Number(payload.filtered || 0)} &middot;` : ''}
+      Errors ${Number(payload.errors || 0)}
+    </div>
+    ${failedNaics}
+    ${retryAfter}
+  `;
+}
+
+async function runSourcePull(buttonId, endpoint, labels) {
+  const button = document.getElementById(buttonId);
+  const result = document.getElementById('source-pull-result');
+  if (!button) return;
+
+  button.disabled = true;
+  button.textContent = 'Pulling...';
+  if (result) {
+    result.hidden = true;
+    result.innerHTML = '';
+    result.className = 'feed-sam-pull-result';
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'Accept': 'application/json'},
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (response.status === 429) {
+      renderSourcePullResult(payload, 'error', labels.error);
+      showToast(payload.message || 'Source quota exceeded. Try again later.', 'error');
+      return;
+    }
+
+    if (!response.ok) {
+      renderSourcePullResult(payload, 'error', labels.error);
+      showToast(payload.message || labels.error, 'error');
+      return;
+    }
+
+    if (payload.status === 'partial_success') {
+      renderSourcePullResult(payload, 'warning', labels.partial);
+      showToast(payload.message || labels.partial, 'error');
+      return;
+    }
+
+    renderSourcePullResult(payload, payload.errors ? 'warning' : 'success', labels.success);
+    showToast(payload.message || labels.success, payload.errors ? 'error' : 'success');
+    window.setTimeout(() => window.location.reload(), 900);
+  } catch (error) {
+    const payload = {message: labels.unavailable, inserted: 0, updated: 0, skipped: 0, filtered: 0, errors: 1};
+    renderSourcePullResult(payload, 'error', labels.error);
+    showToast(payload.message, 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = labels.button;
+  }
+}
+
+document.getElementById('source-sam-pull-button')?.addEventListener('click', () => {
+  runSourcePull('source-sam-pull-button', '/sam/pull-now', {
+    button: 'Pull SAM Opps',
+    success: 'SAM pull completed.',
+    partial: 'SAM pull partially completed.',
+    error: 'SAM pull failed.',
+    unavailable: 'Unable to run SAM pull right now.',
+  });
+});
+
+document.getElementById('source-grants-pull-button')?.addEventListener('click', () => {
+  runSourcePull('source-grants-pull-button', '/grants/pull-now', {
+    button: 'Pull Grants.gov Opps',
+    success: 'Grants.gov pull completed.',
+    partial: 'Grants.gov pull partially completed.',
+    error: 'Grants.gov pull failed.',
+    unavailable: 'Unable to run Grants.gov pull right now.',
+  });
+});
+</script>

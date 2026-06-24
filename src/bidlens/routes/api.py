@@ -342,6 +342,21 @@ def _salesforce_payload_summary(payload: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
+def _record_salesforce_opportunity_reference(
+    db: Session,
+    *,
+    opp: Opportunity,
+    salesforce_opp_id: str,
+    salesforce_opp_url: str,
+    action: str,
+) -> None:
+    opp.salesforce_opportunity_id = salesforce_opp_id
+    opp.salesforce_opportunity_url = salesforce_opp_url
+    opp.salesforce_synced_at = datetime.utcnow()
+    opp.salesforce_action = action
+    db.commit()
+
+
 def _select_intake_source_value(values: list[str]) -> str | None:
     if "BidLens" in values:
         return "BidLens"
@@ -630,6 +645,26 @@ def _serialize_sidebar(sidebar: dict) -> dict:
     }
 
 
+def _crm_workflow_response_payload(db: Session, user, opp_id: int) -> dict[str, Any]:
+    counts = get_vote_counts(db, [opp_id]).get(opp_id, {"pursue": 0, "pass": 0})
+    pursue_users_map, pass_users_map = get_vote_user_maps(
+        db,
+        org_id=_user_org_id(user),
+        opp_ids=[opp_id],
+    )
+    from .opportunities import get_sidebar
+
+    sidebar = get_sidebar(db, user)
+    return {
+        "pursue_count": counts["pursue"],
+        "pass_count": counts["pass"],
+        "pursue_users": pursue_users_map.get(opp_id, []),
+        "pass_users": pass_users_map.get(opp_id, []),
+        "in_my_shortlist": True,
+        "sidebar": _serialize_sidebar(sidebar),
+    }
+
+
 @router.post("/vote")
 def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
@@ -646,26 +681,18 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
             vote=payload.vote,
             ui_version=payload.ui_version,
         )
-        counts = get_vote_counts(db, [payload.opp_id]).get(payload.opp_id, {"pursue": 0, "pass": 0})
-        pursue_users_map, pass_users_map = get_vote_user_maps(
-            db,
-            org_id=_user_org_id(user),
-            opp_ids=[payload.opp_id],
-        )
-        from .opportunities import get_sidebar
-
-        sidebar = get_sidebar(db, user)
+        workflow_payload = _crm_workflow_response_payload(db, user, payload.opp_id)
 
         return {
             "ok": True,
             **result,
             "opp_id": payload.opp_id,
-            "pursue_count": counts["pursue"],
-            "pass_count": counts["pass"],
-            "pursue_users": pursue_users_map.get(payload.opp_id, []),
-            "pass_users": pass_users_map.get(payload.opp_id, []),
             "in_my_shortlist": result["vote"] == "PURSUE",
-            "sidebar": _serialize_sidebar(sidebar),
+            "pursue_count": workflow_payload["pursue_count"],
+            "pass_count": workflow_payload["pass_count"],
+            "pursue_users": workflow_payload["pursue_users"],
+            "pass_users": workflow_payload["pass_users"],
+            "sidebar": workflow_payload["sidebar"],
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -683,27 +710,14 @@ def api_push_crm(payload: CrmPushIn, request: Request, db: Session = Depends(get
             opp_id=payload.opp_id,
             ui_version=payload.ui_version,
         )
-        counts = get_vote_counts(db, [payload.opp_id]).get(payload.opp_id, {"pursue": 0, "pass": 0})
-        pursue_users_map, pass_users_map = get_vote_user_maps(
-            db,
-            org_id=_user_org_id(user),
-            opp_ids=[payload.opp_id],
-        )
-        from .opportunities import get_sidebar
-
-        sidebar = get_sidebar(db, user)
+        workflow_payload = _crm_workflow_response_payload(db, user, payload.opp_id)
         return {
             "ok": True,
             "opp_id": opp.id,
             "crm_pushed": bool(opp.crm_pushed),
             "crm_pushed_by": opp.crm_pushed_by,
             "crm_pushed_by_current_user": opp.crm_pushed_by == user.id,
-            "pursue_count": counts["pursue"],
-            "pass_count": counts["pass"],
-            "pursue_users": pursue_users_map.get(payload.opp_id, []),
-            "pass_users": pass_users_map.get(payload.opp_id, []),
-            "in_my_shortlist": True,
-            "sidebar": _serialize_sidebar(sidebar),
+            **workflow_payload,
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -849,6 +863,8 @@ def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depe
         raise HTTPException(status_code=400, detail="Opportunity is missing source_record_id")
     if opp.qualification_status != QUALIFICATION_QUALIFIED:
         raise HTTPException(status_code=400, detail="Opportunity must be qualified before CRM actions")
+    if opp.decision_state == "ARCHIVED":
+        raise HTTPException(status_code=400, detail="Cannot push archived opportunities to CRM")
 
     service = SalesforceService()
     salesforce_opp_id = None
@@ -872,6 +888,22 @@ def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depe
         salesforce_opp_id = sf_opp.id
         previous_status = sf_opp.intake_status
         service.update_intake_status(sf_opp.id, PROSPECT_FEED_STATUS)
+        salesforce_opp_url = service.opportunity_record_url(sf_opp.id)
+        _record_salesforce_opportunity_reference(
+            db,
+            opp=opp,
+            salesforce_opp_id=sf_opp.id,
+            salesforce_opp_url=salesforce_opp_url,
+            action="pushed",
+        )
+        push_opportunity_to_crm(
+            db,
+            org_id=org_id,
+            user_id=user.id,
+            opp_id=opp.id,
+            ui_version="v1",
+        )
+        workflow_payload = _crm_workflow_response_payload(db, user, opp.id)
         logger.info(
             "Salesforce CRM push succeeded bidlens_opp_id=%s source_record_id=%s external_source_key=%s salesforce_opp_id=%s success=true",
             opp.id,
@@ -885,9 +917,14 @@ def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depe
             "source_record_id": source_record_id,
             "external_source_key": external_source_key,
             "salesforce_opportunity_id": sf_opp.id,
+            "salesforce_opportunity_url": salesforce_opp_url,
+            "salesforce_linked": True,
+            "salesforce_action": "pushed",
+            "salesforce_status": "Pushed to Salesforce",
             "salesforce_opportunity_name": sf_opp.name,
             "previous_intake_status": previous_status,
             "new_intake_status": PROSPECT_FEED_STATUS,
+            **workflow_payload,
         }
     except HTTPException:
         raise
@@ -939,6 +976,8 @@ def api_create_opp_in_salesforce(opp_id: int, request: Request, db: Session = De
         raise HTTPException(status_code=400, detail="Opportunity is missing source_record_id")
     if opp.qualification_status != QUALIFICATION_QUALIFIED:
         raise HTTPException(status_code=400, detail="Opportunity must be qualified before CRM actions")
+    if opp.decision_state == "ARCHIVED":
+        raise HTTPException(status_code=400, detail="Cannot create archived opportunities in CRM")
 
     close_date = opp.response_deadline or (date.today() + timedelta(days=30))
     payload: dict[str, Any] = {
@@ -1001,6 +1040,21 @@ def api_create_opp_in_salesforce(opp_id: int, request: Request, db: Session = De
 
         salesforce_opp_id = service.create_opportunity(payload)
         salesforce_opp_url = service.opportunity_record_url(salesforce_opp_id)
+        _record_salesforce_opportunity_reference(
+            db,
+            opp=opp,
+            salesforce_opp_id=salesforce_opp_id,
+            salesforce_opp_url=salesforce_opp_url,
+            action="created",
+        )
+        push_opportunity_to_crm(
+            db,
+            org_id=org_id,
+            user_id=user.id,
+            opp_id=opp.id,
+            ui_version="v1",
+        )
+        workflow_payload = _crm_workflow_response_payload(db, user, opp.id)
         logger.info(
             "Salesforce Opportunity create succeeded bidlens_opp_id=%s source_record_id=%s external_source_key=%s salesforce_opp_id=%s success=true",
             opp.id,
@@ -1016,9 +1070,13 @@ def api_create_opp_in_salesforce(opp_id: int, request: Request, db: Session = De
             "external_source_key": opp.external_source_key,
             "salesforce_opportunity_id": salesforce_opp_id,
             "salesforce_opportunity_url": salesforce_opp_url,
+            "salesforce_linked": True,
+            "salesforce_action": "created",
+            "salesforce_status": "Created in Salesforce",
             "selected_intake_source": selected_intake_source,
             "intake_source_values": intake_source_values,
             "created_payload_summary": _salesforce_payload_summary(payload),
+            **workflow_payload,
         }
     except HTTPException:
         raise

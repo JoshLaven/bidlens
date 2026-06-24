@@ -25,6 +25,9 @@
 {% set pursuit_lanes = opp.pursuit_lanes or [] %}
 {% set crm_pushed = opp.crm_pushed %}
 {% set crm_pushed_by_current_user = opp.crm_pushed_by_current_user %}
+{% set salesforce_url = opp.salesforce_opportunity_url %}
+{% set has_salesforce_linkage = opp.salesforce_opportunity_id or opp.salesforce_opportunity_url %}
+{% set salesforce_status = 'Created in Salesforce' if opp.salesforce_action == 'created' else 'Pushed to Salesforce' if opp.salesforce_action == 'pushed' else '' %}
 {% set preview_text = opp.preview_description or '' %}
 {% set preview_has_sam_fallback = opp.preview_has_sam_fallback %}
 {% set source_value = opp.source or '' %}
@@ -80,6 +83,16 @@
       {% if crm_pushed and opp.crm_pushed_by_label %}
         <div class="opp-card-crm-attribution">Pushed to CRM by {{ opp.crm_pushed_by_label }}</div>
       {% endif %}
+      <div class="opp-card-crm-link-row" data-salesforce-link-container {% if not has_salesforce_linkage %}hidden{% endif %}>
+        <span class="opp-card-crm-status" data-salesforce-status>{{ salesforce_status }}</span>
+        {% if salesforce_url %}
+          <a href="{{ salesforce_url }}" target="_blank" rel="noreferrer" class="opp-card-crm-link" data-salesforce-link>
+            Open in Salesforce
+          </a>
+        {% else %}
+          <a href="#" target="_blank" rel="noreferrer" class="opp-card-crm-link" data-salesforce-link hidden></a>
+        {% endif %}
+      </div>
       {% if pursuit_lanes %}
         <div class="opp-card-lane-group" aria-label="Matched pursuit lanes">
           <div class="opp-card-lane-label">Matched Lanes</div>
@@ -139,14 +152,14 @@
     </div>
     {% elif view != 'archive' %}
     <div class="opp-card-actions">
-      {% if not crm_pushed %}
+      {% if not has_salesforce_linkage and not crm_pushed %}
         <button type="button"
                 class="btn btn-sm opp-card-button opp-card-button--primary btn-primary"
                 data-push-crm-button
                 onclick="pushOpportunityToCrm('{{ opp.id }}')">
           Push to CRM
         </button>
-      {% elif crm_pushed_by_current_user %}
+      {% elif not has_salesforce_linkage and crm_pushed_by_current_user %}
         <button type="button"
                 class="btn btn-sm opp-card-button opp-card-button--primary btn-success"
                 data-push-crm-button
@@ -154,12 +167,14 @@
           &#10003; Pushed to CRM
         </button>
       {% endif %}
-      <button type="button"
-              class="btn btn-sm opp-card-button opp-card-button--secondary btn-outline-secondary"
-              data-create-crm-button
-              onclick="createOpportunityInCrm('{{ opp.id }}')">
-        Create in CRM
-      </button>
+      {% if not has_salesforce_linkage %}
+        <button type="button"
+                class="btn btn-sm opp-card-button opp-card-button--secondary btn-outline-secondary"
+                data-create-crm-button
+                onclick="createOpportunityInCrm('{{ opp.id }}')">
+          Create in CRM
+        </button>
+      {% endif %}
       <button type="button"
               class="btn btn-sm opp-card-button opp-card-button--primary {{ 'btn-success' if opp.user_vote == 'PURSUE' else 'btn-primary' }}"
               data-vote-button="PURSUE"

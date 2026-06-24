@@ -1,28 +1,14 @@
 {% extends "base.html" %}
 {% from "_opp_card.html" import opp_card %}
+{% from "_date_filter_controls.html" import date_filter_controls %}
 {% block title %}Feed - BidLens{% endblock %}
 {% block content %}
-{% set date_filter_label = 'All Dates' %}
-{% set date_basis_label = 'Ingested' %}
-{% if date_basis == 'deadline' %}
-  {% set date_basis_label = 'Deadline' %}
-{% elif date_basis == 'posted' %}
-  {% set date_basis_label = 'Posted' %}
-{% endif %}
-{% if date_filter == 'today' %}
-  {% set date_filter_label = 'Today' %}
-{% elif date_filter == '7d' %}
-  {% set date_filter_label = 'Last 7 Days' %}
-{% elif date_filter == '30d' %}
-  {% set date_filter_label = 'Last 30 Days' %}
-{% elif date_filter == 'custom' %}
-  {% set date_filter_label = 'Custom Range' %}
-{% endif %}
 {% set lane_param = '&lane_id=' ~ lane_id if lane_id else '' %}
 {% set q_param = '&q=' ~ (q|urlencode) if q else '' %}
 {% set org_id_param = request.query_params.get('org_id') %}
 {% set org_param = '&org_id=' ~ org_id_param if org_id_param else '' %}
-{% set export_url = '/opportunities/export.csv?view=feed&tab=' ~ current_tab ~ '&sort=' ~ sort ~ '&date_filter=' ~ date_filter ~ '&date_from=' ~ date_from ~ '&date_to=' ~ date_to ~ '&show_passed=' ~ show_passed ~ '&show_past_due=' ~ show_past_due ~ lane_param ~ q_param ~ org_param %}
+{% set feed_filter_params = '&tab=' ~ current_tab ~ '&sort=newest&show_passed=' ~ show_passed ~ '&show_past_due=' ~ show_past_due ~ lane_param ~ q_param ~ org_param %}
+{% set export_url = '/opportunities/export.csv?view=feed&tab=' ~ current_tab ~ '&sort=' ~ sort ~ '&date_type=' ~ date_type ~ '&date_filter=' ~ date_filter ~ '&date_from=' ~ date_from ~ '&date_to=' ~ date_to ~ '&show_passed=' ~ show_passed ~ '&show_past_due=' ~ show_past_due ~ lane_param ~ q_param ~ org_param %}
 <div class="page-header">
   <h1>The Feed</h1>
   <p class="page-subtitle">Process new opportunities as work items, move the right ones forward, and keep the inbox current.</p>
@@ -36,8 +22,8 @@
 </div>
 
 <div class="tabs">
-  <a href="/?tab=solicitations&sort={{ sort }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}{{ lane_param }}{{ q_param }}{{ org_param }}" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
-  <a href="/?tab=rfi&sort={{ sort }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}{{ lane_param }}{{ q_param }}{{ org_param }}" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
+  <a href="/?tab=solicitations&sort={{ sort }}&date_type={{ date_type }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}{{ lane_param }}{{ q_param }}{{ org_param }}" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
+  <a href="/?tab=rfi&sort={{ sort }}&date_type={{ date_type }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}{{ lane_param }}{{ q_param }}{{ org_param }}" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
 </div>
 
 <div class="feed-toolbar">
@@ -46,6 +32,7 @@
       <form method="GET" action="/" class="feed-search-form" role="search">
         <input type="hidden" name="tab" value="{{ current_tab }}">
         <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="date_type" value="{{ date_type }}">
         <input type="hidden" name="date_filter" value="{{ date_filter }}">
         <input type="hidden" name="date_from" value="{{ date_from }}">
         <input type="hidden" name="date_to" value="{{ date_to }}">
@@ -61,88 +48,20 @@
         <input id="feed-search-input" class="feed-search-input" type="search" name="q" value="{{ q }}" placeholder="Search opportunities…">
         <button type="submit" class="btn btn-sm btn-primary">Search</button>
         {% if q %}
-          <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}{{ lane_param }}{{ org_param }}" class="btn btn-sm btn-outline-secondary">Clear</a>
+          <a href="/?tab={{ current_tab }}&date_type={{ date_type }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}{{ lane_param }}{{ org_param }}" class="btn btn-sm btn-outline-secondary">Clear</a>
           <span class="feed-search-count">{{ result_count }} result{{ '' if result_count == 1 else 's' }}</span>
         {% endif %}
       </form>
-      <div class="feed-toolbar-group feed-toolbar-group--sort">
-        <span class="feed-toolbar-label">Sort</span>
-        <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=newest&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}{{ lane_param }}{{ q_param }}{{ org_param }}" class="btn btn-sm {{ 'btn-primary' if sort == 'newest' else 'btn-outline-secondary' }}">Newest</a>
-        <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=deadline&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}{{ lane_param }}{{ q_param }}{{ org_param }}" class="btn btn-sm {{ 'btn-primary' if sort == 'deadline' else 'btn-outline-secondary' }}">Deadline</a>
-        <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort=posted&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}{{ lane_param }}{{ q_param }}{{ org_param }}" class="btn btn-sm {{ 'btn-primary' if sort == 'posted' else 'btn-outline-secondary' }}">Posted</a>
-      </div>
+      {{ date_filter_controls('/', date_type, date_filter, feed_filter_params) }}
       {% if active_lanes %}
         <div class="feed-toolbar-group feed-toolbar-group--lanes" aria-label="Pursuit lane filter">
           <span class="feed-toolbar-label">Lane</span>
-          <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}{{ q_param }}{{ org_param }}" class="btn btn-sm {{ 'btn-primary' if not lane_id else 'btn-outline-secondary' }}">All</a>
+          <a href="/?tab={{ current_tab }}&date_type={{ date_type }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}{{ q_param }}{{ org_param }}" class="btn btn-sm {{ 'btn-primary' if not lane_id else 'btn-outline-secondary' }}">All</a>
           {% for lane in active_lanes %}
-            <a href="/?tab={{ current_tab }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}&lane_id={{ lane.id }}{{ q_param }}{{ org_param }}" class="btn btn-sm {{ 'btn-primary' if lane_id == lane.id else 'btn-outline-secondary' }}">{{ lane.name }}</a>
+            <a href="/?tab={{ current_tab }}&date_type={{ date_type }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}&lane_id={{ lane.id }}{{ q_param }}{{ org_param }}" class="btn btn-sm {{ 'btn-primary' if lane_id == lane.id else 'btn-outline-secondary' }}">{{ lane.name }}</a>
           {% endfor %}
         </div>
       {% endif %}
-      <div class="feed-toolbar-group">
-        <div class="filter-popover">
-        <button
-          type="button"
-          class="btn btn-sm btn-outline-secondary filter-trigger"
-          onclick="toggleDateFilterPanel()"
-          aria-expanded="false"
-          aria-controls="dateFilterPanel"
-        >
-          {{ date_basis_label }}: {{ date_filter_label }}
-        </button>
-        <div id="dateFilterPanel" class="filter-panel" hidden>
-          <form method="GET" action="/" class="date-filter-form">
-            <input type="hidden" name="tab" value="{{ current_tab }}">
-            <input type="hidden" name="sort" value="{{ sort }}">
-            <input type="hidden" name="q" value="{{ q }}">
-            <input type="hidden" name="show_passed" value="{{ show_passed }}">
-            <input type="hidden" name="show_past_due" value="{{ show_past_due }}">
-            {% if lane_id %}
-              <input type="hidden" name="lane_id" value="{{ lane_id }}">
-            {% endif %}
-            {% if org_id_param %}
-              <input type="hidden" name="org_id" value="{{ org_id_param }}">
-            {% endif %}
-            <div class="filter-panel-label">Using {{ date_basis_label|lower }} date</div>
-
-            <label class="filter-option">
-              <input type="radio" name="date_filter" value="" {{ 'checked' if not date_filter else '' }}>
-              <span>All</span>
-            </label>
-            <label class="filter-option">
-              <input type="radio" name="date_filter" value="today" {{ 'checked' if date_filter == 'today' else '' }}>
-              <span>Today</span>
-            </label>
-            <label class="filter-option">
-              <input type="radio" name="date_filter" value="7d" {{ 'checked' if date_filter == '7d' else '' }}>
-              <span>Last 7 Days</span>
-            </label>
-            <label class="filter-option">
-              <input type="radio" name="date_filter" value="30d" {{ 'checked' if date_filter == '30d' else '' }}>
-              <span>Last 30 Days</span>
-            </label>
-            <label class="filter-option">
-              <input type="radio" name="date_filter" value="custom" {{ 'checked' if date_filter == 'custom' else '' }}>
-              <span>Custom Range</span>
-            </label>
-
-            <div class="filter-date-grid">
-              <label>
-                <span>Start Date</span>
-                <input type="date" name="date_from" value="{{ date_from }}">
-              </label>
-              <label>
-                <span>End Date</span>
-                <input type="date" name="date_to" value="{{ date_to }}">
-              </label>
-            </div>
-
-            <button type="submit" class="btn btn-sm btn-primary">Apply</button>
-          </form>
-        </div>
-      </div>
-      </div>
     </div>
   </div>
 
@@ -158,15 +77,12 @@
   </div>
 </div>
 
+{% if not triage_enabled and user.current_role == 'admin' %}
+  {% include "_source_controls.html" %}
+{% endif %}
 <div class="feed-toolbar-actions">
-  <div class="feed-admin-action">
-    <span class="feed-toolbar-label">Admin Test</span>
-    <button type="button" id="feed-sam-pull-button" class="btn btn-sm btn-outline-secondary">Pull SAM Opps</button>
-    <button type="button" id="feed-grants-pull-button" class="btn btn-sm btn-outline-secondary">Pull Grants.gov Opps</button>
-  </div>
   <a href="{{ export_url }}" class="btn btn-sm btn-outline-secondary">Export CSV</a>
 </div>
-<div id="feed-sam-pull-result" class="feed-sam-pull-result" hidden></div>
 
 <div id="opportunity-list" data-list-view="feed">
 {% if opportunities %}
@@ -182,25 +98,6 @@
 {% endblock %}
 {% block scripts %}
 <script>
-function toggleDateFilterPanel() {
-  const panel = document.getElementById('dateFilterPanel');
-  const trigger = document.querySelector('.filter-trigger');
-  const willOpen = panel.hasAttribute('hidden');
-  panel.toggleAttribute('hidden');
-  trigger?.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-}
-
-document.addEventListener('click', (event) => {
-  const panel = document.getElementById('dateFilterPanel');
-  const popover = document.querySelector('.filter-popover');
-  const trigger = document.querySelector('.filter-trigger');
-  if (!panel || panel.hasAttribute('hidden')) return;
-  if (popover && !popover.contains(event.target)) {
-    panel.setAttribute('hidden', '');
-    trigger?.setAttribute('aria-expanded', 'false');
-  }
-});
-
 function toggleQueryParam(name, enabled) {
   const url = new URL(window.location);
   if (enabled) {
@@ -211,137 +108,5 @@ function toggleQueryParam(name, enabled) {
   window.location = url.toString();
 }
 
-function renderFeedPullResult(payload, type, fallbackMessage = 'Pull completed.') {
-  const container = document.getElementById('feed-sam-pull-result');
-  if (!container) return;
-
-  const failedNaics = Array.isArray(payload.failed_naics) && payload.failed_naics.length
-    ? `<div><strong>Failed NAICS:</strong> ${payload.failed_naics.map(escapeHtml).join(', ')}</div>`
-    : '';
-
-  const retryAfter = payload.retry_after
-    ? `<div><strong>Retry after:</strong> ${escapeHtml(payload.retry_after)}</div>`
-    : '';
-
-  container.hidden = false;
-  container.className = `feed-sam-pull-result alert alert-${type}`;
-  const received = payload.received !== undefined
-    ? `Received ${Number(payload.received || 0)} · `
-    : '';
-  const inserted = payload.inserted !== undefined
-    ? `Inserted ${Number(payload.inserted || 0)} · `
-    : '';
-  const created = payload.created !== undefined
-    ? `Created ${Number(payload.created || 0)} · `
-    : '';
-  container.innerHTML = `
-    <div><strong>${escapeHtml(payload.message || fallbackMessage)}</strong></div>
-    <div style="margin-top:6px;">
-      ${received}
-      ${inserted}
-      ${created}
-      Updated ${Number(payload.updated || 0)} ·
-      Skipped ${Number(payload.skipped || 0)} ·
-      ${payload.filtered !== undefined ? `Filtered ${Number(payload.filtered || 0)} ·` : ''}
-      Errors ${Number(payload.errors || 0)}
-    </div>
-    ${failedNaics}
-    ${retryAfter}
-  `;
-}
-
-async function runFeedSamPull() {
-  const button = document.getElementById('feed-sam-pull-button');
-  const result = document.getElementById('feed-sam-pull-result');
-  if (!button) return;
-
-  button.disabled = true;
-  button.textContent = 'Pulling...';
-  if (result) {
-    result.hidden = true;
-    result.innerHTML = '';
-    result.className = 'feed-sam-pull-result';
-  }
-
-  try {
-    const response = await fetch('/sam/pull-now', {
-      method: 'POST',
-      headers: {'Accept': 'application/json'},
-    });
-    const payload = await response.json().catch(() => ({}));
-
-    if (response.status === 429) {
-      renderFeedPullResult(payload, 'error', 'SAM pull failed.');
-      showToast(payload.message || 'SAM.gov quota exceeded. Try again later.', 'error');
-      return;
-    }
-
-    if (!response.ok) {
-      renderFeedPullResult(payload, 'error', 'SAM pull failed.');
-      showToast(payload.message || 'SAM pull failed.', 'error');
-      return;
-    }
-
-    if (payload.status === 'partial_success') {
-      renderFeedPullResult(payload, 'warning', 'SAM pull partially completed.');
-      showToast(payload.message || 'SAM pull partially completed.', 'error');
-      return;
-    }
-
-    renderFeedPullResult(payload, 'success', 'SAM pull completed.');
-    showToast(payload.message || 'SAM pull completed.', 'success');
-    window.setTimeout(() => window.location.reload(), 900);
-  } catch (error) {
-    const payload = {message: 'Unable to run SAM pull right now.', inserted: 0, updated: 0, skipped: 0, filtered: 0, errors: 1};
-    renderFeedPullResult(payload, 'error', 'SAM pull failed.');
-    showToast(payload.message, 'error');
-  } finally {
-    button.disabled = false;
-    button.textContent = 'Pull SAM Opps';
-  }
-}
-
-document.getElementById('feed-sam-pull-button')?.addEventListener('click', runFeedSamPull);
-
-async function runFeedGrantsPull() {
-  const button = document.getElementById('feed-grants-pull-button');
-  const result = document.getElementById('feed-sam-pull-result');
-  if (!button) return;
-
-  button.disabled = true;
-  button.textContent = 'Pulling...';
-  if (result) {
-    result.hidden = true;
-    result.innerHTML = '';
-    result.className = 'feed-sam-pull-result';
-  }
-
-  try {
-    const response = await fetch('/grants/pull-now', {
-      method: 'POST',
-      headers: {'Accept': 'application/json'},
-    });
-    const payload = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      renderFeedPullResult(payload, 'error', 'Grants.gov pull failed.');
-      showToast(payload.message || 'Grants.gov pull failed.', 'error');
-      return;
-    }
-
-    renderFeedPullResult(payload, payload.errors ? 'warning' : 'success', 'Grants.gov pull completed.');
-    showToast(payload.message || 'Grants.gov pull completed.', payload.errors ? 'error' : 'success');
-    window.setTimeout(() => window.location.reload(), 900);
-  } catch (error) {
-    const payload = {message: 'Unable to run Grants.gov pull right now.', received: 0, created: 0, updated: 0, skipped: 0, errors: 1};
-    renderFeedPullResult(payload, 'error', 'Grants.gov pull failed.');
-    showToast(payload.message, 'error');
-  } finally {
-    button.disabled = false;
-    button.textContent = 'Pull Grants.gov Opps';
-  }
-}
-
-document.getElementById('feed-grants-pull-button')?.addEventListener('click', runFeedGrantsPull);
 </script>
 {% endblock %}

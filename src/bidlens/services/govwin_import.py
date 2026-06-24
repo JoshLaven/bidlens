@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 import zipfile
+from collections import Counter
 from io import BytesIO
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Opportunity
 from .account_type_classifier import classify_account_type
+from .qualification import new_opportunity_qualification_status
 from .pursuit_lanes import refresh_opportunity_lane_matches
 
 
@@ -26,6 +28,18 @@ NS = {
 REQUIRED_COLUMNS = ("Title", "GovWin Staging Name", "GovEntity Title")
 DATE_COLUMNS = {"Created Date", "Response Date", "Solicitation Date", "GW Update Date", "Update Date"}
 SAM_OPP_URL_RE = re.compile(r"/opp/([^/?#]+)/", re.IGNORECASE)
+REASON_LABELS = {
+    "new_opportunity": "New opportunity",
+    "existing_govwin_record_changed": "Existing GovWin record changed",
+    "existing_govwin_record": "Existing GovWin record",
+    "cross_source_sam_notice_match_enriched": "Cross-source SAM Notice ID match enriched",
+    "cross_source_sam_notice_match": "Cross-source SAM Notice ID match",
+    "missing_title": "Missing Title",
+    "missing_govwin_staging_name": "Missing GovWin Staging Name",
+    "missing_goventity_title": "Missing GovEntity Title",
+    "missing_usable_date": "Missing usable Response Date, Created Date, or Solicitation Date",
+    "integrity_error": "Duplicate or integrity error",
+}
 
 
 def _cell_ref_to_index(ref: str) -> int:
@@ -215,17 +229,17 @@ def _normalize_row(row: dict[str, Any], row_number: int) -> tuple[dict[str, Any]
     staging_name = _clean(row.get("GovWin Staging Name"))
     agency = _clean(row.get("GovEntity Title"))
     if not title:
-        return None, "missing Title"
+        return None, "missing_title"
     if not staging_name:
-        return None, "missing GovWin Staging Name"
+        return None, "missing_govwin_staging_name"
     if not agency:
-        return None, "missing GovEntity Title"
+        return None, "missing_goventity_title"
 
     response_deadline = _parse_date(row.get("Response Date"))
     created_date = _parse_date(row.get("Created Date"))
     solicitation_date = _parse_date(row.get("Solicitation Date"))
     if not (response_deadline or created_date or solicitation_date):
-        return None, "missing usable Response Date, Created Date, or Solicitation Date"
+        return None, "missing_usable_date"
 
     posted_date = created_date or solicitation_date or response_deadline
     response_deadline = response_deadline or solicitation_date or created_date
@@ -268,7 +282,70 @@ def _normalize_row(row: dict[str, Any], row_number: int) -> tuple[dict[str, Any]
     }, None
 
 
-def upsert_govwin_opportunity(db: Session, organization_id: int, data: dict[str, Any]) -> tuple[str, Opportunity | None]:
+def _apply_govwin_cross_source_metadata(existing: Opportunity, data: dict[str, Any]) -> bool:
+    """Attach safe GovWin metadata to an existing canonical opportunity.
+
+    SAM Notice ID is authoritative for cross-source identity, but source-native
+    fields from the existing opportunity should remain intact.
+    """
+    changed = False
+
+    def set_if_empty(key: str) -> None:
+        nonlocal changed
+        value = data.get(key)
+        if value is not None and not getattr(existing, key):
+            setattr(existing, key, value)
+            changed = True
+
+    for key in ("govwin_staging_id", "solicitation_number", "naics", "naics_title"):
+        set_if_empty(key)
+
+    if existing.account_type_source != "manual":
+        for key in ("account_type", "account_type_confidence", "account_type_source"):
+            value = data.get(key)
+            if value is not None and getattr(existing, key) != value:
+                setattr(existing, key, value)
+                changed = True
+
+    return changed
+
+
+def _cross_source_sam_match_diagnostic(data: dict[str, Any], existing: Opportunity) -> dict[str, Any]:
+    sam_notice_id = data.get("sam_notice_id")
+    return {
+        "opportunity_id": existing.id,
+        "source_record_id": data.get("source_record_id"),
+        "matched_opportunity_id": existing.id,
+        "matched_source": existing.source,
+        "matched_source_record_id": existing.source_record_id,
+        "matched_sam_notice_id": existing.sam_notice_id,
+        "matched_solicitation_number": existing.solicitation_number,
+        "reasons": [
+            f"same authoritative SAM Notice ID {sam_notice_id}",
+            "GovWin duplicate not created",
+        ],
+    }
+
+
+def _find_existing_by_sam_notice_id(db: Session, organization_id: int, sam_notice_id: str | None) -> Opportunity | None:
+    if not sam_notice_id:
+        return None
+    return (
+        db.query(Opportunity)
+        .filter(
+            Opportunity.organization_id == organization_id,
+            Opportunity.sam_notice_id == sam_notice_id,
+        )
+        .order_by((Opportunity.source == "sam").desc(), Opportunity.id.asc())
+        .first()
+    )
+
+
+def upsert_govwin_opportunity(
+    db: Session,
+    organization_id: int,
+    data: dict[str, Any],
+) -> tuple[str, Opportunity | None, dict[str, Any] | None, str]:
     existing = (
         db.query(Opportunity)
         .filter(
@@ -280,15 +357,34 @@ def upsert_govwin_opportunity(db: Session, organization_id: int, data: dict[str,
     )
 
     if existing is None:
+        existing_by_sam_notice = _find_existing_by_sam_notice_id(
+            db,
+            organization_id,
+            data.get("sam_notice_id"),
+        )
+        if existing_by_sam_notice is not None:
+            changed = _apply_govwin_cross_source_metadata(existing_by_sam_notice, data)
+            if changed:
+                existing_by_sam_notice.upserted_at = dt.datetime.utcnow()
+                refresh_opportunity_lane_matches(db, organization_id, existing_by_sam_notice)
+            diagnostic = _cross_source_sam_match_diagnostic(data, existing_by_sam_notice)
+            reason = "cross_source_sam_notice_match_enriched" if changed else "cross_source_sam_notice_match"
+            return ("updated" if changed else "unchanged"), existing_by_sam_notice, diagnostic, reason
+
         try:
             with db.begin_nested():
-                opportunity = Opportunity(organization_id=organization_id, **data, upserted_at=dt.datetime.utcnow())
+                opportunity = Opportunity(
+                    organization_id=organization_id,
+                    **data,
+                    qualification_status=new_opportunity_qualification_status(db, organization_id),
+                    upserted_at=dt.datetime.utcnow(),
+                )
                 db.add(opportunity)
                 db.flush()
                 refresh_opportunity_lane_matches(db, organization_id, opportunity)
-            return "created", opportunity
+            return "created", opportunity, None, "new_opportunity"
         except IntegrityError:
-            return "skipped", None
+            return "skipped", None, None, "integrity_error"
 
     changed = False
     for key, value in data.items():
@@ -306,8 +402,8 @@ def upsert_govwin_opportunity(db: Session, organization_id: int, data: dict[str,
     if changed:
         existing.upserted_at = dt.datetime.utcnow()
         refresh_opportunity_lane_matches(db, organization_id, existing)
-        return "updated", existing
-    return "unchanged", existing
+        return "updated", existing, None, "existing_govwin_record_changed"
+    return "unchanged", existing, None, "existing_govwin_record"
 
 
 def find_cross_source_duplicate_diagnostics(
@@ -371,6 +467,7 @@ def find_cross_source_duplicate_diagnostics(
 
 def import_govwin_xlsx(db: Session, organization_id: int, file_bytes: bytes) -> dict[str, Any]:
     rows = parse_xlsx_rows(file_bytes)
+    reason_counts: Counter[str] = Counter()
     result = {
         "processed": len(rows),
         "created": 0,
@@ -379,14 +476,22 @@ def import_govwin_xlsx(db: Session, organization_id: int, file_bytes: bytes) -> 
         "skipped": 0,
         "skipped_reasons": [],
         "duplicate_diagnostics": [],
+        "reason_counts": {},
+        "reason_labels": REASON_LABELS,
     }
     for index, row in enumerate(rows, start=2):
         normalized, reason = _normalize_row(row, index)
         if reason:
+            reason_counts[reason] += 1
             result["skipped"] += 1
-            result["skipped_reasons"].append({"row": index, "reason": reason})
+            result["skipped_reasons"].append({
+                "row": index,
+                "reason": REASON_LABELS.get(reason, reason),
+                "reason_code": reason,
+            })
             continue
-        status, opportunity = upsert_govwin_opportunity(db, organization_id, normalized)
+        status, opportunity, sam_match_diagnostic, reason_code = upsert_govwin_opportunity(db, organization_id, normalized)
+        reason_counts[reason_code] += 1
         if status == "created":
             result["created"] += 1
         elif status == "updated":
@@ -395,9 +500,17 @@ def import_govwin_xlsx(db: Session, organization_id: int, file_bytes: bytes) -> 
             result["unchanged"] += 1
         else:
             result["skipped"] += 1
-            result["skipped_reasons"].append({"row": index, "reason": "duplicate or integrity error"})
+            result["skipped_reasons"].append({
+                "row": index,
+                "reason": REASON_LABELS.get(reason_code, "Duplicate or integrity error"),
+                "reason_code": reason_code,
+            })
+        if sam_match_diagnostic is not None:
+            sam_match_diagnostic["row"] = index
+            result["duplicate_diagnostics"].append(sam_match_diagnostic)
         if opportunity is not None:
             for diagnostic in find_cross_source_duplicate_diagnostics(db, organization_id, opportunity):
                 diagnostic["row"] = index
                 result["duplicate_diagnostics"].append(diagnostic)
+    result["reason_counts"] = dict(reason_counts)
     return result

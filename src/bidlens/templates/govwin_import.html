@@ -3,6 +3,13 @@
 {% block content %}
 <h1>Import GovWin Export</h1>
 <p class="muted">Upload a GovWin .xlsx export to create or update opportunities in this workspace.</p>
+{% if user.current_role == 'admin' %}
+  <div class="feed-toolbar feed-toolbar--compact" style="margin-top:12px;">
+    <div class="feed-toolbar-actions">
+      <a href="/imports/history{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary">View Source Activity</a>
+    </div>
+  </div>
+{% endif %}
 
 {% if error %}
   <div class="alert alert-error">{{ error }}</div>
@@ -24,7 +31,10 @@
     <div class="card-header">
       <div>
         <h2 style="margin-bottom:4px;">Import Result</h2>
-        <p class="muted" style="margin:0;">No briefs, CRM pushes, or automations were triggered.</p>
+        <p class="muted" style="margin:0;">
+          No briefs, CRM pushes, or automations were triggered.
+          {% if result.run_id %}Import run #{{ result.run_id }} was recorded.{% endif %}
+        </p>
       </div>
     </div>
 
@@ -50,6 +60,30 @@
         <strong>{{ result.skipped }}</strong>
       </div>
     </div>
+
+    {% if result.reason_counts %}
+      <div style="margin-top:16px;">
+        <h3 style="margin-bottom:8px;">Outcome Reasons</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Reason</th>
+                <th>Count</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for reason_code, count in result.reason_counts|dictsort %}
+                <tr>
+                  <td>{{ result.reason_labels.get(reason_code, reason_code) }}</td>
+                  <td>{{ count }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endif %}
 
     {% if result.skipped_reasons %}
       <div style="margin-top:16px;">
@@ -80,8 +114,8 @@
 
     {% if result.duplicate_diagnostics %}
       <div style="margin-top:16px;">
-        <h3 style="margin-bottom:8px;">Possible Cross-Source Matches</h3>
-        <p class="muted" style="margin-top:0;">These records were not merged. BidLens is only flagging likely matches for review.</p>
+        <h3 style="margin-bottom:8px;">Cross-Source Matches</h3>
+        <p class="muted" style="margin-top:0;">GovWin records with matching SAM Notice IDs are treated as the same opportunity and are not duplicated.</p>
         <div class="table-wrap">
           <table class="data-table">
             <thead>
@@ -105,7 +139,7 @@
           </table>
         </div>
         {% if result.duplicate_diagnostics|length > 25 %}
-          <p class="muted">Showing first 25 possible matches.</p>
+          <p class="muted">Showing first 25 cross-source matches.</p>
         {% endif %}
       </div>
     {% endif %}

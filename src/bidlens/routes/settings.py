@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..auth import get_current_user
-from ..models import OrgProfile
+from ..models import OrgProfile, OrganizationMembership
 from ..tenancy import current_org_id
+from ..services.qualification import triage_enabled_for_org
 
 router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
@@ -16,11 +17,34 @@ def require_user(request: Request, db: Session):
     if not user:
         return None
     setattr(user, "current_organization_id", current_org_id(request, db, user))
+    setattr(user, "current_role", _current_user_role(db, user))
+    setattr(user, "triage_enabled", triage_enabled_for_org(db, _user_org_id(user)))
     return user
 
 
 def _user_org_id(user) -> int:
     return getattr(user, "current_organization_id", None) or user.organization_id
+
+
+def _current_user_role(db: Session, user) -> str:
+    membership = (
+        db.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.organization_id == _user_org_id(user),
+            OrganizationMembership.user_id == user.id,
+        )
+        .first()
+    )
+    return membership.role if membership else "member"
+
+
+def _is_admin(user) -> bool:
+    return getattr(user, "current_role", "member") == "admin"
+
+
+def _settings_redirect_url(request: Request) -> str:
+    query = str(request.url.query or "").strip()
+    return f"/settings?{query}" if query else "/settings"
 
 @router.get("/settings")
 async def settings_page(
@@ -39,6 +63,7 @@ async def settings_page(
         "request": request,
         "user": user,
         "profile": profile,
+        "is_admin": _is_admin(user),
         "active_page": "settings",
     })
 
@@ -54,6 +79,7 @@ async def settings_save(
     digest_max_items: str = Form(None),
     digest_recipients: str = Form(None),
     digest_time_local: str = Form(None),
+    triage_enabled: str = Form(None),
     db: Session = Depends(get_db)
 ):
     user = require_user(request, db)
@@ -84,7 +110,9 @@ async def settings_save(
 
     profile.digest_recipients = digest_recipients.strip() if digest_recipients else None
     profile.digest_time_local = digest_time_local.strip() if digest_time_local else None
+    if _is_admin(user):
+        profile.triage_enabled = triage_enabled == "1"
 
     db.commit()
 
-    return RedirectResponse(url="/settings", status_code=303)
+    return RedirectResponse(url=_settings_redirect_url(request), status_code=303)

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Source Activity - BidLens{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Source Activity</h1>
+  <p class="page-subtitle">Recent source import runs for this workspace.</p>
+</div>
+
+<div class="feed-toolbar feed-toolbar--compact">
+  <div class="feed-toolbar-actions">
+    <a href="/imports/govwin{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary">Back to GovWin Import</a>
+  </div>
+</div>
+
+{% if runs %}
+  <section class="card" style="margin-top:20px;">
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Source</th>
+            <th>Filename / Run Type</th>
+            <th>User</th>
+            <th>Processed</th>
+            <th>Created</th>
+            <th>Updated</th>
+            <th>Unchanged</th>
+            <th>Skipped</th>
+            <th>Errors</th>
+            <th>Reason Summary</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in runs %}
+            {% set run = item.run %}
+            <tr>
+              <td>{{ (run.finished_at or run.started_at).strftime("%b %d, %Y %I:%M %p") if (run.finished_at or run.started_at) else "—" }}</td>
+              <td>{{ run.source }}</td>
+              <td>{{ run.filename or "—" }}</td>
+              <td>{{ item.user_email or "—" }}</td>
+              <td>{{ run.processed_count or 0 }}</td>
+              <td>{{ run.created_count or 0 }}</td>
+              <td>{{ run.updated_count or 0 }}</td>
+              <td>{{ run.unchanged_count or 0 }}</td>
+              <td>{{ run.skipped_count or 0 }}</td>
+              <td>{{ run.error_count or 0 }}</td>
+              <td>
+                {% if item.reason_summary_items %}
+                  {% for reason in item.reason_summary_items %}
+                    <div>{{ reason.label }}: {{ reason.count }}</div>
+                  {% endfor %}
+                {% elif run.notes %}
+                  <span class="muted">{{ run.notes }}</span>
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted" style="margin-top:12px;">Showing the 50 most recent source activity runs.</p>
+  </section>
+{% else %}
+  <div class="empty-state">
+    <h2>No source activity yet</h2>
+    <p>GovWin imports, SAM.gov pulls, and Grants.gov pulls will appear here after an admin runs them.</p>
+  </div>
+{% endif %}
+{% endblock %}

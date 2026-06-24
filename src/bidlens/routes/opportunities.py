@@ -32,6 +32,7 @@ from ..models import OpportunityBrief
 from ..tenancy import current_org_id
 from ..grants_gov_client import GrantsGovApiError
 from ..ingest_grants_gov import enrich_grants_gov_opportunity_detail
+from ..services.qualification import triage_enabled_for_org
 router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
 logger = logging.getLogger(__name__)
@@ -46,6 +47,10 @@ QUALIFICATION_STATUSES = {
     QUALIFICATION_QUALIFIED,
     QUALIFICATION_REJECTED,
 }
+DATE_TYPE_IMPORTED = "imported"
+DATE_TYPE_DUE = "due"
+DATE_TYPE_POSTED = "posted"
+DATE_TYPES = {DATE_TYPE_IMPORTED, DATE_TYPE_DUE, DATE_TYPE_POSTED}
 BRIEF_SECTION_DEFS = [
     ("executive_summary", "Executive Summary"),
     ("key_dates", "Key Dates"),
@@ -164,6 +169,7 @@ def require_user(request: Request, db: Session):
         return None
     setattr(user, "current_organization_id", current_org_id(request, db, user))
     setattr(user, "current_role", _current_user_role(db, user))
+    setattr(user, "triage_enabled", triage_enabled_for_org(db, _user_org_id(user)))
     return user
 
 
@@ -253,6 +259,7 @@ def _export_view_query(
     view: str,
     tab: str,
     sort: str = "newest",
+    date_type: str = DATE_TYPE_IMPORTED,
     date_filter: str = "",
     date_from: str = "",
     date_to: str = "",
@@ -275,29 +282,18 @@ def _export_view_query(
         q = _apply_feed_search(q, search_term=search)
         q = _apply_past_due_filter(q, show_past_due=show_past_due)
 
-        date_field = Opportunity.upserted_at
-        if sort == "deadline":
-            date_field = Opportunity.response_deadline
-        elif sort == "posted":
-            date_field = Opportunity.posted_date
-
-        today = date.today()
-        if date_filter == "today":
-            q = q.filter(func.date(date_field) >= today)
-        elif date_filter == "7d":
-            q = q.filter(func.date(date_field) >= today - timedelta(days=7))
-        elif date_filter == "30d":
-            q = q.filter(func.date(date_field) >= today - timedelta(days=30))
-        elif date_filter == "custom" and date_from:
+        date_type = _normalize_date_type(date_type, sort=sort)
+        q = _apply_date_window_filter(q, date_type=date_type, date_filter=date_filter)
+        if date_filter == "custom" and date_from:
             try:
                 d_from = date.fromisoformat(date_from)
-                q = q.filter(func.date(date_field) >= d_from)
+                q = q.filter(func.date(_date_field_for_type(date_type)) >= d_from)
             except ValueError:
                 pass
             if date_to:
                 try:
                     d_to = date.fromisoformat(date_to)
-                    q = q.filter(func.date(date_field) <= d_to)
+                    q = q.filter(func.date(_date_field_for_type(date_type)) <= d_to)
                 except ValueError:
                     pass
 
@@ -313,7 +309,14 @@ def _vote_export_maps(db: Session, org_id: int, opp_ids: list[int]) -> tuple[dic
     return counts, interest_users, pass_users
 
 
-def _sort_export_opportunities(db: Session, opportunities: list[Opportunity], *, view: str, sort: str) -> list[Opportunity]:
+def _sort_export_opportunities(
+    db: Session,
+    opportunities: list[Opportunity],
+    *,
+    view: str,
+    sort: str,
+    date_type: str = DATE_TYPE_IMPORTED,
+) -> list[Opportunity]:
     if not opportunities:
         return opportunities
 
@@ -329,9 +332,10 @@ def _sort_export_opportunities(db: Session, opportunities: list[Opportunity], *,
         else:
             opportunities.sort(key=lambda opp: (opp.response_deadline or date.max, opp.id))
     elif view == "feed":
-        if sort == "deadline":
+        date_type = _normalize_date_type(date_type, sort=sort)
+        if date_type == DATE_TYPE_DUE:
             opportunities.sort(key=lambda opp: (opp.response_deadline or date.max, opp.id))
-        elif sort == "posted":
+        elif date_type == DATE_TYPE_POSTED:
             opportunities.sort(key=lambda opp: (opp.posted_date or date.min, opp.id), reverse=True)
         else:
             opportunities.sort(key=lambda opp: (opp.upserted_at or datetime.min, opp.id), reverse=True)
@@ -863,6 +867,49 @@ def _apply_feed_search(query, *, search_term: str = ""):
     )
 
 
+def _normalize_date_type(date_type: str = "", *, sort: str = "") -> str:
+    if date_type in DATE_TYPES:
+        return date_type
+    if sort == "deadline":
+        return DATE_TYPE_DUE
+    if sort == "posted":
+        return DATE_TYPE_POSTED
+    return DATE_TYPE_IMPORTED
+
+
+def _date_field_for_type(date_type: str):
+    date_type = _normalize_date_type(date_type)
+    if date_type == DATE_TYPE_DUE:
+        return Opportunity.response_deadline
+    if date_type == DATE_TYPE_POSTED:
+        return Opportunity.posted_date
+    return Opportunity.upserted_at
+
+
+def _apply_date_window_filter(query, *, date_type: str = DATE_TYPE_IMPORTED, date_filter: str = ""):
+    today = date.today()
+    date_field = _date_field_for_type(date_type)
+    if date_filter == "today":
+        return query.filter(func.date(date_field) == today)
+    if date_filter == "7d":
+        if _normalize_date_type(date_type) == DATE_TYPE_DUE:
+            return query.filter(func.date(date_field) >= today, func.date(date_field) <= today + timedelta(days=7))
+        return query.filter(func.date(date_field) >= today - timedelta(days=7))
+    if date_filter == "30d":
+        if _normalize_date_type(date_type) == DATE_TYPE_DUE:
+            return query.filter(func.date(date_field) >= today, func.date(date_field) <= today + timedelta(days=30))
+        return query.filter(func.date(date_field) >= today - timedelta(days=30))
+    return query
+
+
+def _apply_date_ordering(query, *, date_type: str = DATE_TYPE_IMPORTED):
+    date_type = _normalize_date_type(date_type)
+    date_field = _date_field_for_type(date_type)
+    if date_type == DATE_TYPE_DUE:
+        return query.order_by(date_field.asc(), Opportunity.id.desc())
+    return query.order_by(date_field.desc(), Opportunity.id.desc())
+
+
 def _queue_counts(db: Session, user, tab: str) -> dict[str, int]:
     org_id = _user_org_id(user)
     base = (
@@ -955,6 +1002,7 @@ async def feed(
     request: Request,
     tab: str = "solicitations",
     sort: str = "newest",
+    date_type: str = "",
     date_filter: str = "",
     date_from: str = "",
     date_to: str = "",
@@ -969,46 +1017,28 @@ async def feed(
         return RedirectResponse(url="/login", status_code=303)
 
     search_query = q
+    selected_date_type = _normalize_date_type(date_type, sort=sort)
     query = _feed_query(db, user, tab, show_passed=show_passed)
     query = apply_org_filters(query, db, user)
     query = _apply_lane_filter(query, db, user, lane_id=lane_id)
     query = _apply_feed_search(query, search_term=search_query)
     query = _apply_past_due_filter(query, show_past_due=show_past_due)
 
-    date_field = Opportunity.upserted_at
-    if sort == "deadline":
-        date_field = Opportunity.response_deadline
-    elif sort == "posted":
-        date_field = Opportunity.posted_date
-
-    # Date filtering on the currently selected date basis
-    today = date.today()
-    if date_filter == "today":
-        query = query.filter(func.date(date_field) >= today)
-    elif date_filter == "7d":
-        query = query.filter(func.date(date_field) >= today - timedelta(days=7))
-    elif date_filter == "30d":
-        query = query.filter(func.date(date_field) >= today - timedelta(days=30))
-    elif date_filter == "custom" and date_from:
+    query = _apply_date_window_filter(query, date_type=selected_date_type, date_filter=date_filter)
+    if date_filter == "custom" and date_from:
         try:
             d_from = date.fromisoformat(date_from)
-            query = query.filter(func.date(date_field) >= d_from)
+            query = query.filter(func.date(_date_field_for_type(selected_date_type)) >= d_from)
         except ValueError:
             pass
         if date_to:
             try:
                 d_to = date.fromisoformat(date_to)
-                query = query.filter(func.date(date_field) <= d_to)
+                query = query.filter(func.date(_date_field_for_type(selected_date_type)) <= d_to)
             except ValueError:
                 pass
 
-    # Sort
-    if sort == "deadline":
-        query = query.order_by(Opportunity.response_deadline.asc())
-    elif sort == "posted":
-        query = query.order_by(Opportunity.posted_date.desc())
-    else:  # "newest" — default
-        query = query.order_by(Opportunity.upserted_at.desc())
+    query = _apply_date_ordering(query, date_type=selected_date_type)
 
     result_count = query.count()
     rows = query.limit(50).all()
@@ -1021,10 +1051,10 @@ async def feed(
         "active_page": "feed",
         "sidebar": get_sidebar(db, user),
         "sort": sort,
+        "date_type": selected_date_type,
         "date_filter": date_filter,
         "date_from": date_from,
         "date_to": date_to,
-        "date_basis": sort,
         "show_passed": show_passed,
         "show_past_due": show_past_due,
         "lane_id": lane_id,
@@ -1032,6 +1062,7 @@ async def feed(
         "result_count": result_count,
         "active_lanes": _active_lanes(db, user),
         "queue_counts": _queue_counts(db, user, tab),
+        "triage_enabled": user.triage_enabled,
         "now": datetime.utcnow(),
     })
 
@@ -1039,6 +1070,9 @@ async def feed(
 @router.get("/triage")
 async def triage_queue(
     request: Request,
+    date_type: str = "",
+    sort: str = "newest",
+    date_filter: str = "",
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -1061,10 +1095,11 @@ async def triage_queue(
         .filter(Opportunity.decision_state != "ARCHIVED")
         .filter(Opportunity.qualification_status == QUALIFICATION_UNREVIEWED)
     )
+    selected_date_type = _normalize_date_type(date_type, sort=sort)
+    query = _apply_date_window_filter(query, date_type=selected_date_type, date_filter=date_filter)
 
     rows = (
-        query
-        .order_by(Opportunity.upserted_at.desc(), Opportunity.id.desc())
+        _apply_date_ordering(query, date_type=selected_date_type)
         .limit(100)
         .all()
     )
@@ -1076,6 +1111,9 @@ async def triage_queue(
         "active_page": "triage",
         "sidebar": get_sidebar(db, user),
         "triage_counts": _triage_counts(db, user),
+        "triage_enabled": user.triage_enabled,
+        "date_type": selected_date_type,
+        "date_filter": date_filter,
         "now": datetime.utcnow(),
     })
 
@@ -1192,6 +1230,7 @@ async def export_opportunities_csv(
     view: str = "feed",
     tab: str = "solicitations",
     sort: str = "newest",
+    date_type: str = "",
     date_filter: str = "",
     date_from: str = "",
     date_to: str = "",
@@ -1211,6 +1250,7 @@ async def export_opportunities_csv(
         view=view,
         tab=tab,
         sort=sort,
+        date_type=date_type,
         date_filter=date_filter,
         date_from=date_from,
         date_to=date_to,
@@ -1222,7 +1262,7 @@ async def export_opportunities_csv(
 
     rows = q.all()
     opportunities = _enrich_opps(rows, db, user)
-    opportunities = _sort_export_opportunities(db, opportunities, view=view, sort=sort)
+    opportunities = _sort_export_opportunities(db, opportunities, view=view, sort=sort, date_type=date_type)
     opp_ids = [opp.id for opp in opportunities]
 
     vote_counts, interest_users_map, pass_users_map = _vote_export_maps(db, _user_org_id(user), opp_ids)

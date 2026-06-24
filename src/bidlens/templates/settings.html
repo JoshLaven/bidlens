@@ -4,7 +4,18 @@
 <h1>Settings</h1>
 <p class="muted">These filters control your team’s feed and daily digest.</p>
 
-<form method="POST" action="/settings" class="form">
+<form method="POST" action="/settings{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="form">
+  {% if is_admin %}
+    <div class="form-row">
+      <label>
+        <input type="checkbox" name="triage_enabled" value="1" {% if profile and profile.triage_enabled %}checked{% endif %}>
+        Require triage before Feed
+      </label>
+      <small>When enabled, newly imported opportunities go to Triage first and must be qualified before appearing in the Feed. When disabled, newly imported opportunities appear directly in the Feed.</small>
+    </div>
+
+    <hr />
+  {% endif %}
 
   <div class="form-row">
     <label>Include keywords</label>
@@ -62,99 +73,4 @@
 
   <button type="submit" class="btn btn-primary">Save Settings</button>
 </form>
-
-<hr />
-
-<section class="card" style="margin-top:20px;">
-  <div class="card-header">
-    <div>
-      <h2 style="margin-bottom:4px;">SAM Pull</h2>
-      <p class="muted" style="margin:0;">Run a manual SAM.gov pull using this organization’s configured NAICS filters.</p>
-    </div>
-    <button type="button" id="sam-pull-now-button" class="btn btn-outline-secondary">Pull Now</button>
-  </div>
-  <div id="sam-pull-now-result" hidden style="margin-top:12px;"></div>
-</section>
-
-<script>
-  function renderSamPullResult(payload, type) {
-    const container = document.getElementById('sam-pull-now-result');
-    if (!container) return;
-
-    const failedNaics = Array.isArray(payload.failed_naics) && payload.failed_naics.length
-      ? `<div><strong>Failed NAICS:</strong> ${payload.failed_naics.map(escapeHtml).join(', ')}</div>`
-      : '';
-
-    const retryAfter = payload.retry_after
-      ? `<div><strong>Retry after:</strong> ${escapeHtml(payload.retry_after)}</div>`
-      : '';
-
-    container.hidden = false;
-    container.className = `alert alert-${type}`;
-    container.innerHTML = `
-      <div><strong>${escapeHtml(payload.message || 'SAM pull completed.')}</strong></div>
-      <div style="margin-top:6px;">
-        Inserted ${Number(payload.inserted || 0)} ·
-        Updated ${Number(payload.updated || 0)} ·
-        Skipped ${Number(payload.skipped || 0)} ·
-        Filtered ${Number(payload.filtered || 0)} ·
-        Errors ${Number(payload.errors || 0)}
-      </div>
-      ${failedNaics}
-      ${retryAfter}
-    `;
-  }
-
-  async function runSamPullNow() {
-    const button = document.getElementById('sam-pull-now-button');
-    const result = document.getElementById('sam-pull-now-result');
-    if (!button) return;
-
-    button.disabled = true;
-    button.textContent = 'Pulling...';
-    if (result) {
-      result.hidden = true;
-      result.innerHTML = '';
-      result.className = '';
-    }
-
-    try {
-      const response = await fetch('/sam/pull-now', {
-        method: 'POST',
-        headers: {'Accept': 'application/json'},
-      });
-      const payload = await response.json().catch(() => ({}));
-
-      if (response.status === 429) {
-        renderSamPullResult(payload, 'error');
-        showToast(payload.message || 'SAM.gov quota exceeded. Try again later.', 'error');
-        return;
-      }
-
-      if (!response.ok) {
-        renderSamPullResult(payload, 'error');
-        showToast(payload.message || 'SAM pull failed.', 'error');
-        return;
-      }
-
-      if (payload.status === 'partial_success') {
-        renderSamPullResult(payload, 'warning');
-        showToast(payload.message || 'SAM pull partially completed.', 'error');
-        return;
-      }
-
-      renderSamPullResult(payload, 'success');
-      showToast(payload.message || 'SAM pull completed.', 'success');
-    } catch (error) {
-      const payload = {message: 'Unable to run SAM pull right now.', inserted: 0, updated: 0, skipped: 0, filtered: 0, errors: 1};
-      renderSamPullResult(payload, 'error');
-      showToast(payload.message, 'error');
-    } finally {
-      button.disabled = false;
-      button.textContent = 'Pull Now';
-    }
-  }
-
-  document.getElementById('sam-pull-now-button')?.addEventListener('click', runSamPullNow);
-</script>
 {% endblock %}

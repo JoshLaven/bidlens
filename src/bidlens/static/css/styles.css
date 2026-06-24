@@ -359,6 +359,57 @@ h2 {
     gap: 6px;
 }
 
+.date-filter-system {
+    display: grid;
+    gap: 10px;
+}
+
+.date-filter-row {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+}
+
+.date-filter-label {
+    color: var(--gray-500);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    line-height: 1;
+    text-transform: uppercase;
+}
+
+.date-filter-options {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.date-filter-button {
+    min-width: 86px;
+    justify-content: center;
+}
+
+.date-period-select {
+    width: min(220px, 100%);
+    min-height: 34px;
+    padding: 7px 34px 7px 10px;
+    border: 1px solid var(--gray-200);
+    border-radius: 8px;
+    background: white;
+    color: var(--gray-800);
+    font-size: 0.86rem;
+    font-weight: 700;
+}
+
+.date-period-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(47, 111, 206, 0.12);
+}
+
 .feed-search-form {
     display: flex;
     align-items: center;
@@ -853,6 +904,24 @@ h2 {
     color: var(--gray-500);
     font-size: 0.76rem;
     font-weight: 600;
+}
+
+.opp-card-crm-link-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 5px;
+    font-size: 0.78rem;
+}
+
+.opp-card-crm-status {
+    color: var(--gray-600);
+    font-weight: 700;
+}
+
+.opp-card-crm-link {
+    font-weight: 700;
 }
 
 .opp-card-lane-label {
@@ -2692,6 +2761,15 @@ details[open] .accordion-summary::after {
 
   .feed-toolbar {
     padding: 10px;
+  }
+
+  .date-filter-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .date-filter-button {
+    flex: 1 1 92px;
   }
 
   .filter-panel {

@@ -7,26 +7,28 @@
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
+    {% set nav_org_id = request.query_params.get('org_id') if request is defined else none %}
+    {% set nav_org_q = '?org_id=' ~ nav_org_id if nav_org_id else '' %}
     <nav>
         <div class="container nav-shell">
             <div class="nav-brand">
-              <a href="/" class="logo">BidLens</a>
+              <a href="/{{ nav_org_q }}" class="logo">BidLens</a>
               <span class="nav-tagline">Opportunity Feed</span>
             </div>
             <div class="nav-links">
                 {% if user %}
                     <div class="nav-workspace" aria-label="Workspace sections">
-                      <a href="/" class="{{ 'active' if active_page == 'feed' else '' }}">Feed</a>
-                      <a href="/shortlist" class="{{ 'active' if active_page == 'shortlist' else '' }}">Team Interested</a>
-                      <a href="/my-shortlist" class="{{ 'active' if active_page == 'my_shortlist' else '' }}">My Interested</a>
-                      {% if user.current_role == 'admin' %}
-                        <a href="/triage" class="{{ 'active' if active_page == 'triage' else '' }}">Triage</a>
+                      <a href="/{{ nav_org_q }}" class="{{ 'active' if active_page == 'feed' else '' }}">Feed</a>
+                      <a href="/shortlist{{ nav_org_q }}" class="{{ 'active' if active_page == 'shortlist' else '' }}">Team Interested</a>
+                      <a href="/my-shortlist{{ nav_org_q }}" class="{{ 'active' if active_page == 'my_shortlist' else '' }}">My Interested</a>
+                      {% if user.current_role == 'admin' and user.triage_enabled|default(false) %}
+                        <a href="/triage{{ nav_org_q }}" class="{{ 'active' if active_page == 'triage' else '' }}">Triage</a>
                       {% endif %}
-                      <a href="/pursuit-lanes" class="{{ 'active' if active_page == 'pursuit_lanes' else '' }}">Pursuit Lanes</a>
-                      <a href="/company-profile" class="{{ 'active' if active_page == 'company_profile' else '' }}">Company Profile</a>
-                      <a href="/imports/govwin" class="{{ 'active' if active_page == 'imports' else '' }}">Import</a>
-                      <a href="/archive" class="{{ 'active' if active_page == 'archive' else '' }}">Archive</a>
-                      <a href="/settings" class="{{ 'active' if active_page == 'settings' else '' }}">Settings</a>
+                      <a href="/pursuit-lanes{{ nav_org_q }}" class="{{ 'active' if active_page == 'pursuit_lanes' else '' }}">Pursuit Lanes</a>
+                      <a href="/company-profile{{ nav_org_q }}" class="{{ 'active' if active_page == 'company_profile' else '' }}">Company Profile</a>
+                      <a href="/imports/govwin{{ nav_org_q }}" class="{{ 'active' if active_page == 'imports' else '' }}">Import</a>
+                      <a href="/archive{{ nav_org_q }}" class="{{ 'active' if active_page == 'archive' else '' }}">Archive</a>
+                      <a href="/settings{{ nav_org_q }}" class="{{ 'active' if active_page == 'settings' else '' }}">Settings</a>
                     </div>
                     <div class="nav-utility">
                       <span class="nav-user">{{ user.email }}</span>
@@ -517,9 +519,13 @@
             button.innerHTML = '&#10003; Pushed to CRM';
             button.disabled = true;
         });
-        const sfName = data.salesforce_opportunity_name || data.salesforce_opportunity_id;
-        const status = data.new_intake_status || 'Prospect_Feed';
-        showToast(`Salesforce updated: ${sfName} to ${status}`, 'success');
+        await completeCrmWorkflow(oppId, data);
+        showToastWithLink(
+          'Salesforce Opportunity updated.',
+          'Open in Salesforce',
+          data.salesforce_opportunity_url,
+          'success'
+        );
       } catch (error) {
         showToast('CRM push failed', 'error');
       }
@@ -536,6 +542,38 @@
         return data.detail.message;
       }
       return fallback;
+    }
+
+    function updateSalesforceLink(oppId, salesforceUrl, salesforceStatus) {
+      document.querySelectorAll(`#opp-card-${oppId} [data-salesforce-link-container]`).forEach((container) => {
+        const link = container.querySelector('[data-salesforce-link]');
+        if (link && salesforceUrl) {
+          link.href = salesforceUrl;
+          link.textContent = 'Open in Salesforce';
+          link.hidden = false;
+        }
+        const status = container.querySelector('[data-salesforce-status]');
+        if (status && salesforceStatus) {
+          status.textContent = salesforceStatus;
+        }
+        container.hidden = false;
+      });
+      document
+        .querySelectorAll(`#opp-card-${oppId} [data-push-crm-button], #opp-card-${oppId} [data-create-crm-button]`)
+        .forEach((button) => {
+          button.remove();
+        });
+    }
+
+    async function completeCrmWorkflow(oppId, data) {
+      const card = document.getElementById(`opp-card-${oppId}`);
+      updateSalesforceLink(oppId, data.salesforce_opportunity_url, data.salesforce_status);
+      updateOpportunityCard(oppId, 'PURSUE', data);
+      refreshSidebar(data.sidebar);
+
+      const shouldRemove = shouldRemoveOpportunityCard(oppId, 'PURSUE', data);
+      await new Promise((resolve) => window.setTimeout(resolve, 180));
+      await animateOpportunityCard(card, 'PURSUE', shouldRemove);
     }
 
     async function createOpportunityInCrm(oppId) {
@@ -556,6 +594,7 @@
             button.innerHTML = '&#10003; Created in CRM';
             button.disabled = true;
           });
+        await completeCrmWorkflow(oppId, data);
 
         showToastWithLink(
           'Salesforce Opportunity created.',

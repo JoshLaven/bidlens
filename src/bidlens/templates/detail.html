@@ -37,9 +37,6 @@
           {% if pass_count %}Pass: {{ pass_count }}{% endif %}
         </span>
       {% endif %}
-      <div class="meta">
-        <small class="muted">Upserted: {{ opportunity.upserted_at.strftime("%Y-%m-%d %H:%M") if opportunity.upserted_at else "—" }}</small>
-      </div>
     </div>
 
     <div class="card-actions" style="margin-bottom: 16px;">
@@ -101,15 +98,29 @@
 
   <div class="detail-primary">
 
-    <!-- Key Info -->
+    <!-- Opportunity Summary -->
     <details open class="accordion">
-      <summary class="accordion-summary">Key Info</summary>
+      <summary class="accordion-summary">Opportunity Summary</summary>
       <div class="accordion-body">
 
         <div class="key-info-row">
           <span class="key-info-label">Agency</span>
           <span class="key-info-value">{{ opportunity.agency }}</span>
         </div>
+
+        {% if opportunity.account_type %}
+          <div class="key-info-row">
+            <span class="key-info-label">Account Type</span>
+            <span class="key-info-value">
+              {{ opportunity.account_type }}
+              {% if opportunity.account_type_confidence or opportunity.account_type_source %}
+                <span class="key-info-subvalue">
+                  {{ opportunity.account_type_source or "unknown" }}{% if opportunity.account_type_confidence %} · {{ opportunity.account_type_confidence }}{% endif %}
+                </span>
+              {% endif %}
+            </span>
+          </div>
+        {% endif %}
 
         <div class="key-info-row">
           <span class="key-info-label">Response Deadline</span>
@@ -124,18 +135,25 @@
         </div>
 
         <div class="key-info-row">
-          <span class="key-info-label">Posted Date</span>
+          <span class="key-info-label">Posted</span>
           <span class="key-info-value">{{ opportunity.posted_date.strftime('%B %d, %Y') }}</span>
         </div>
 
-        {% if grants_gov_metadata %}
-          {% if grants_gov_metadata.source %}
-            <div class="key-info-row">
-              <span class="key-info-label">Source</span>
-              <span class="key-info-value">{{ grants_gov_metadata.source }}</span>
-            </div>
-          {% endif %}
+        {% if source_value %}
+          <div class="key-info-row">
+            <span class="key-info-label">Source</span>
+            <span class="key-info-value">{{ source_label }}</span>
+          </div>
+        {% endif %}
 
+        {% if opportunity.solicitation_number %}
+          <div class="key-info-row">
+            <span class="key-info-label">Solicitation #</span>
+            <span class="key-info-value">{{ opportunity.solicitation_number }}</span>
+          </div>
+        {% endif %}
+
+        {% if grants_gov_metadata %}
           {% if grants_gov_metadata.status %}
             <div class="key-info-row">
               <span class="key-info-label">Opportunity Status</span>
@@ -177,50 +195,17 @@
           </div>
         {% endif %}
 
-        {% if opportunity.account_type %}
-          <div class="key-info-row">
-            <span class="key-info-label">Suggested Account Type</span>
-            <span class="key-info-value">
-              {{ opportunity.account_type }}
-              {% if opportunity.account_type_confidence or opportunity.account_type_source %}
-                <span class="key-info-subvalue">
-                  {{ opportunity.account_type_confidence or "unknown" }}{% if opportunity.account_type_source %} · {{ opportunity.account_type_source }}{% endif %}
-                </span>
-              {% endif %}
-            </span>
-          </div>
-        {% endif %}
-
-        {% if opportunity.solicitation_number %}
-          <div class="key-info-row">
-            <span class="key-info-label">Solicitation #</span>
-            <span class="key-info-value">{{ opportunity.solicitation_number }}</span>
-          </div>
-        {% endif %}
-
-        {% if opportunity.external_source_key %}
-          <div class="key-info-row">
-            <span class="key-info-label">External Source Key</span>
-            <span class="key-info-value">{{ opportunity.external_source_key }}</span>
-          </div>
-        {% endif %}
-
-        {% if opportunity.crm_pushed and opportunity.crm_pushed_by_label %}
-          <div class="key-info-row">
-            <span class="key-info-label">CRM Owner</span>
-            <span class="key-info-value">Pushed to CRM by {{ opportunity.crm_pushed_by_label }}</span>
-          </div>
-        {% endif %}
-
-        <div class="key-info-row">
-          <span class="key-info-label">SAM.gov ID</span>
-          <span class="key-info-value">{{ opportunity.sam_notice_id }}</span>
-        </div>
-
         {% if user_opp and user_opp.internal_deadline %}
           <div class="key-info-row">
             <span class="key-info-label">Internal Deadline</span>
             <span class="key-info-value">{{ user_opp.internal_deadline.strftime('%B %d, %Y') }}</span>
+          </div>
+        {% endif %}
+
+        {% if grants_gov_metadata and grants_gov_metadata.source %}
+          <div class="key-info-row">
+            <span class="key-info-label">Grants.gov Source</span>
+            <span class="key-info-value">{{ grants_gov_metadata.source }}</span>
           </div>
         {% endif %}
 
@@ -234,6 +219,58 @@
 
       </div>
     </details>
+
+    {% if opportunity.salesforce_opportunity_id or opportunity.salesforce_opportunity_url or opportunity.salesforce_synced_at %}
+      <details open class="accordion">
+        <summary class="accordion-summary">Salesforce</summary>
+        <div class="accordion-body">
+          {% if opportunity.salesforce_opportunity_id or opportunity.salesforce_opportunity_url %}
+            <div class="key-info-row">
+              <span class="key-info-label">Status</span>
+              <span class="key-info-value">
+                {% if opportunity.salesforce_action == 'created' %}
+                  Created in Salesforce
+                {% elif opportunity.salesforce_action == 'pushed' %}
+                  Pushed to Salesforce
+                {% else %}
+                  Linked to Salesforce
+                {% endif %}
+              </span>
+            </div>
+          {% endif %}
+
+          {% if opportunity.salesforce_opportunity_url %}
+            <div class="key-info-row">
+              <span class="key-info-label">Open</span>
+              <span class="key-info-value">
+                <a href="{{ opportunity.salesforce_opportunity_url }}" target="_blank" rel="noreferrer">Open in Salesforce</a>
+              </span>
+            </div>
+          {% endif %}
+
+          {% if opportunity.salesforce_opportunity_id %}
+            <div class="key-info-row">
+              <span class="key-info-label">Opportunity ID</span>
+              <span class="key-info-value">{{ opportunity.salesforce_opportunity_id }}</span>
+            </div>
+          {% endif %}
+
+          {% if opportunity.salesforce_synced_at %}
+            <div class="key-info-row">
+              <span class="key-info-label">Last Sync</span>
+              <span class="key-info-value">{{ opportunity.salesforce_synced_at.strftime("%Y-%m-%d %H:%M") }}</span>
+            </div>
+          {% endif %}
+
+          {% if opportunity.crm_pushed and opportunity.crm_pushed_by_label %}
+            <div class="key-info-row">
+              <span class="key-info-label">CRM Owner</span>
+              <span class="key-info-value">Pushed to CRM by {{ opportunity.crm_pushed_by_label }}</span>
+            </div>
+          {% endif %}
+        </div>
+      </details>
+    {% endif %}
 
     <!-- Opportunity Brief -->
     <details open class="accordion">
@@ -454,6 +491,79 @@
           </div>
         {% else %}
           <p class="internal-notes-empty"><em>No internal notes yet.</em></p>
+        {% endif %}
+      </div>
+    </details>
+
+    <details class="accordion">
+      <summary class="accordion-summary">Metadata</summary>
+      <div class="accordion-body">
+        <div class="key-info-row">
+          <span class="key-info-label">Internal Opportunity ID</span>
+          <span class="key-info-value">{{ opportunity.id }}</span>
+        </div>
+
+        {% if opportunity.bidlens_id %}
+          <div class="key-info-row">
+            <span class="key-info-label">BidLens ID</span>
+            <span class="key-info-value">{{ opportunity.bidlens_id }}</span>
+          </div>
+        {% endif %}
+
+        {% if opportunity.source %}
+          <div class="key-info-row">
+            <span class="key-info-label">Source System Key</span>
+            <span class="key-info-value">{{ opportunity.source }}</span>
+          </div>
+        {% endif %}
+
+        {% if opportunity.source_record_id %}
+          <div class="key-info-row">
+            <span class="key-info-label">Source Record ID</span>
+            <span class="key-info-value">{{ opportunity.source_record_id }}</span>
+          </div>
+        {% endif %}
+
+        {% if opportunity.external_source_key %}
+          <div class="key-info-row">
+            <span class="key-info-label">External Source Key</span>
+            <span class="key-info-value">{{ opportunity.external_source_key }}</span>
+          </div>
+        {% endif %}
+
+        {% if opportunity.sam_notice_id %}
+          <div class="key-info-row">
+            <span class="key-info-label">SAM.gov ID</span>
+            <span class="key-info-value">{{ opportunity.sam_notice_id }}</span>
+          </div>
+        {% endif %}
+
+        {% if opportunity.govwin_staging_id %}
+          <div class="key-info-row">
+            <span class="key-info-label">GovWin Staging ID</span>
+            <span class="key-info-value">{{ opportunity.govwin_staging_id }}</span>
+          </div>
+        {% endif %}
+
+        {% if opportunity.upserted_at %}
+          <div class="key-info-row">
+            <span class="key-info-label">Last Upserted</span>
+            <span class="key-info-value">{{ opportunity.upserted_at.strftime("%Y-%m-%d %H:%M") }}</span>
+          </div>
+        {% endif %}
+
+        {% if opportunity.created_at %}
+          <div class="key-info-row">
+            <span class="key-info-label">Created</span>
+            <span class="key-info-value">{{ opportunity.created_at.strftime("%Y-%m-%d %H:%M") }}</span>
+          </div>
+        {% endif %}
+
+        {% if opportunity.updated_at %}
+          <div class="key-info-row">
+            <span class="key-info-label">Updated</span>
+            <span class="key-info-value">{{ opportunity.updated_at.strftime("%Y-%m-%d %H:%M") }}</span>
+          </div>
         {% endif %}
       </div>
     </details>

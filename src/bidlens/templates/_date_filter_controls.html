@@ -1,0 +1,21 @@
+{% macro date_filter_controls(base_path, date_type, date_filter, params_suffix='') %}
+<div class="date-filter-system" aria-label="Date filters">
+  <div class="date-filter-row">
+    <span class="date-filter-label">Date</span>
+    <div class="date-filter-options">
+      <a href="{{ base_path }}?date_type=imported&date_filter={{ date_filter }}{{ params_suffix }}" class="btn btn-sm date-filter-button {{ 'btn-primary' if date_type == 'imported' else 'btn-outline-secondary' }}">Imported</a>
+      <a href="{{ base_path }}?date_type=due&date_filter={{ date_filter }}{{ params_suffix }}" class="btn btn-sm date-filter-button {{ 'btn-primary' if date_type == 'due' else 'btn-outline-secondary' }}">Due</a>
+      <a href="{{ base_path }}?date_type=posted&date_filter={{ date_filter }}{{ params_suffix }}" class="btn btn-sm date-filter-button {{ 'btn-primary' if date_type == 'posted' else 'btn-outline-secondary' }}">Posted</a>
+    </div>
+  </div>
+  <div class="date-filter-row">
+    <label class="date-filter-label" for="date-period-select">Time Period</label>
+    <select id="date-period-select" class="date-period-select" onchange="window.location = this.value">
+      <option value="{{ base_path }}?date_type={{ date_type }}{{ params_suffix }}" {{ 'selected' if not date_filter else '' }}>All Dates</option>
+      <option value="{{ base_path }}?date_type={{ date_type }}&date_filter=today{{ params_suffix }}" {{ 'selected' if date_filter == 'today' else '' }}>Today</option>
+      <option value="{{ base_path }}?date_type={{ date_type }}&date_filter=7d{{ params_suffix }}" {{ 'selected' if date_filter == '7d' else '' }}>Last 7 Days</option>
+      <option value="{{ base_path }}?date_type={{ date_type }}&date_filter=30d{{ params_suffix }}" {{ 'selected' if date_filter == '30d' else '' }}>Last 30 Days</option>
+    </select>
+  </div>
+</div>
+{% endmacro %}

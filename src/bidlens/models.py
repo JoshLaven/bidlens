@@ -103,6 +103,10 @@ class Opportunity(Base):
     crm_pushed = Column(Boolean, nullable=False, default=False, server_default="0", index=True)
     crm_pushed_at = Column(DateTime, nullable=True)
     crm_pushed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    salesforce_opportunity_id = Column(String, nullable=True, index=True)
+    salesforce_opportunity_url = Column(String, nullable=True)
+    salesforce_synced_at = Column(DateTime, nullable=True)
+    salesforce_action = Column(String, nullable=True)
 
     @property
     def external_source_key(self) -> str | None:
@@ -146,13 +150,21 @@ class IngestionRun(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     source = Column(String, nullable=False, default="sam.gov")
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    filename = Column(String, nullable=True)
     started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     finished_at = Column(DateTime, nullable=True)
 
+    processed_count = Column(Integer, nullable=False, default=0, server_default="0")
+    created_count = Column(Integer, nullable=False, default=0, server_default="0")
+    updated_count = Column(Integer, nullable=False, default=0, server_default="0")
+    unchanged_count = Column(Integer, nullable=False, default=0, server_default="0")
     inserted_count = Column(Integer, nullable=False, default=0)
     skipped_count = Column(Integer, nullable=False, default=0)
     filtered_count = Column(Integer, nullable=False, default=0)
     error_count = Column(Integer, nullable=False, default=0)
+    reason_summary_json = Column(JSON, nullable=True)
 
     notes = Column(Text, nullable=True)
 class Vote(Base):
@@ -275,6 +287,7 @@ class OrgProfile(Base):
     digest_max_items = Column(Integer, nullable=False, default=20)
     digest_recipients = Column(Text, nullable=True)  # comma-separated emails
     digest_time_local = Column(String, nullable=True)  # "07:00" for now
+    triage_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
 
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

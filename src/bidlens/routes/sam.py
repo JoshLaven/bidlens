@@ -13,6 +13,7 @@ from ..ingest_sam import (
 )
 from ..models import OrgProfile, User
 from ..auth import get_current_user  # <-- adjust this import to your project
+from ..services.ingestion_runs import record_source_activity
 from ..tenancy import current_org_id
 
 router = APIRouter(prefix="/sam", tags=["sam"])
@@ -59,6 +60,61 @@ def _retry_after_header_value(retry_after: str | None, retry_after_seconds: floa
         return None
     return str(int(round(retry_after_seconds)))
 
+
+def _record_sam_source_activity(db: Session, *, org_id: int, user_id: int, result: dict) -> None:
+    record_source_activity(
+        db,
+        source="sam.gov",
+        organization_id=org_id,
+        user_id=user_id,
+        filename="Manual SAM.gov pull",
+        result=result,
+        run_id=result.get("run_id"),
+        processed_count=int(result.get("records_seen", 0) or 0),
+        created_count=int(result.get("inserted", 0) or 0),
+        updated_count=int(result.get("updated", 0) or 0),
+        unchanged_count=0,
+        skipped_count=int(result.get("skipped", 0) or 0),
+        error_count=int(result.get("errors", 0) or 0),
+        notes=result.get("message"),
+    )
+    db.commit()
+
+
+def _record_sam_noop_activity(db: Session, *, org_id: int, user_id: int, reason: str, message: str) -> dict:
+    result = {
+        "status": "noop",
+        "organization_id": org_id,
+        "message": message,
+        "run_id": None,
+        "inserted": 0,
+        "updated": 0,
+        "skipped": 0,
+        "filtered": 0,
+        "errors": 1,
+        "records_seen": 0,
+        "results": [],
+    }
+    record_source_activity(
+        db,
+        source="sam.gov",
+        organization_id=org_id,
+        user_id=user_id,
+        filename="Manual SAM.gov pull",
+        result=result,
+        processed_count=0,
+        created_count=0,
+        updated_count=0,
+        unchanged_count=0,
+        skipped_count=0,
+        error_count=1,
+        reason_counts={reason: 1},
+        reason_labels={reason: message},
+        notes=message,
+    )
+    db.commit()
+    return result
+
 @router.post("/pull-now", response_model=None)
 def pull_now(
     request: Request,
@@ -92,18 +148,14 @@ def pull_now(
     days_back = profile.sam_days_back or 7
     allowed_types = parse_allowed_types(profile.sam_allowed_types)
     if not naics_list:
-        return JSONResponse(status_code=400, content={
-            "status": "noop",
-            "organization_id": org_id,
-            "message": "No NAICS codes are configured for this organization.",
-            "run_id": None,
-            "inserted": 0,
-            "updated": 0,
-            "skipped": 0,
-            "filtered": 0,
-            "errors": 0,
-            "results": [],
-        })
+        result = _record_sam_noop_activity(
+            db,
+            org_id=org_id,
+            user_id=user.id,
+            reason="missing_sam_naics_codes",
+            message="No NAICS codes are configured for this organization.",
+        )
+        return JSONResponse(status_code=400, content=result)
 
     try:
         result = ingest_sam(
@@ -169,12 +221,14 @@ def pull_now(
                 f"{result['skipped']} skipped, {result['filtered']} filtered, {result['errors']} errors. "
                 "SAM.gov is temporarily unavailable. Try again later."
             )
+        _record_sam_source_activity(db, org_id=org_id, user_id=user.id, result=result)
         return JSONResponse(status_code=503 if result.get("status") == "failed" else 200, content=result)
     elif all_rate_limited:
         retry_hint = f" Try again after {retry_after_display}." if retry_after_display else " Try again later."
         result["status"] = "rate_limited"
         result["message"] = f"SAM.gov quota exceeded.{retry_hint}"
         headers = {"Retry-After": retry_after_header} if retry_after_header else {}
+        _record_sam_source_activity(db, org_id=org_id, user_id=user.id, result=result)
         return JSONResponse(status_code=429, content=result, headers=headers)
     elif rate_limited_results:
         wait_hint = f" Try again after {retry_after_display}." if retry_after_display else ""
@@ -189,6 +243,7 @@ def pull_now(
                 f"{result['skipped']} skipped, {result['filtered']} filtered, {result['errors']} errors."
                 f" SAM.gov rate limited one or more NAICS pulls.{wait_hint}"
             )
+        _record_sam_source_activity(db, org_id=org_id, user_id=user.id, result=result)
         return JSONResponse(status_code=200, content=result)
     else:
         result["message"] = (
@@ -196,6 +251,7 @@ def pull_now(
             f"{result['skipped']} skipped, {result['filtered']} filtered, {result['errors']} errors, "
             f"{result.get('pages_pulled', 0)} pages pulled, {result.get('records_seen', 0)} records seen."
         )
+        _record_sam_source_activity(db, org_id=org_id, user_id=user.id, result=result)
         return JSONResponse(status_code=200, content=result)
 
 
