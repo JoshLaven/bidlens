@@ -617,6 +617,11 @@ class VoteIn(BaseModel):
     ui_version: str = "v1"
 
 
+class BulkPassIn(BaseModel):
+    opp_ids: list[int]
+    ui_version: str = "v1"
+
+
 class CrmPushIn(BaseModel):
     opp_id: int
     ui_version: str = "v1"
@@ -696,6 +701,57 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/votes/bulk-pass")
+def api_bulk_pass(payload: BulkPassIn, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    opp_ids = list(dict.fromkeys(payload.opp_ids))
+    if not opp_ids:
+        raise HTTPException(status_code=400, detail="Select at least one opportunity")
+    if len(opp_ids) > 100:
+        raise HTTPException(status_code=400, detail="Bulk archive is limited to 100 opportunities")
+
+    org_id = _user_org_id(user)
+    eligible_ids = {
+        opp_id
+        for (opp_id,) in (
+            db.query(Opportunity.id)
+            .filter(
+                Opportunity.id.in_(opp_ids),
+                Opportunity.organization_id == org_id,
+                Opportunity.decision_state != "ARCHIVED",
+                Opportunity.qualification_status == "qualified",
+            )
+            .all()
+        )
+    }
+    invalid_ids = [opp_id for opp_id in opp_ids if opp_id not in eligible_ids]
+    if invalid_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="One or more selected opportunities are unavailable",
+        )
+
+    try:
+        for opp_id in opp_ids:
+            cast_vote(
+                db,
+                org_id=org_id,
+                user_id=user.id,
+                opp_id=opp_id,
+                vote="PASS",
+                ui_version=payload.ui_version,
+                toggle_existing=False,
+            )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "ok": True,
+        "archived_count": len(opp_ids),
+        "archived_opp_ids": opp_ids,
+    }
 
 
 @router.post("/opportunities/push-crm")

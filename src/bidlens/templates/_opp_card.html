@@ -1,7 +1,4 @@
 {% macro opp_card(opp, view='feed', now=none) %}
-{% set pursue_count = opp.pursue_count or 0 %}
-{% set pass_count = opp.pass_count or 0 %}
-{% set total_signals = pursue_count + pass_count %}
 {% set raw_agency = (opp.agency or '') %}
 {% set agency_parts = raw_agency.split('.') %}
 {% set agency_ns = namespace(display='', fallback='') %}
@@ -20,8 +17,7 @@
 {% set original_agency_title = original_agency|title %}
 {% set agency_display = candidate_agency if candidate_agency and candidate_agency|length >= 4 and candidate_agency|length <= original_agency_title|length else original_agency_title %}
 {% set due_label = opp.response_deadline.strftime('%b %d, %Y') if opp.response_deadline else 'No deadline' %}
-{% set pursue_users = opp.pursue_users or [] %}
-{% set pass_users = opp.pass_users or [] %}
+{% set teammate_interest_users = opp.teammate_interest_users or [] %}
 {% set pursuit_lanes = opp.pursuit_lanes or [] %}
 {% set crm_pushed = opp.crm_pushed %}
 {% set crm_pushed_by_current_user = opp.crm_pushed_by_current_user %}
@@ -38,6 +34,17 @@
   data-opp-id="{{ opp.id }}"
   data-card-view="{{ view }}"
 >
+  {% if view == 'feed' %}
+    <label class="opp-card-select" title="Select opportunity">
+      <input
+        type="checkbox"
+        value="{{ opp.id }}"
+        data-feed-archive-checkbox
+        aria-label="Select {{ opp.title }} for bulk archive"
+      >
+      <span class="sr-only">Select {{ opp.title }}</span>
+    </label>
+  {% endif %}
   <div class="opp-card-top">
     <div class="opp-card-main">
       <div class="opp-card-heading">
@@ -80,6 +87,15 @@
           <span class="source-pill" title="Suggested account type">Account: {{ opp.account_type }}</span>
         {% endif %}
       </div>
+      {% if view != 'triage' %}
+        <div
+          class="opp-card-team-interest"
+          data-team-interest
+          {% if teammate_interest_users %}title="Interested teammates: {{ teammate_interest_users|join(', ') }}"{% endif %}
+        >
+          {{ opp.team_interest_label or 'No team interest yet' }}
+        </div>
+      {% endif %}
       {% if crm_pushed and opp.crm_pushed_by_label %}
         <div class="opp-card-crm-attribution">Pushed to CRM by {{ opp.crm_pushed_by_label }}</div>
       {% endif %}
@@ -150,6 +166,15 @@
         Reject
       </button>
     </div>
+    {% elif view == 'user_archive' %}
+    <div class="opp-card-actions">
+      <button type="button"
+              class="btn btn-sm opp-card-button opp-card-button--primary btn-primary"
+              data-vote-button="PASS"
+              onclick="voteOpp('{{ opp.id }}', 'PASS')">
+        Restore to Feed
+      </button>
+    </div>
     {% elif view != 'archive' %}
     <div class="opp-card-actions">
       {% if not has_salesforce_linkage and not crm_pushed %}
@@ -182,12 +207,12 @@
         {% if opp.user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}
       </button>
       <div class="opp-card-actions-secondary">
-        <span class="opp-card-pass-label" data-pass-helper {% if opp.user_vote == 'PASS' %}hidden{% endif %}>Not a fit?</span>
+        <span class="opp-card-pass-label" data-pass-helper {% if opp.user_vote == 'PASS' %}hidden{% endif %}>Not relevant?</span>
         <button type="button"
                 class="btn btn-sm opp-card-button opp-card-button--secondary {{ 'btn-warning' if opp.user_vote == 'PASS' else 'btn-outline-secondary' }}"
                 data-vote-button="PASS"
                 onclick="voteOpp('{{ opp.id }}', 'PASS')">
-          {% if opp.user_vote == 'PASS' %}&#10003; Passed{% else %}Pass{% endif %}
+          {% if opp.user_vote == 'PASS' %}&#10003; Archived{% else %}Archive{% endif %}
         </button>
       </div>
     </div>
@@ -202,28 +227,6 @@
   <details class="opp-card-more">
     <summary>
       <span class="opp-card-more-label">Details</span>
-      <span class="opp-card-score" data-signal-container {% if not total_signals %}hidden{% endif %}>
-        <span
-          class="opp-score-flap opp-score-flap--pursue"
-          data-signal-pill="pursue"
-          data-users="{{ pursue_users|join(', ') }}"
-          {% if not pursue_count %}hidden{% endif %}
-        >
-          <span class="opp-score-label">S</span>
-          <span class="opp-score-value" data-pursue-count>{{ pursue_count }}</span>
-          <span class="opp-score-tooltip" data-signal-tooltip {% if not pursue_users %}hidden{% endif %}>Interested by: {{ pursue_users|join(', ') }}</span>
-        </span>
-        <span
-          class="opp-score-flap opp-score-flap--pass"
-          data-signal-pill="pass"
-          data-users="{{ pass_users|join(', ') }}"
-          {% if not pass_count %}hidden{% endif %}
-        >
-          <span class="opp-score-label">P</span>
-          <span class="opp-score-value" data-pass-count>{{ pass_count }}</span>
-          <span class="opp-score-tooltip" data-signal-tooltip {% if not pass_users %}hidden{% endif %}>Passed by: {{ pass_users|join(', ') }}</span>
-        </span>
-      </span>
       <button
         type="button"
         class="opp-icon-button opp-footer-icon"
@@ -314,6 +317,8 @@
       <div class="opp-detail-actions">
         {% if view == 'triage' %}
           <a href="/opportunity/{{ opp.id }}" class="details-link">Details &rarr;</a>
+        {% elif view == 'user_archive' %}
+          {# Restore is the only archive workflow action. #}
         {% elif view != 'archive' %}
           <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
             <button class="btn btn-sm {{ 'btn-success' if opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if opp.watched else 'Follow' }}">

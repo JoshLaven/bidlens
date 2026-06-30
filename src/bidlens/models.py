@@ -288,6 +288,11 @@ class OrgProfile(Base):
     digest_recipients = Column(Text, nullable=True)  # comma-separated emails
     digest_time_local = Column(String, nullable=True)  # "07:00" for now
     triage_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
+    govwin_credentials_encrypted = Column(Text, nullable=True)
+    govwin_connection_status = Column(String, nullable=True)
+    govwin_last_tested_at = Column(DateTime(timezone=True), nullable=True)
+    govwin_last_sync_at = Column(DateTime(timezone=True), nullable=True)
+    govwin_last_sync_status = Column(String, nullable=True)
 
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

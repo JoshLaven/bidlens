@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% set hide_context_sidebar = true %}
+{% block title %}Integrations - BidLens{% endblock %}
+{% block content %}
+{% set admin_nav_active = 'integrations' %}
+<div class="admin-page-layout">
+  {% include "_admin_nav.html" %}
+  <div class="admin-page-content">
+    <div class="page-header">
+      <h1>Integrations</h1>
+      <p class="page-subtitle">Manage external systems connected to this workspace.</p>
+    </div>
+
+    <section class="admin-settings-module">
+      <div class="admin-settings-module-header">
+        <h2>Salesforce</h2>
+        <p>Connection and Opportunity metadata used for CRM push and creation POCs.</p>
+      </div>
+      <div class="admin-source-list">
+        <div class="admin-source-row">
+          <div>
+            <strong>Salesforce OAuth</strong>
+            <span>Authorize BidLens with the configured Salesforce Connected App.</span>
+          </div>
+          <a href="/api/salesforce/oauth/start" class="btn btn-sm btn-outline-secondary">Authorize</a>
+        </div>
+        <div class="admin-source-row">
+          <div>
+            <strong>Opportunity Create Requirements</strong>
+            <span>Inspect required Opportunity fields and StageName values for the current org.</span>
+          </div>
+          <a href="/api/salesforce/opportunity-create-requirements" class="btn btn-sm btn-outline-secondary">Inspect</a>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,29 @@
+<aside class="admin-page-nav" aria-label="Administration">
+  <div class="admin-page-nav-title">Administration</div>
+  <nav class="admin-page-nav-list">
+    <a href="/imports/govwin{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="{{ 'active' if admin_nav_active == 'sources' else '' }}">
+      <span class="admin-settings-nav-icon" aria-hidden="true">↓</span>
+      <span>Sources</span>
+    </a>
+    <a href="/imports/history{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="{{ 'active' if admin_nav_active == 'history' else '' }}">
+      <span class="admin-settings-nav-icon" aria-hidden="true">◷</span>
+      <span>Pull History</span>
+    </a>
+    <a href="/settings{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="{{ 'active' if admin_nav_active == 'feed_rules' else '' }}">
+      <span class="admin-settings-nav-icon" aria-hidden="true">▦</span>
+      <span>Feed Rules</span>
+    </a>
+    <a href="/pursuit-lanes{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="{{ 'active' if admin_nav_active == 'lanes' else '' }}">
+      <span class="admin-settings-nav-icon" aria-hidden="true">◇</span>
+      <span>Pursuit Lanes</span>
+    </a>
+    <a href="/integrations{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="{{ 'active' if admin_nav_active == 'integrations' else '' }}">
+      <span class="admin-settings-nav-icon" aria-hidden="true">☁</span>
+      <span>Integrations</span>
+    </a>
+  </nav>
+  <div class="admin-page-help">
+    <div class="admin-page-help-title">Need help?</div>
+    <a href="#" aria-disabled="true">View documentation ↗</a>
+  </div>
+</aside>

@@ -1,76 +1,99 @@
 {% extends "base.html" %}
-{% block title %}Settings - BidLens{% endblock %}
+{% set hide_context_sidebar = true %}
+{% block title %}Feed Rules - BidLens{% endblock %}
 {% block content %}
-<h1>Settings</h1>
-<p class="muted">These filters control your team’s feed and daily digest.</p>
-
-<form method="POST" action="/settings{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="form">
-  {% if is_admin %}
-    <div class="form-row">
-      <label>
-        <input type="checkbox" name="triage_enabled" value="1" {% if profile and profile.triage_enabled %}checked{% endif %}>
-        Require triage before Feed
-      </label>
-      <small>When enabled, newly imported opportunities go to Triage first and must be qualified before appearing in the Feed. When disabled, newly imported opportunities appear directly in the Feed.</small>
+{% set admin_nav_active = 'feed_rules' %}
+<div class="admin-page-layout">
+  {% include "_admin_nav.html" %}
+  <div class="admin-page-content">
+    <div class="page-header">
+      <h1>Feed Rules</h1>
+      <p class="page-subtitle">Control how opportunities enter the Feed and how workspace defaults are applied.</p>
     </div>
 
-    <hr />
+<form method="POST" action="/settings{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="form admin-rules-form">
+  {% if is_admin %}
+    <section class="admin-settings-module">
+      <div class="admin-settings-module-header">
+        <h2>Workflow</h2>
+        <p>Choose whether new opportunities require administrator review before entering the Feed.</p>
+      </div>
+      <label class="admin-setting-toggle">
+        <input type="checkbox" name="triage_enabled" value="1" {% if profile and profile.triage_enabled %}checked{% endif %}>
+        <span>
+          <strong>Require triage before Feed</strong>
+          <small>Newly imported opportunities go to Triage and must be qualified before appearing in the Feed.</small>
+        </span>
+      </label>
+    </section>
   {% endif %}
 
-  <div class="form-row">
-    <label>Include keywords</label>
-    <textarea name="include_keywords" rows="3" placeholder="evaluation, survey, data analysis, workforce">{% if profile and profile.include_keywords %}{{ profile.include_keywords }}{% endif %}</textarea>
-    <small>Comma-separated. These increase fit.</small>
-  </div>
-
-  <div class="form-row">
-    <label>Exclude keywords</label>
-    <textarea name="exclude_keywords" rows="3" placeholder="construction, janitorial, HVAC">{% if profile and profile.exclude_keywords %}{{ profile.exclude_keywords }}{% endif %}</textarea>
-    <small>Comma-separated. These suppress matches.</small>
-  </div>
-
-  <div class="form-row">
-    <label>Preferred agencies (optional)</label>
-    <textarea name="include_agencies" rows="2" placeholder="HHS, CDC, CMS">{% if profile and profile.include_agencies %}{{ profile.include_agencies }}{% endif %}</textarea>
-  </div>
-
-  <div class="form-row">
-    <label>Excluded agencies (optional)</label>
-    <textarea name="exclude_agencies" rows="2" placeholder="DoD">{% if profile and profile.exclude_agencies %}{{ profile.exclude_agencies }}{% endif %}</textarea>
-  </div>
-
-  <hr />
-
-  <div class="form-row">
-    <label>Due date window (days out)</label>
-    <div style="display:flex; gap:12px;">
-      <div style="flex:1;">
-        <input type="number" name="min_days_out" placeholder="Min (e.g. 3)" value="{{ profile.min_days_out if profile else '' }}">
+  <section class="admin-settings-module">
+    <div class="admin-settings-module-header">
+      <h2>Matching / Feed Defaults</h2>
+      <p>Set the workspace defaults used to match and prioritize incoming opportunities.</p>
+    </div>
+    <div class="admin-form-grid">
+      <div class="form-row">
+        <label>Include keywords</label>
+        <textarea name="include_keywords" rows="3" placeholder="evaluation, survey, data analysis, workforce">{% if profile and profile.include_keywords %}{{ profile.include_keywords }}{% endif %}</textarea>
+        <small>Comma-separated. These increase fit.</small>
       </div>
-      <div style="flex:1;">
-        <input type="number" name="max_days_out" placeholder="Max (e.g. 60)" value="{{ profile.max_days_out if profile else '' }}">
+
+      <div class="form-row">
+        <label>Exclude keywords</label>
+        <textarea name="exclude_keywords" rows="3" placeholder="construction, janitorial, HVAC">{% if profile and profile.exclude_keywords %}{{ profile.exclude_keywords }}{% endif %}</textarea>
+        <small>Comma-separated. These suppress matches.</small>
+      </div>
+
+      <div class="form-row">
+        <label>Preferred agencies (optional)</label>
+        <textarea name="include_agencies" rows="2" placeholder="HHS, CDC, CMS">{% if profile and profile.include_agencies %}{{ profile.include_agencies }}{% endif %}</textarea>
+      </div>
+
+      <div class="form-row">
+        <label>Excluded agencies (optional)</label>
+        <textarea name="exclude_agencies" rows="2" placeholder="DoD">{% if profile and profile.exclude_agencies %}{{ profile.exclude_agencies }}{% endif %}</textarea>
+      </div>
+
+      <div class="form-row admin-form-row--wide">
+        <label>Due date window (days out)</label>
+        <div class="admin-number-range">
+          <input type="number" name="min_days_out" placeholder="Minimum (e.g. 3)" value="{{ profile.min_days_out if profile else '' }}">
+          <input type="number" name="max_days_out" placeholder="Maximum (e.g. 60)" value="{{ profile.max_days_out if profile else '' }}">
+        </div>
       </div>
     </div>
+  </section>
+
+  <section class="admin-settings-module">
+    <div class="admin-settings-module-header">
+      <h2>Digest / Notifications</h2>
+      <p>Configure the default workspace digest delivery.</p>
+    </div>
+    <div class="admin-form-grid admin-form-grid--digest">
+      <div class="form-row admin-form-row--wide">
+        <label>Daily digest recipients</label>
+        <input type="text" name="digest_recipients" placeholder="bd@acme.com, ops@acme.com" value="{{ profile.digest_recipients if profile else '' }}">
+      </div>
+
+      <div class="form-row">
+        <label>Max items per digest</label>
+        <input type="number" name="digest_max_items" value="{{ profile.digest_max_items if profile else 20 }}">
+      </div>
+
+      <div class="form-row">
+        <label>Digest time (local)</label>
+        <input type="text" name="digest_time_local" placeholder="07:00" value="{{ profile.digest_time_local if profile else '07:00' }}">
+        <small>Delivery scheduling will be connected to automation later.</small>
+      </div>
+    </div>
+  </section>
+
+  <div class="admin-form-actions">
+    <button type="submit" class="btn btn-primary">Save Feed Rules</button>
   </div>
-
-  <hr />
-
-  <div class="form-row">
-    <label>Daily digest recipients</label>
-    <input type="text" name="digest_recipients" placeholder="bd@acme.com, ops@acme.com" value="{{ profile.digest_recipients if profile else '' }}">
-  </div>
-
-  <div class="form-row">
-    <label>Max items per digest</label>
-    <input type="number" name="digest_max_items" value="{{ profile.digest_max_items if profile else 20 }}">
-  </div>
-
-  <div class="form-row">
-    <label>Digest time (local)</label>
-    <input type="text" name="digest_time_local" placeholder="07:00" value="{{ profile.digest_time_local if profile else '07:00' }}">
-    <small>We’ll wire this into n8n later.</small>
-  </div>
-
-  <button type="submit" class="btn btn-primary">Save Settings</button>
 </form>
+  </div>
+</div>
 {% endblock %}

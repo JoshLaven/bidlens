@@ -1,24 +1,17 @@
 {% extends "base.html" %}
 {% from "_opp_card.html" import opp_card %}
-{% block title %}My Interested - BidLens{% endblock %}
+{% from "_queue_layout.html" import queue_heading, queue_search, queue_toolbar, queue_count %}
+{% block title %}My Shortlist - BidLens{% endblock %}
 {% block content %}
-{% set export_url = '/opportunities/export.csv?view=my_shortlist&tab=' ~ current_tab %}
-<div class="page-header">
-  <h1>My Interested</h1>
-  <p class="page-subtitle">Opportunities you marked as interesting for follow-up and qualification.</p>
-</div>
+{% set org_id_param = request.query_params.get('org_id') %}
+{% set org_param = '&org_id=' ~ org_id_param if org_id_param else '' %}
+{% set q_param = '&q=' ~ (q|urlencode) if q else '' %}
+{% set export_url = '/opportunities/export.csv?view=my_shortlist&tab=' ~ current_tab ~ '&sort=' ~ sort ~ '&direction=' ~ direction ~ q_param ~ org_param %}
 
-<div class="tabs">
-  <a href="/my-shortlist?tab=solicitations" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
-  <a href="/my-shortlist?tab=rfi" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
-</div>
-
-<div class="feed-toolbar feed-toolbar--compact">
-  <div class="feed-toolbar-group feed-toolbar-group--sort">
-    <span class="feed-toolbar-label">Export</span>
-    <a href="{{ export_url }}" class="btn btn-sm btn-outline-secondary">Export CSV</a>
-  </div>
-</div>
+{{ queue_heading('My Shortlist', 'Opportunities you marked as important or promoted to Salesforce.', export_url) }}
+{{ queue_search('/my-shortlist', 'shortlist-search-input', q, sort, direction, current_tab, org_id_param) }}
+{{ queue_toolbar('/my-shortlist', 'shortlist', sort, direction, q, current_tab, org_id_param) }}
+{{ queue_count(result_count, q) }}
 
 <div id="opportunity-list" data-list-view="my_shortlist">
 {% if opportunities %}
@@ -28,7 +21,7 @@
 {% endif %}
 </div>
 <div id="opportunity-empty-state" class="empty-state" {% if opportunities %}hidden{% endif %}>
-    <h2>No interested opportunities yet</h2>
+    <h2>No shortlisted opportunities yet</h2>
     <p>Click <strong>Interested</strong> on an opportunity to add it here right away.</p>
 </div>
 {% endblock %}

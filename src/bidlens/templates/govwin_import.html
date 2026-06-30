@@ -1,29 +1,150 @@
 {% extends "base.html" %}
-{% block title %}Import GovWin Export - BidLens{% endblock %}
+{% set hide_context_sidebar = true %}
+{% block title %}Sources - BidLens{% endblock %}
 {% block content %}
-<h1>Import GovWin Export</h1>
-<p class="muted">Upload a GovWin .xlsx export to create or update opportunities in this workspace.</p>
-{% if user.current_role == 'admin' %}
-  <div class="feed-toolbar feed-toolbar--compact" style="margin-top:12px;">
-    <div class="feed-toolbar-actions">
-      <a href="/imports/history{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary">View Source Activity</a>
+{% set sam_run = latest_runs.get('sam.gov') if latest_runs else none %}
+{% set grants_run = latest_runs.get('grants.gov') if latest_runs else none %}
+{% set govwin_run = latest_runs.get('govwin_export') if latest_runs else none %}
+{% set admin_nav_active = 'sources' %}
+
+<div class="admin-page-layout">
+  {% include "_admin_nav.html" %}
+  <div class="admin-page-content">
+    <div class="page-header">
+      <h1>Sources</h1>
+      <p class="page-subtitle">Pull opportunities from external sources or upload GovWin exports.</p>
     </div>
-  </div>
-{% endif %}
 
 {% if error %}
   <div class="alert alert-error">{{ error }}</div>
 {% endif %}
 
-<section class="card" style="margin-top:20px;">
-  <form method="POST" action="/imports/govwin{% if request.url.query %}?{{ request.url.query }}{% endif %}" enctype="multipart/form-data" class="form">
-    <div class="form-row">
-      <label for="govwin-file">GovWin Excel export</label>
-      <input id="govwin-file" type="file" name="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
-      <small>Rows display GovWin Title and upsert by source, workspace, and GovWin Staging Name.</small>
+<div id="source-pull-result" class="feed-sam-pull-result" hidden></div>
+
+<section class="intake-section">
+  <div class="intake-section-header">
+    <h2>Scheduled Pulls</h2>
+    <p>Sources BidLens can pull directly from external systems.</p>
+  </div>
+
+  <div class="source-config-list">
+    <article class="source-config-row">
+      <div class="source-config-identity">
+        <h3>SAM.gov</h3>
+        <p>Federal opportunity notices and solicitations.</p>
+        <span class="intake-status-pill">Manual pull available</span>
+      </div>
+      <dl class="source-config-meta">
+        <div>
+          <dt>Last Pull</dt>
+          <dd>{{ (sam_run.finished_at or sam_run.started_at).strftime("%b %d, %Y %I:%M %p") if sam_run else "No pulls yet" }}</dd>
+        </div>
+        <div>
+          <dt>Schedule</dt>
+          <dd>No BidLens schedule configured</dd>
+        </div>
+        <div>
+          <dt>Connection</dt>
+          <dd>Uses configured SAM.gov access</dd>
+        </div>
+      </dl>
+      <div class="source-config-action">
+        <button type="button" id="source-sam-pull-button" class="btn btn-sm btn-primary">Pull Now</button>
+      </div>
+    </article>
+
+    <article class="source-config-row">
+      <div class="source-config-identity">
+        <h3>Grants.gov</h3>
+        <p>Federal grant opportunities and updates.</p>
+        <span class="intake-status-pill">Manual pull available</span>
+      </div>
+      <dl class="source-config-meta">
+        <div>
+          <dt>Last Pull</dt>
+          <dd>{{ (grants_run.finished_at or grants_run.started_at).strftime("%b %d, %Y %I:%M %p") if grants_run else "No pulls yet" }}</dd>
+        </div>
+        <div>
+          <dt>Schedule</dt>
+          <dd>No BidLens schedule configured</dd>
+        </div>
+        <div>
+          <dt>Connection</dt>
+          <dd>Uses Grants.gov public search</dd>
+        </div>
+      </dl>
+      <div class="source-config-action">
+        <button type="button" id="source-grants-pull-button" class="btn btn-sm btn-primary">Pull Now</button>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section class="intake-section">
+  <div class="intake-section-header">
+    <h2>Manual Imports</h2>
+    <p>Upload source exports that are not pulled automatically.</p>
+  </div>
+
+  <div class="source-config-list">
+    <article class="source-config-row source-config-row--upload">
+      <div class="source-config-identity">
+        <h3>GovWin Export</h3>
+        <p>GovWin currently enters BidLens through manual Excel uploads.</p>
+        <span class="intake-status-pill">Manual upload</span>
+      </div>
+      <dl class="source-config-meta">
+        <div>
+          <dt>Last Import</dt>
+          <dd>{{ (govwin_run.finished_at or govwin_run.started_at).strftime("%b %d, %Y %I:%M %p") if govwin_run else "No imports yet" }}</dd>
+        </div>
+        <div>
+          <dt>File Type</dt>
+          <dd>.xlsx GovWin export</dd>
+        </div>
+      </dl>
+      <form method="POST" action="/imports/govwin{% if request.url.query %}?{{ request.url.query }}{% endif %}" enctype="multipart/form-data" class="source-config-upload">
+        <label for="govwin-file">Upload GovWin Excel file</label>
+        <div class="intake-upload-row">
+          <input id="govwin-file" type="file" name="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+          <button type="submit" class="btn btn-primary">Import</button>
+        </div>
+        <small>Rows display GovWin Title and upsert by source, workspace, and GovWin Staging Name.</small>
+      </form>
+    </article>
+  </div>
+</section>
+
+<section class="intake-section">
+  <div class="intake-section-header intake-section-header--split">
+    <div>
+      <h2>Recent Activity</h2>
+      <p>Quick visibility into recent pulls and uploads.</p>
     </div>
-    <button type="submit" class="btn btn-primary">Import GovWin Export</button>
-  </form>
+    <a href="/imports/history{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary">Full Pull History</a>
+  </div>
+
+  {% if recent_activity %}
+    <div class="intake-activity-list">
+      {% for item in recent_activity %}
+        <div class="intake-activity-row">
+          <div>
+            <strong>{{ item.label }}</strong>
+            <span>{{ item.summary }}</span>
+          </div>
+          <div class="intake-activity-meta">
+            <span class="intake-activity-status {{ 'is-error' if item.status == 'Error' else '' }}">{{ item.status }}</span>
+            <span>{{ item.timestamp.strftime("%b %d, %Y %I:%M %p") if item.timestamp else "—" }}</span>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state empty-state--compact">
+      <h2>No source activity yet</h2>
+      <p>SAM.gov pulls, Grants.gov pulls, and GovWin uploads will appear here.</p>
+    </div>
+  {% endif %}
 </section>
 
 {% if result %}
@@ -145,4 +266,120 @@
     {% endif %}
   </section>
 {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function renderSourcePullResult(payload, type, fallbackMessage = 'Pull completed.') {
+  const container = document.getElementById('source-pull-result');
+  if (!container) return;
+
+  const failedNaics = Array.isArray(payload.failed_naics) && payload.failed_naics.length
+    ? `<div><strong>Failed NAICS:</strong> ${payload.failed_naics.map(escapeHtml).join(', ')}</div>`
+    : '';
+
+  const retryAfter = payload.retry_after
+    ? `<div><strong>Retry after:</strong> ${escapeHtml(payload.retry_after)}</div>`
+    : '';
+
+  container.hidden = false;
+  container.className = `feed-sam-pull-result alert alert-${type}`;
+  const received = payload.received !== undefined
+    ? `Received ${Number(payload.received || 0)} &middot; `
+    : '';
+  const inserted = payload.inserted !== undefined
+    ? `Inserted ${Number(payload.inserted || 0)} &middot; `
+    : '';
+  const created = payload.created !== undefined
+    ? `Created ${Number(payload.created || 0)} &middot; `
+    : '';
+  container.innerHTML = `
+    <div><strong>${escapeHtml(payload.message || fallbackMessage)}</strong></div>
+    <div style="margin-top:6px;">
+      ${received}
+      ${inserted}
+      ${created}
+      Updated ${Number(payload.updated || 0)} &middot;
+      Skipped ${Number(payload.skipped || 0)} &middot;
+      ${payload.filtered !== undefined ? `Filtered ${Number(payload.filtered || 0)} &middot;` : ''}
+      Errors ${Number(payload.errors || 0)}
+    </div>
+    ${failedNaics}
+    ${retryAfter}
+  `;
+}
+
+async function runSourcePull(buttonId, endpoint, labels) {
+  const button = document.getElementById(buttonId);
+  const result = document.getElementById('source-pull-result');
+  if (!button) return;
+
+  button.disabled = true;
+  button.textContent = 'Pulling...';
+  if (result) {
+    result.hidden = true;
+    result.innerHTML = '';
+    result.className = 'feed-sam-pull-result';
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'Accept': 'application/json'},
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (response.status === 429) {
+      renderSourcePullResult(payload, 'error', labels.error);
+      showToast(payload.message || 'Source quota exceeded. Try again later.', 'error');
+      return;
+    }
+
+    if (!response.ok) {
+      renderSourcePullResult(payload, 'error', labels.error);
+      showToast(payload.message || labels.error, 'error');
+      return;
+    }
+
+    if (payload.status === 'partial_success') {
+      renderSourcePullResult(payload, 'warning', labels.partial);
+      showToast(payload.message || labels.partial, 'error');
+      return;
+    }
+
+    renderSourcePullResult(payload, payload.errors ? 'warning' : 'success', labels.success);
+    showToast(payload.message || labels.success, payload.errors ? 'error' : 'success');
+    window.setTimeout(() => window.location.reload(), 900);
+  } catch (error) {
+    const payload = {message: labels.unavailable, inserted: 0, updated: 0, skipped: 0, filtered: 0, errors: 1};
+    renderSourcePullResult(payload, 'error', labels.error);
+    showToast(payload.message, 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = labels.button;
+  }
+}
+
+document.getElementById('source-sam-pull-button')?.addEventListener('click', () => {
+  runSourcePull('source-sam-pull-button', '/sam/pull-now', {
+    button: 'Pull Now',
+    success: 'SAM pull completed.',
+    partial: 'SAM pull partially completed.',
+    error: 'SAM pull failed.',
+    unavailable: 'Unable to run SAM pull right now.',
+  });
+});
+
+document.getElementById('source-grants-pull-button')?.addEventListener('click', () => {
+  runSourcePull('source-grants-pull-button', '/grants/pull-now', {
+    button: 'Pull Now',
+    success: 'Grants.gov pull completed.',
+    partial: 'Grants.gov pull partially completed.',
+    error: 'Grants.gov pull failed.',
+    unavailable: 'Unable to run Grants.gov pull right now.',
+  });
+});
+</script>
 {% endblock %}

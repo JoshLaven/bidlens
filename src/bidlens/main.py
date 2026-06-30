@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from .database import engine, Base
-from .routes import admin, auth, opportunities, api, settings, company_profile, pursuit_lanes, imports, grants
+from .routes import admin, auth, opportunities, api, settings, company_profile, pursuit_lanes, imports, grants, integrations
 from . import models
 from .routes import sam
 from .scheduler import start_scheduler
@@ -27,6 +27,7 @@ app.include_router(pursuit_lanes.router)
 app.include_router(imports.router)
 app.include_router(sam.router)
 app.include_router(grants.router)
+app.include_router(integrations.router)
 
 @app.get("/health")
 def health():

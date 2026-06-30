@@ -13,6 +13,7 @@ dependencies = [
     "uvicorn>=0.40.0",
     "requests>=2.31.0",
     "apscheduler>=3.10.4",
+    "cryptography>=48.0.0",
     "openai>=1.109.1",
     "pypdf>=5.5.0",
 ]

@@ -1,27 +1,19 @@
 {% extends "base.html" %}
 {% from "_opp_card.html" import opp_card %}
-{% from "_date_filter_controls.html" import date_filter_controls %}
+{% from "_queue_layout.html" import queue_heading, queue_search, queue_toolbar, queue_count %}
 {% block title %}Triage - BidLens{% endblock %}
 {% block content %}
 {% set org_id_param = request.query_params.get('org_id') %}
-{% set org_param = '&org_id=' ~ org_id_param if org_id_param else '' %}
-<div class="page-header">
-  <h1>Triage</h1>
-  <p class="page-subtitle">Review newly ingested opportunities before they enter the qualified feed.</p>
-  <div class="queue-counts" aria-label="Triage counts">
-    <span class="queue-count-pill">Unreviewed ({{ triage_counts.unreviewed }})</span>
-    <span class="queue-count-pill">Qualified ({{ triage_counts.qualified }})</span>
-    <span class="queue-count-pill">Rejected ({{ triage_counts.rejected }})</span>
-  </div>
-</div>
 
-<div class="feed-toolbar feed-toolbar--compact">
-  {{ date_filter_controls('/triage', date_type, date_filter, org_param) }}
-</div>
+{{ queue_heading('Triage', 'Review newly ingested opportunities before they enter the qualified Feed.') }}
+{{ queue_search('/triage', 'triage-search-input', q, sort, direction, none, org_id_param) }}
+{{ queue_toolbar('/triage', 'triage', sort, direction, q, none, org_id_param) }}
 
 {% if triage_enabled and user.current_role == 'admin' %}
   {% include "_source_controls.html" %}
 {% endif %}
+
+{{ queue_count(result_count, q) }}
 
 <div id="opportunity-list" data-list-view="triage">
   {% if opportunities %}
@@ -52,8 +44,13 @@ async function setQualificationStatus(oppId, action) {
     const card = document.getElementById(`opp-card-${oppId}`);
     if (card) {
       card.remove();
+      decrementQueueResultCount();
     }
     showToast(`Opportunity ${data.qualification_status}.`, 'success');
+    document.querySelectorAll('[data-triage-nav-count]').forEach((element) => {
+      const current = Number(element.textContent || '0');
+      element.textContent = String(Math.max(0, current - 1));
+    });
     updateOpportunityEmptyState();
   } catch (error) {
     showToast('Unable to update triage status', 'error');

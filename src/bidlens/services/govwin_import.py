@@ -350,7 +350,7 @@ def upsert_govwin_opportunity(
         db.query(Opportunity)
         .filter(
             Opportunity.organization_id == organization_id,
-            Opportunity.source == SOURCE,
+            Opportunity.source == data["source"],
             Opportunity.source_record_id == data["source_record_id"],
         )
         .one_or_none()

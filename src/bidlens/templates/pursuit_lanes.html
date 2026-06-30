@@ -1,10 +1,15 @@
 {% extends "base.html" %}
+{% set hide_context_sidebar = true %}
 {% block title %}Pursuit Lanes - BidLens{% endblock %}
 {% block content %}
-<div class="page-header">
-  <h1>Pursuit Lanes</h1>
-  <p class="page-subtitle">Group opportunities with simple workspace rules. Lanes add routing metadata only; they do not change feed visibility.</p>
-</div>
+{% set admin_nav_active = 'lanes' %}
+<div class="admin-page-layout">
+  {% include "_admin_nav.html" %}
+  <div class="admin-page-content">
+    <div class="page-header">
+      <h1>Pursuit Lanes</h1>
+      <p class="page-subtitle">Group opportunities with simple workspace rules. Lanes add routing metadata only; they do not change feed visibility.</p>
+    </div>
 
 {% if not can_manage_lanes %}
   <div class="alert alert-warning">You can view pursuit lanes, but only current workspace members can edit them.</div>
@@ -114,4 +119,6 @@
     <p class="muted">No pursuit lanes yet.</p>
   </div>
 {% endfor %}
+  </div>
+</div>
 {% endblock %}

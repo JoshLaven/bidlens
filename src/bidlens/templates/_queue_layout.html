@@ -1,0 +1,88 @@
+{% macro queue_heading(title, description, export_url=none) %}
+  <div class="queue-page-heading">
+    <div class="page-header">
+      <h1>{{ title }}</h1>
+      <p class="page-subtitle">{{ description }}</p>
+    </div>
+    {% if export_url %}
+      <a href="{{ export_url }}" class="btn btn-outline-secondary queue-export-button">Export CSV</a>
+    {% endif %}
+  </div>
+{% endmacro %}
+
+{% macro queue_search(route, input_id, q, sort, direction, current_tab=none, org_id=none, lane_id=none) %}
+  <form method="GET" action="{{ route }}" class="queue-primary-search" role="search">
+    {% if current_tab %}
+      <input type="hidden" name="tab" value="{{ current_tab }}">
+    {% endif %}
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="direction" value="{{ direction }}">
+    {% if lane_id %}
+      <input type="hidden" name="lane_id" value="{{ lane_id }}">
+    {% endif %}
+    {% if org_id %}
+      <input type="hidden" name="org_id" value="{{ org_id }}">
+    {% endif %}
+    <label class="sr-only" for="{{ input_id }}">Search opportunities</label>
+    <span class="queue-search-icon" aria-hidden="true">⌕</span>
+    <input id="{{ input_id }}" type="search" name="q" value="{{ q }}" placeholder="Search by title, agency, keyword, NAICS, or solicitation number">
+    <button type="submit" class="btn btn-primary">Search</button>
+    {% if q %}
+      <a href="{{ route }}?sort={{ sort }}&direction={{ direction }}{% if current_tab %}&tab={{ current_tab }}{% endif %}{% if lane_id %}&lane_id={{ lane_id }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}" class="btn btn-outline-secondary">Clear</a>
+    {% endif %}
+  </form>
+{% endmacro %}
+
+{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none) %}
+  <div class="queue-toolbar" aria-label="Queue organization controls">
+    {% if current_tab %}
+      <div class="tabs queue-toolbar-tabs">
+        <a href="{{ route }}?tab=solicitations&sort={{ sort }}&direction={{ direction }}{% if lane_id %}&lane_id={{ lane_id }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
+        <a href="{{ route }}?tab=rfi&sort={{ sort }}&direction={{ direction }}{% if lane_id %}&lane_id={{ lane_id }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
+      </div>
+    {% endif %}
+
+    <form method="GET" action="{{ route }}" class="queue-sort-form">
+      {% if current_tab %}
+        <input type="hidden" name="tab" value="{{ current_tab }}">
+      {% endif %}
+      <input type="hidden" name="q" value="{{ q }}">
+      {% if lane_id %}
+        <input type="hidden" name="lane_id" value="{{ lane_id }}">
+      {% endif %}
+      {% if org_id %}
+        <input type="hidden" name="org_id" value="{{ org_id }}">
+      {% endif %}
+      <label for="{{ id_prefix }}-sort">Sort by</label>
+      <select id="{{ id_prefix }}-sort" name="sort" onchange="this.form.submit()">
+        <option value="imported" {{ 'selected' if sort == 'imported' else '' }}>Imported</option>
+        <option value="due" {{ 'selected' if sort == 'due' else '' }}>Due Date</option>
+        <option value="agency" {{ 'selected' if sort == 'agency' else '' }}>Agency</option>
+        <option value="title" {{ 'selected' if sort == 'title' else '' }}>Title</option>
+      </select>
+      <label class="sr-only" for="{{ id_prefix }}-sort-direction">Sort direction</label>
+      <select id="{{ id_prefix }}-sort-direction" name="direction" onchange="this.form.submit()">
+        <option value="desc" {{ 'selected' if direction == 'desc' else '' }}>Descending</option>
+        <option value="asc" {{ 'selected' if direction == 'asc' else '' }}>Ascending</option>
+      </select>
+    </form>
+  </div>
+
+  {% if active_lanes %}
+    <div class="queue-lane-row" aria-label="Pursuit lane filter">
+      <span class="feed-toolbar-label">Lane</span>
+      <a href="{{ route }}?{% if current_tab %}tab={{ current_tab }}&{% endif %}sort={{ sort }}&direction={{ direction }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}" class="btn btn-sm {{ 'btn-primary' if not lane_id else 'btn-outline-secondary' }}">All</a>
+      {% for lane in active_lanes %}
+        <a href="{{ route }}?{% if current_tab %}tab={{ current_tab }}&{% endif %}sort={{ sort }}&direction={{ direction }}&lane_id={{ lane.id }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}" class="btn btn-sm {{ 'btn-primary' if lane_id == lane.id else 'btn-outline-secondary' }}">{{ lane.name }}</a>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endmacro %}
+
+{% macro queue_count(result_count, q=none) %}
+  <div class="queue-result-summary">
+    <strong data-queue-result-count>{{ result_count }}</strong>
+    <span data-queue-result-label>{{ 'opportunity' if result_count == 1 else 'opportunities' }}</span>
+    {% if q %}<span>matching “{{ q }}”</span>{% endif %}
+  </div>
+{% endmacro %}

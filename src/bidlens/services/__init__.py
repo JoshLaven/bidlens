@@ -63,6 +63,7 @@ def cast_vote(
     opp_id: int,
     vote: str,  # "PURSUE" or "PASS"
     ui_version: str = "v1",
+    toggle_existing: bool = True,
 ) -> dict:
     """Cast or flip a per-user signal on an opportunity.
 
@@ -94,7 +95,7 @@ def cast_vote(
     if not row:
         row = Vote(org_id=org_id, opp_id=opp_id, user_id=user_id, vote=vote)
         db.add(row)
-    elif row.vote == vote and vote in {"PURSUE", "PASS"}:
+    elif row.vote == vote and vote in {"PURSUE", "PASS"} and toggle_existing:
         row.vote = None
         toggled_off = True
     else:
@@ -234,7 +235,7 @@ def get_vote_user_maps(
         return {}, {}
 
     vote_rows = (
-        db.query(Vote.opp_id, Vote.vote, User.email)
+        db.query(Vote.opp_id, Vote.vote, User.name, User.email)
         .join(User, User.id == Vote.user_id)
         .filter(Vote.org_id == org_id, Vote.opp_id.in_(opp_ids))
         .all()
@@ -242,8 +243,8 @@ def get_vote_user_maps(
 
     pursue_users: dict[int, list[str]] = {}
     pass_users: dict[int, list[str]] = {}
-    for opp_id, vote, email in vote_rows:
-        display_name = (email or "").strip()
+    for opp_id, vote, name, email in vote_rows:
+        display_name = (name or email or "").strip()
         if not display_name:
             continue
         target = pursue_users if vote == "PURSUE" else pass_users if vote == "PASS" else None

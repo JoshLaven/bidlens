@@ -4,11 +4,10 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..auth import get_current_user
+from ..auth import attach_request_user_context, get_current_user
 from ..database import get_db
 from ..models import OrganizationMembership, OpportunityPursuitLaneMatch, PursuitLane, User
 from ..services.pursuit_lanes import parse_list, refresh_lane_matches, refresh_org_lane_matches
-from ..tenancy import current_org_id
 from .opportunities import get_sidebar
 
 router = APIRouter()
@@ -19,7 +18,7 @@ def require_user(request: Request, db: Session):
     user = get_current_user(request, db)
     if not user:
         return None
-    setattr(user, "current_organization_id", current_org_id(request, db, user))
+    attach_request_user_context(request, db, user)
     return user
 
 

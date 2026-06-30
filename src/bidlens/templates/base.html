@@ -5,10 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}BidLens{% endblock %}</title>
     <link rel="stylesheet" href="/static/css/styles.css">
+    <script>
+      try {
+        if (sessionStorage.getItem('bidlens.workSidebarCollapsed') === 'true') {
+          document.documentElement.classList.add('work-sidebar-is-collapsed');
+        }
+      } catch (error) {
+        // Session storage may be unavailable in restricted browser contexts.
+      }
+    </script>
 </head>
 <body>
     {% set nav_org_id = request.query_params.get('org_id') if request is defined else none %}
-    {% set nav_org_q = '?org_id=' ~ nav_org_id if nav_org_id else '' %}
+    {% set nav_org_q = '?org_id=' ~ nav_org_id if nav_org_id and nav_org_id.isdigit() else '' %}
     <nav>
         <div class="container nav-shell">
             <div class="nav-brand">
@@ -17,22 +26,33 @@
             </div>
             <div class="nav-links">
                 {% if user %}
-                    <div class="nav-workspace" aria-label="Workspace sections">
+                    <div class="nav-workspace" aria-label="Primary workspaces">
                       <a href="/{{ nav_org_q }}" class="{{ 'active' if active_page == 'feed' else '' }}">Feed</a>
-                      <a href="/shortlist{{ nav_org_q }}" class="{{ 'active' if active_page == 'shortlist' else '' }}">Team Interested</a>
-                      <a href="/my-shortlist{{ nav_org_q }}" class="{{ 'active' if active_page == 'my_shortlist' else '' }}">My Interested</a>
-                      {% if user.current_role == 'admin' and user.triage_enabled|default(false) %}
-                        <a href="/triage{{ nav_org_q }}" class="{{ 'active' if active_page == 'triage' else '' }}">Triage</a>
-                      {% endif %}
-                      <a href="/pursuit-lanes{{ nav_org_q }}" class="{{ 'active' if active_page == 'pursuit_lanes' else '' }}">Pursuit Lanes</a>
-                      <a href="/company-profile{{ nav_org_q }}" class="{{ 'active' if active_page == 'company_profile' else '' }}">Company Profile</a>
-                      <a href="/imports/govwin{{ nav_org_q }}" class="{{ 'active' if active_page == 'imports' else '' }}">Import</a>
+                      <a href="/my-shortlist{{ nav_org_q }}" class="{{ 'active' if active_page == 'my_shortlist' else '' }}">My Shortlist</a>
+                      <a href="/triage{{ nav_org_q }}" class="{{ 'active' if active_page == 'triage' else '' }}">Triage (<span data-triage-nav-count>{{ user.triage_unreviewed_count|default(0) }}</span>)</a>
                       <a href="/archive{{ nav_org_q }}" class="{{ 'active' if active_page == 'archive' else '' }}">Archive</a>
-                      <a href="/settings{{ nav_org_q }}" class="{{ 'active' if active_page == 'settings' else '' }}">Settings</a>
+                      {% if user.current_role == 'admin' %}
+                        <a href="/integrations{{ nav_org_q }}" class="{{ 'active' if active_page == 'integrations' else '' }}">Integrations</a>
+                      {% endif %}
                     </div>
                     <div class="nav-utility">
-                      <span class="nav-user">{{ user.email }}</span>
-                      <a href="/logout">Logout</a>
+                      <details class="user-menu">
+                        <summary class="user-menu-trigger">
+                          <span class="user-menu-name">{{ user.name or user.email }}</span>
+                          <span class="user-menu-org">{{ user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else user.organization.name if user.organization else 'Workspace' }}</span>
+                        </summary>
+                        <div class="user-menu-panel">
+                          <div class="user-menu-header">
+                            <strong>{{ user.name or user.email }}</strong>
+                            <span>{{ user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else user.organization.name if user.organization else 'Workspace' }}</span>
+                          </div>
+                          <a href="/my-settings{{ nav_org_q }}" class="{{ 'active' if active_page == 'my_settings' else '' }}">My Settings</a>
+                          {% if user.current_role == 'admin' %}
+                            <a href="/administration{{ nav_org_q }}" class="{{ 'active' if active_page == 'administration' else '' }}">Administration</a>
+                          {% endif %}
+                          <a href="/logout">Logout</a>
+                        </div>
+                      </details>
                     </div>
                 {% else %}
                     <a href="/login">Login</a>
@@ -41,7 +61,8 @@
         </div>
     </nav>
     <main>
-      <div class="container layout">
+      {% set show_work_sidebar = user and active_page == 'feed' %}
+      <div class="container layout{% if not show_work_sidebar %} layout--configuration{% endif %}"{% if show_work_sidebar %} data-work-layout{% endif %}>
         <div class="layout-main">
           {% if message %}
             <div class="alert alert-success">{{ message }}</div>
@@ -49,15 +70,26 @@
           {% block content %}{% endblock %}
         </div>
 
-        {% if user %}
-          <aside class="layout-side">
-            <div class="side-card">
-              <div class="side-card-title"><a href="/my-shortlist" class="side-card-link">My Interested – Due Soon</a></div>
-              <div id="sidebar-my-shortlisted-body">
+        {% if show_work_sidebar %}
+          <aside class="layout-side work-sidebar" data-work-sidebar>
+            <button
+              type="button"
+              class="work-sidebar-toggle"
+              data-work-sidebar-toggle
+              aria-label="Collapse My Shortlist sidebar"
+              aria-expanded="true"
+              title="Collapse sidebar"
+            >
+              <span aria-hidden="true" data-work-sidebar-icon>›</span>
+            </button>
+            <div class="work-sidebar-content">
+              <div class="side-card">
+                <div class="side-card-title"><a href="/my-shortlist{{ nav_org_q }}" class="side-card-link">My Shortlist</a></div>
+                <div id="sidebar-my-shortlisted-body">
                 {% if sidebar and sidebar.my_shortlisted and sidebar.my_shortlisted|length > 0 %}
                   <div class="side-list">
                     {% for opp in sidebar.my_shortlisted %}
-                      <a class="side-item" href="/opportunity/{{ opp.id }}">
+                      <a class="side-item" href="/opportunity/{{ opp.id }}{{ nav_org_q }}">
                         <div class="side-item-title">{{ opp.title }}</div>
                         <div class="side-item-meta">
                           <span class="side-muted">Due {{ opp.response_deadline.strftime('%b') }} {{ opp.response_deadline.day }} ({{ opp.days_until_due }}D)</span>
@@ -65,30 +97,11 @@
                       </a>
                     {% endfor %}
                   </div>
-                  <a href="/my-shortlist" class="side-view-all">View all →</a>
+                  <a href="/my-shortlist{{ nav_org_q }}" class="side-view-all">View all →</a>
                 {% else %}
-                  <div class="side-empty">Mark interest to see opportunities here.</div>
+                  <div class="side-empty">Shortlisted opportunities will appear here.</div>
                 {% endif %}
-              </div>
-            </div>
-
-            <div class="side-card">
-              <div class="side-card-title">Following</div>
-              <div id="sidebar-following-body">
-                {% if sidebar and sidebar.following and sidebar.following|length > 0 %}
-                  <div class="side-list">
-                    {% for opp in sidebar.following %}
-                      <a class="side-item" href="/opportunity/{{ opp.id }}">
-                        <div class="side-item-title">{{ opp.title }}</div>
-                        <div class="side-item-meta">
-                          <span class="side-muted">{{ opp.days_until_due }}d</span>
-                        </div>
-                      </a>
-                    {% endfor %}
-                  </div>
-                {% else %}
-                  <div class="side-empty">Not following any yet.</div>
-                {% endif %}
+                </div>
               </div>
             </div>
           </aside>
@@ -98,6 +111,38 @@
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
     <script>
+    (function initializeWorkSidebar() {
+      const sidebar = document.querySelector('[data-work-sidebar]');
+      const toggle = document.querySelector('[data-work-sidebar-toggle]');
+      if (!sidebar || !toggle) return;
+
+      const icon = toggle.querySelector('[data-work-sidebar-icon]');
+      const storageKey = 'bidlens.workSidebarCollapsed';
+
+      function applyState(collapsed) {
+        document.documentElement.classList.toggle('work-sidebar-is-collapsed', collapsed);
+        toggle.setAttribute('aria-expanded', String(!collapsed));
+        toggle.setAttribute(
+          'aria-label',
+          collapsed ? 'Expand My Shortlist sidebar' : 'Collapse My Shortlist sidebar'
+        );
+        toggle.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+        if (icon) icon.textContent = collapsed ? '‹' : '›';
+      }
+
+      applyState(document.documentElement.classList.contains('work-sidebar-is-collapsed'));
+
+      toggle.addEventListener('click', () => {
+        const collapsed = !document.documentElement.classList.contains('work-sidebar-is-collapsed');
+        applyState(collapsed);
+        try {
+          sessionStorage.setItem(storageKey, String(collapsed));
+        } catch (error) {
+          // The visual state still works when session storage is unavailable.
+        }
+      });
+    })();
+
     function escapeHtml(value) {
       return String(value)
         .replaceAll('&', '&amp;')
@@ -243,29 +288,7 @@
 
     function refreshSidebar(sidebar) {
       if (!sidebar) return;
-      renderSidebarSection('sidebar-my-shortlisted-body', sidebar.my_shortlisted || [], 'Mark interest to see opportunities here.', '/my-shortlist');
-      renderSidebarSection('sidebar-following-body', sidebar.following || [], 'Not following any yet.');
-    }
-
-    function applySignalTooltip(signalEl, prefix, users) {
-      if (!signalEl) return;
-      const userList = Array.isArray(users) ? users.filter(Boolean) : [];
-      signalEl.dataset.users = userList.join(', ');
-      const tooltip = signalEl.querySelector('[data-signal-tooltip]');
-      if (userList.length) {
-        const text = `${prefix}: ${userList.join(', ')}`;
-        if (tooltip) {
-          tooltip.textContent = text;
-          tooltip.hidden = false;
-        }
-        signalEl.setAttribute('aria-label', text);
-      } else {
-        if (tooltip) {
-          tooltip.hidden = true;
-          tooltip.textContent = '';
-        }
-        signalEl.removeAttribute('aria-label');
-      }
+      renderSidebarSection('sidebar-my-shortlisted-body', sidebar.my_shortlisted || [], 'Shortlisted opportunities will appear here.', '/my-shortlist');
     }
 
     function updateOpportunityCard(oppId, vote, data) {
@@ -288,41 +311,30 @@
       }
       if (passButton) {
         passButton.className = `btn btn-sm opp-card-button opp-card-button--secondary ${vote === 'PASS' ? 'btn-warning' : 'btn-outline-secondary'}`;
-        passButton.innerHTML = vote === 'PASS' ? '&#10003; Passed' : 'Pass';
+        passButton.innerHTML = vote === 'PASS' ? '&#10003; Archived' : 'Archive';
       }
       if (passHelper) {
         passHelper.hidden = vote === 'PASS';
       }
 
       const pursueCount = Number(data.pursue_count || 0);
-      const passCount = Number(data.pass_count || 0);
       const pursueUsers = Array.isArray(data.pursue_users) ? data.pursue_users : [];
-      const passUsers = Array.isArray(data.pass_users) ? data.pass_users : [];
-      const total = pursueCount + passCount;
-      const signalRow = card.querySelector('[data-signal-container]');
-      const pursueSignal = card.querySelector('[data-signal-pill="pursue"]');
-      const passSignal = card.querySelector('[data-signal-pill="pass"]');
-      const pursueCountEl = card.querySelector('[data-pursue-count]');
-      const passCountEl = card.querySelector('[data-pass-count]');
-
-      if (signalRow) {
-        signalRow.hidden = total === 0;
-      }
-      if (pursueSignal) {
-        pursueSignal.hidden = pursueCount === 0;
-        applySignalTooltip(pursueSignal, 'Interested by', pursueUsers);
-        pursueSignal.classList.toggle('opp-score-flap--fresh', vote === 'PURSUE');
-      }
-      if (passSignal) {
-        passSignal.hidden = passCount === 0;
-        applySignalTooltip(passSignal, 'Passed by', passUsers);
-        passSignal.classList.toggle('opp-score-flap--fresh', vote === 'PASS');
-      }
-      if (pursueCountEl) {
-        pursueCountEl.textContent = `${pursueCount}`;
-      }
-      if (passCountEl) {
-        passCountEl.textContent = `${passCount}`;
+      const currentUserInterested = vote === 'PURSUE';
+      const teammateCount = Math.max(0, pursueCount - (currentUserInterested ? 1 : 0));
+      const teamInterest = card.querySelector('[data-team-interest]');
+      if (teamInterest) {
+        if (currentUserInterested) {
+          teamInterest.textContent = teammateCount === 0
+            ? 'Only you so far'
+            : `You + ${teammateCount} ${teammateCount === 1 ? 'teammate' : 'teammates'}`;
+        } else {
+          teamInterest.textContent = teammateCount === 0
+            ? 'No team interest yet'
+            : `${teammateCount} ${teammateCount === 1 ? 'teammate' : 'teammates'} interested`;
+        }
+        teamInterest.title = pursueUsers.length
+          ? `Interested: ${pursueUsers.join(', ')}`
+          : '';
       }
     }
 
@@ -331,6 +343,16 @@
       const emptyState = document.getElementById('opportunity-empty-state');
       if (!list || !emptyState) return;
       emptyState.hidden = list.querySelectorAll('.opp-card').length > 0;
+    }
+
+    function decrementQueueResultCount() {
+      const count = document.querySelector('[data-queue-result-count]');
+      if (!count) return;
+      const current = Number(count.textContent || '0');
+      const next = Math.max(0, current - 1);
+      count.textContent = String(next);
+      const label = document.querySelector('[data-queue-result-label]');
+      if (label) label.textContent = next === 1 ? 'opportunity' : 'opportunities';
     }
 
     function renderPreviewContent(target, data) {
@@ -416,10 +438,10 @@
       if (!card) return false;
 
       const listView = list.dataset.listView;
-      const showPassed = new URLSearchParams(window.location.search).get('show_passed') === '1';
       return (
         (listView === 'feed' && vote === 'PURSUE') ||
-        (listView === 'feed' && vote === 'PASS' && !showPassed) ||
+        (listView === 'feed' && vote === 'PASS') ||
+        (listView === 'archive' && !vote) ||
         (listView === 'my_shortlist' && !data.in_my_shortlist)
       );
     }
@@ -441,13 +463,11 @@
         window.setTimeout(() => {
           if (shouldRemove) {
             card.remove();
+            decrementQueueResultCount();
             updateOpportunityEmptyState();
           } else {
             card.classList.remove(className);
           }
-          card.querySelectorAll('.opp-score-flap--fresh').forEach((el) => {
-            el.classList.remove('opp-score-flap--fresh');
-          });
           resolve();
         }, 380);
       });
@@ -484,10 +504,10 @@
           vote === 'PURSUE'
             ? (data.in_my_shortlist ? 'Marked interested' : 'Interest removed')
             : data.toggled_off
-              ? 'Pass removed'
+              ? 'Restored to Feed'
             : currentListView === 'my_shortlist'
-              ? 'Removed from My Interested'
-              : 'Opportunity passed';
+              ? 'Removed from My Shortlist'
+              : 'Opportunity archived';
         showToast(message, 'success');
       } catch (error) {
         showToast('Action failed', 'error');

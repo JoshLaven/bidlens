@@ -12,11 +12,10 @@ import requests
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from ..auth import get_current_user
+from ..auth import attach_request_user_context, get_current_user
 from ..config import DOTENV_PATH
 from ..database import get_db
 from ..models import CompanyProfile
-from ..tenancy import current_org_id
 from .opportunities import get_sidebar
 
 
@@ -42,7 +41,7 @@ def require_user(request: Request, db: Session):
     user = get_current_user(request, db)
     if not user:
         return None
-    setattr(user, "current_organization_id", current_org_id(request, db, user))
+    attach_request_user_context(request, db, user)
     return user
 
 

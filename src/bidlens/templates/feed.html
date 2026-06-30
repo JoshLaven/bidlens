@@ -1,87 +1,43 @@
 {% extends "base.html" %}
 {% from "_opp_card.html" import opp_card %}
-{% from "_date_filter_controls.html" import date_filter_controls %}
+{% from "_queue_layout.html" import queue_heading, queue_search, queue_toolbar, queue_count %}
 {% block title %}Feed - BidLens{% endblock %}
 {% block content %}
 {% set lane_param = '&lane_id=' ~ lane_id if lane_id else '' %}
 {% set q_param = '&q=' ~ (q|urlencode) if q else '' %}
 {% set org_id_param = request.query_params.get('org_id') %}
 {% set org_param = '&org_id=' ~ org_id_param if org_id_param else '' %}
-{% set feed_filter_params = '&tab=' ~ current_tab ~ '&sort=newest&show_passed=' ~ show_passed ~ '&show_past_due=' ~ show_past_due ~ lane_param ~ q_param ~ org_param %}
-{% set export_url = '/opportunities/export.csv?view=feed&tab=' ~ current_tab ~ '&sort=' ~ sort ~ '&date_type=' ~ date_type ~ '&date_filter=' ~ date_filter ~ '&date_from=' ~ date_from ~ '&date_to=' ~ date_to ~ '&show_passed=' ~ show_passed ~ '&show_past_due=' ~ show_past_due ~ lane_param ~ q_param ~ org_param %}
-<div class="page-header">
-  <h1>The Feed</h1>
-  <p class="page-subtitle">Process new opportunities as work items, move the right ones forward, and keep the inbox current.</p>
-  {% if queue_counts %}
-    <div class="queue-counts" aria-label="Queue counts">
-      <span class="queue-count-pill">New ({{ queue_counts.new }})</span>
-      <span class="queue-count-pill">My Interested ({{ queue_counts.my_interested }})</span>
-      <span class="queue-count-pill">Passed ({{ queue_counts.passed }})</span>
-    </div>
-  {% endif %}
-</div>
+{% set sort_params = '&sort=' ~ sort ~ '&direction=' ~ direction %}
+{% set export_url = '/opportunities/export.csv?view=feed&tab=' ~ current_tab ~ sort_params ~ lane_param ~ q_param ~ org_param %}
 
-<div class="tabs">
-  <a href="/?tab=solicitations&sort={{ sort }}&date_type={{ date_type }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}{{ lane_param }}{{ q_param }}{{ org_param }}" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">Solicitations</a>
-  <a href="/?tab=rfi&sort={{ sort }}&date_type={{ date_type }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}{{ lane_param }}{{ q_param }}{{ org_param }}" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
-</div>
-
-<div class="feed-toolbar">
-  <div class="controls-left">
-    <div class="controls-left-stack">
-      <form method="GET" action="/" class="feed-search-form" role="search">
-        <input type="hidden" name="tab" value="{{ current_tab }}">
-        <input type="hidden" name="sort" value="{{ sort }}">
-        <input type="hidden" name="date_type" value="{{ date_type }}">
-        <input type="hidden" name="date_filter" value="{{ date_filter }}">
-        <input type="hidden" name="date_from" value="{{ date_from }}">
-        <input type="hidden" name="date_to" value="{{ date_to }}">
-        <input type="hidden" name="show_passed" value="{{ show_passed }}">
-        <input type="hidden" name="show_past_due" value="{{ show_past_due }}">
-        {% if lane_id %}
-          <input type="hidden" name="lane_id" value="{{ lane_id }}">
-        {% endif %}
-        {% if org_id_param %}
-          <input type="hidden" name="org_id" value="{{ org_id_param }}">
-        {% endif %}
-        <label class="sr-only" for="feed-search-input">Search opportunities</label>
-        <input id="feed-search-input" class="feed-search-input" type="search" name="q" value="{{ q }}" placeholder="Search opportunities…">
-        <button type="submit" class="btn btn-sm btn-primary">Search</button>
-        {% if q %}
-          <a href="/?tab={{ current_tab }}&date_type={{ date_type }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}{{ lane_param }}{{ org_param }}" class="btn btn-sm btn-outline-secondary">Clear</a>
-          <span class="feed-search-count">{{ result_count }} result{{ '' if result_count == 1 else 's' }}</span>
-        {% endif %}
-      </form>
-      {{ date_filter_controls('/', date_type, date_filter, feed_filter_params) }}
-      {% if active_lanes %}
-        <div class="feed-toolbar-group feed-toolbar-group--lanes" aria-label="Pursuit lane filter">
-          <span class="feed-toolbar-label">Lane</span>
-          <a href="/?tab={{ current_tab }}&date_type={{ date_type }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}{{ q_param }}{{ org_param }}" class="btn btn-sm {{ 'btn-primary' if not lane_id else 'btn-outline-secondary' }}">All</a>
-          {% for lane in active_lanes %}
-            <a href="/?tab={{ current_tab }}&date_type={{ date_type }}&date_filter={{ date_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&show_passed={{ show_passed }}&show_past_due={{ show_past_due }}&lane_id={{ lane.id }}{{ q_param }}{{ org_param }}" class="btn btn-sm {{ 'btn-primary' if lane_id == lane.id else 'btn-outline-secondary' }}">{{ lane.name }}</a>
-          {% endfor %}
-        </div>
-      {% endif %}
-    </div>
-  </div>
-
-  <div class="controls-includes">
-    <button type="button" class="include-toggle {{ 'is-active' if show_passed == '1' else '' }}" aria-pressed="{{ 'true' if show_passed == '1' else 'false' }}" onclick="toggleQueryParam('show_passed', {{ 'false' if show_passed == '1' else 'true' }})">
-      <span class="include-toggle-label">Include passed</span>
-      <span class="include-toggle-switch" aria-hidden="true"><span class="include-toggle-knob"></span></span>
-    </button>
-    <button type="button" class="include-toggle {{ 'is-active' if show_past_due == '1' else '' }}" aria-pressed="{{ 'true' if show_past_due == '1' else 'false' }}" onclick="toggleQueryParam('show_past_due', {{ 'false' if show_past_due == '1' else 'true' }})">
-      <span class="include-toggle-label">Include past due</span>
-      <span class="include-toggle-switch" aria-hidden="true"><span class="include-toggle-knob"></span></span>
-    </button>
-  </div>
-</div>
+{{ queue_heading('The Feed', 'Process active opportunities, move the right ones forward, and keep the queue current.', export_url) }}
+{{ queue_search('/', 'feed-search-input', q, sort, direction, current_tab, org_id_param, lane_id) }}
+{{ queue_toolbar('/', 'feed', sort, direction, q, current_tab, org_id_param, lane_id, active_lanes) }}
 
 {% if not triage_enabled and user.current_role == 'admin' %}
   {% include "_source_controls.html" %}
 {% endif %}
-<div class="feed-toolbar-actions">
-  <a href="{{ export_url }}" class="btn btn-sm btn-outline-secondary">Export CSV</a>
+
+<div class="feed-queue-summary">
+  {{ queue_count(result_count, q) }}
+  <div class="feed-bulk-actions" data-feed-bulk-actions>
+    <button
+      type="button"
+      class="btn btn-sm btn-outline-secondary"
+      data-archive-selected
+      disabled
+    >
+      Archive selected
+    </button>
+    <button
+      type="button"
+      class="btn btn-sm btn-outline-secondary"
+      data-archive-visible
+      {% if not opportunities %}disabled{% endif %}
+    >
+      Archive all visible
+    </button>
+  </div>
 </div>
 
 <div id="opportunity-list" data-list-view="feed">
@@ -96,17 +52,91 @@
     <p>New opportunities from SAM.gov will appear here.</p>
 </div>
 {% endblock %}
+
 {% block scripts %}
 <script>
-function toggleQueryParam(name, enabled) {
-  const url = new URL(window.location);
-  if (enabled) {
-    url.searchParams.set(name, '1');
-  } else {
-    url.searchParams.delete(name);
+  function feedArchiveCheckboxes() {
+    return Array.from(document.querySelectorAll('[data-feed-archive-checkbox]'));
   }
-  window.location = url.toString();
-}
 
+  function updateFeedBulkActions() {
+    const checkboxes = feedArchiveCheckboxes();
+    const selectedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+    const selectedButton = document.querySelector('[data-archive-selected]');
+    const visibleButton = document.querySelector('[data-archive-visible]');
+
+    if (selectedButton) {
+      selectedButton.disabled = selectedCount === 0;
+      selectedButton.textContent = selectedCount
+        ? `Archive selected (${selectedCount})`
+        : 'Archive selected';
+    }
+    if (visibleButton) {
+      visibleButton.disabled = checkboxes.length === 0;
+    }
+  }
+
+  async function archiveFeedOpportunities(mode) {
+    const checkboxes = feedArchiveCheckboxes();
+    const selected = mode === 'visible'
+      ? checkboxes
+      : checkboxes.filter((checkbox) => checkbox.checked);
+    const oppIds = selected.map((checkbox) => Number(checkbox.value));
+    if (!oppIds.length) return;
+
+    if (
+      mode === 'visible'
+      && !window.confirm(`Archive all ${oppIds.length} visible opportunities?`)
+    ) {
+      return;
+    }
+
+    const actionButtons = document.querySelectorAll(
+      '[data-archive-selected], [data-archive-visible]'
+    );
+    actionButtons.forEach((button) => {
+      button.disabled = true;
+    });
+
+    try {
+      const response = await fetch('/api/votes/bulk-pass', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          opp_ids: oppIds,
+          ui_version: 'v1'
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        showToast(data.detail || 'Unable to archive opportunities', 'error');
+        return;
+      }
+
+      const message = `${data.archived_count} ${data.archived_count === 1 ? 'opportunity' : 'opportunities'} archived`;
+      window.sessionStorage.setItem('bidlensBulkArchiveMessage', message);
+      window.location.reload();
+    } catch (error) {
+      showToast('Unable to archive opportunities', 'error');
+    } finally {
+      updateFeedBulkActions();
+    }
+  }
+
+  document.querySelectorAll('[data-feed-archive-checkbox]').forEach((checkbox) => {
+    checkbox.addEventListener('change', updateFeedBulkActions);
+  });
+  document.querySelector('[data-archive-selected]')?.addEventListener('click', () => {
+    archiveFeedOpportunities('selected');
+  });
+  document.querySelector('[data-archive-visible]')?.addEventListener('click', () => {
+    archiveFeedOpportunities('visible');
+  });
+  const bulkArchiveMessage = window.sessionStorage.getItem('bidlensBulkArchiveMessage');
+  if (bulkArchiveMessage) {
+    window.sessionStorage.removeItem('bidlensBulkArchiveMessage');
+    showToast(bulkArchiveMessage, 'success');
+  }
+  updateFeedBulkActions();
 </script>
 {% endblock %}

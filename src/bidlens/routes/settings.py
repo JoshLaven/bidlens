@@ -4,10 +4,8 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..auth import get_current_user
+from ..auth import attach_request_user_context, get_current_user
 from ..models import OrgProfile, OrganizationMembership
-from ..tenancy import current_org_id
-from ..services.qualification import triage_enabled_for_org
 
 router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
@@ -16,9 +14,7 @@ def require_user(request: Request, db: Session):
     user = get_current_user(request, db)
     if not user:
         return None
-    setattr(user, "current_organization_id", current_org_id(request, db, user))
-    setattr(user, "current_role", _current_user_role(db, user))
-    setattr(user, "triage_enabled", triage_enabled_for_org(db, _user_org_id(user)))
+    attach_request_user_context(request, db, user)
     return user
 
 
@@ -45,6 +41,54 @@ def _is_admin(user) -> bool:
 def _settings_redirect_url(request: Request) -> str:
     query = str(request.url.query or "").strip()
     return f"/settings?{query}" if query else "/settings"
+
+
+@router.get("/my-settings")
+async def my_settings_page(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    return templates.TemplateResponse("my_settings.html", {
+        "request": request,
+        "user": user,
+        "active_page": "my_settings",
+    })
+
+
+@router.get("/administration")
+async def administration_page(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    if not _is_admin(user):
+        return RedirectResponse(url="/", status_code=303)
+
+    org_query = str(request.url.query or "").strip()
+    suffix = f"?{org_query}" if org_query else ""
+    return RedirectResponse(url=f"/imports/govwin{suffix}", status_code=303)
+
+
+@router.get("/salesforce")
+async def salesforce_admin_page(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    if not _is_admin(user):
+        return RedirectResponse(url="/", status_code=303)
+
+    query = str(request.url.query or "").strip()
+    suffix = f"?{query}" if query else ""
+    return RedirectResponse(url=f"/integrations{suffix}#salesforce", status_code=303)
 
 @router.get("/settings")
 async def settings_page(

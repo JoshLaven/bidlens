@@ -4,10 +4,36 @@ from sqlalchemy.orm import Session
 
 from .database import get_db
 from .config import SECRET_KEY, SESSION_COOKIE_NAME
-from .models import User
-from .tenancy import ensure_email_domain_membership
+from .models import Opportunity, OrganizationMembership, User
+from .tenancy import current_organization, ensure_email_domain_membership
+from .services.qualification import triage_enabled_for_org
 
 serializer = URLSafeSerializer(SECRET_KEY)
+
+
+def attach_request_user_context(request: Request, db: Session, user: User) -> User:
+    org = current_organization(request, db, user)
+    membership = (
+        db.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.organization_id == org.id,
+            OrganizationMembership.user_id == user.id,
+        )
+        .first()
+    )
+    triage_unreviewed_count = (
+        db.query(Opportunity)
+        .filter(Opportunity.organization_id == org.id)
+        .filter(Opportunity.decision_state != "ARCHIVED")
+        .filter(Opportunity.qualification_status == "unreviewed")
+        .count()
+    )
+    setattr(user, "current_organization_id", org.id)
+    setattr(user, "current_organization_name", org.name)
+    setattr(user, "current_role", membership.role if membership else "member")
+    setattr(user, "triage_enabled", triage_enabled_for_org(db, org.id))
+    setattr(user, "triage_unreviewed_count", triage_unreviewed_count)
+    return user
 
 def create_session(response: Response, user_id: int):
     token = serializer.dumps({"user_id": user_id})
@@ -32,6 +58,10 @@ def get_current_user(request: Request, db: Session=Depends(get_db),) -> User | N
                 matched_org = ensure_email_domain_membership(db, user)
                 if matched_org:
                     db.commit()
+                try:
+                    attach_request_user_context(request, db, user)
+                except Exception:
+                    pass
             return user
     except Exception:
         pass

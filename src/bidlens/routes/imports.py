@@ -4,12 +4,11 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from ..auth import get_current_user
+from ..auth import attach_request_user_context, get_current_user
 from ..database import get_db
 from ..models import IngestionRun, OrganizationMembership, User
 from ..services.ingestion_runs import record_source_activity
 from ..services.govwin_import import REASON_LABELS, import_govwin_xlsx
-from ..tenancy import current_org_id
 from .opportunities import get_sidebar
 
 router = APIRouter()
@@ -20,8 +19,7 @@ def require_user(request: Request, db: Session):
     user = get_current_user(request, db)
     if not user:
         return None
-    setattr(user, "current_organization_id", current_org_id(request, db, user))
-    setattr(user, "current_role", _current_user_role(db, user))
+    attach_request_user_context(request, db, user)
     return user
 
 
@@ -107,14 +105,87 @@ def _reason_summary_items(run: IngestionRun) -> list[dict]:
     return items
 
 
+def _source_label(source: str | None) -> str:
+    labels = {
+        "sam.gov": "SAM.gov",
+        "grants.gov": "Grants.gov",
+        "govwin_export": "GovWin Upload",
+        "govwin_api": "GovWin API",
+    }
+    return labels.get(source or "", source or "Source")
+
+
+def _activity_status(run: IngestionRun) -> str:
+    return "Error" if (run.error_count or 0) else "Success"
+
+
+def _activity_summary(run: IngestionRun) -> str:
+    parts = []
+    if run.created_count:
+        parts.append(f"created {run.created_count}")
+    if run.updated_count:
+        parts.append(f"updated {run.updated_count}")
+    if run.unchanged_count:
+        parts.append(f"unchanged {run.unchanged_count}")
+    if run.skipped_count:
+        parts.append(f"skipped {run.skipped_count}")
+    if run.error_count:
+        parts.append(f"errors {run.error_count}")
+    if not parts and run.processed_count:
+        parts.append(f"processed {run.processed_count}")
+    return " · ".join(parts) or (run.notes or "Completed")
+
+
+def _recent_activity(db: Session, org_id: int, limit: int = 5) -> list[dict]:
+    runs = (
+        db.query(IngestionRun)
+        .filter(IngestionRun.organization_id == org_id)
+        .order_by(IngestionRun.started_at.desc(), IngestionRun.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "label": _source_label(run.source),
+            "status": _activity_status(run),
+            "summary": _activity_summary(run),
+            "timestamp": run.finished_at or run.started_at,
+        }
+        for run in runs
+    ]
+
+
+def _latest_runs_by_source(db: Session, org_id: int) -> dict[str, IngestionRun]:
+    latest = {}
+    for source in ("sam.gov", "grants.gov", "govwin_export"):
+        latest[source] = (
+            db.query(IngestionRun)
+            .filter(
+                IngestionRun.organization_id == org_id,
+                IngestionRun.source == source,
+            )
+            .order_by(IngestionRun.started_at.desc(), IngestionRun.id.desc())
+            .first()
+        )
+    return latest
+
+
+def _intake_context(request: Request, db: Session, user, result=None, error: str | None = None):
+    org_id = _user_org_id(user)
+    context = _context(request, user, result=result, error=error)
+    context["sidebar"] = get_sidebar(db, user)
+    context["latest_runs"] = _latest_runs_by_source(db, org_id)
+    context["recent_activity"] = _recent_activity(db, org_id)
+    return context
+
+
 @router.get("/imports/govwin")
 async def govwin_import_page(request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    context = _context(request, user)
-    context["sidebar"] = get_sidebar(db, user)
+    context = _intake_context(request, db, user)
     return templates.TemplateResponse("govwin_import.html", context)
 
 
@@ -221,6 +292,5 @@ async def govwin_import_upload(
             )
             db.commit()
 
-    context = _context(request, user, result=result, error=error)
-    context["sidebar"] = get_sidebar(db, user)
+    context = _intake_context(request, db, user, result=result, error=error)
     return templates.TemplateResponse("govwin_import.html", context)

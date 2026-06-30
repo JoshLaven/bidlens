@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}GovWin Integration - BidLens{% endblock %}
+{% block content %}
+<div class="integration-config-header">
+  <a href="/integrations{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="back-link">&larr; Integrations</a>
+  <div class="page-header">
+    <h1>GovWin</h1>
+    <p class="page-subtitle">Configure organization credentials for the future GovWin Web Services connection.</p>
+  </div>
+</div>
+
+{% if saved %}
+  <div class="alert alert-success">GovWin credentials saved.</div>
+{% endif %}
+{% if message %}
+  <div class="alert {{ 'alert-success' if test_result == 'success' or sync_result == 'success' else 'alert-error' }}">{{ message }}</div>
+{% endif %}
+
+<div class="integration-config-layout">
+  <section class="admin-settings-module">
+    <div class="admin-settings-module-header">
+      <h2>Connection</h2>
+      <p>Credentials are encrypted before storage and are never displayed after saving.</p>
+    </div>
+
+    <form method="POST" action="/integrations/govwin{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="integration-credential-form">
+      <label>
+        <span>Client ID</span>
+        <input type="password" name="client_id" autocomplete="new-password" placeholder="{{ 'Saved - enter a value to replace' if credentials_saved else 'Client ID' }}">
+      </label>
+      <label>
+        <span>Client Secret</span>
+        <input type="password" name="client_secret" autocomplete="new-password" placeholder="{{ 'Saved - enter a value to replace' if credentials_saved else 'Client Secret' }}">
+      </label>
+      <label>
+        <span>Username</span>
+        <input type="password" name="username" autocomplete="new-password" placeholder="{{ 'Saved - enter a value to replace' if credentials_saved else 'Username' }}">
+      </label>
+      <label>
+        <span>Password</span>
+        <input type="password" name="password" autocomplete="new-password" placeholder="{{ 'Saved - enter a value to replace' if credentials_saved else 'Password' }}">
+      </label>
+      <button type="submit" class="btn btn-primary">Save Credentials</button>
+    </form>
+  </section>
+
+  <aside class="integration-status-panel">
+    <h2>Status</h2>
+    <dl class="integration-status-list">
+      <div>
+        <dt>Connection Status</dt>
+        <dd>{{ (profile.govwin_connection_status or 'not_connected')|replace('_', ' ')|title if profile else 'Not Connected' }}</dd>
+      </div>
+      {% if profile and profile.govwin_last_tested_at %}
+        <div>
+          <dt>Last Tested</dt>
+          <dd>{{ profile.govwin_last_tested_at.strftime('%b %d, %Y %I:%M %p') }}</dd>
+        </div>
+      {% endif %}
+      {% if profile and profile.govwin_last_sync_at %}
+        <div>
+          <dt>Last Sync</dt>
+          <dd>{{ profile.govwin_last_sync_at.strftime('%b %d, %Y %I:%M %p') }}</dd>
+        </div>
+      {% endif %}
+      {% if profile and profile.govwin_last_sync_status %}
+        <div>
+          <dt>Sync Status</dt>
+          <dd>{{ profile.govwin_last_sync_status|title }}</dd>
+        </div>
+      {% endif %}
+    </dl>
+
+    <div class="integration-status-actions">
+      <form method="POST" action="/integrations/govwin/test{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}">
+        <button type="submit" class="btn btn-outline-secondary" {% if not credentials_saved %}disabled{% endif %}>Test Connection</button>
+      </form>
+      <form method="POST" action="/integrations/govwin/sync{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}">
+        <button type="submit" class="btn btn-primary" {% if not credentials_saved %}disabled{% endif %}>Run Sync</button>
+      </form>
+    </div>
+    <p class="integration-mock-note">These actions use mocked GovWin responses until Web Services documentation is connected.</p>
+  </aside>
+</div>
+{% endblock %}

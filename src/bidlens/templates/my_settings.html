@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% set hide_context_sidebar = true %}
+{% block title %}My Settings - BidLens{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>My Settings</h1>
+  <p class="page-subtitle">User-specific preferences for your BidLens workspace.</p>
+</div>
+
+<div class="personal-settings-grid">
+  <section class="personal-settings-card">
+    <div class="personal-settings-icon personal-settings-icon--account" aria-hidden="true">♙</div>
+    <h2>Account</h2>
+    <ul>
+      <li>Role: {{ user.current_role|default('member')|title }}</li>
+      <li>User: {{ user.name or user.email }}</li>
+    </ul>
+  </section>
+
+  <section class="personal-settings-card">
+    <div class="personal-settings-icon personal-settings-icon--notifications" aria-hidden="true">♢</div>
+    <h2>Notifications</h2>
+    <ul>
+      <li>Email notifications</li>
+      <li>Daily digest preferences</li>
+      <li>Future personal notifications</li>
+    </ul>
+  </section>
+
+  <section class="personal-settings-card">
+    <div class="personal-settings-icon personal-settings-icon--organization" aria-hidden="true">▥</div>
+    <h2>My Organization</h2>
+    <ul>
+      <li>{{ user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else user.organization.name if user.organization else 'Workspace' }}</li>
+      <li>Display only</li>
+    </ul>
+  </section>
+
+  <section class="personal-settings-card">
+    <div class="personal-settings-icon personal-settings-icon--interests" aria-hidden="true">◇</div>
+    <h2>Interests</h2>
+    <ul>
+      <li>My Pursuit Lanes</li>
+      <li>Select lanes to prioritize in Feed</li>
+    </ul>
+  </section>
+</div>
+{% endblock %}
