@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% set hide_context_sidebar = true %}
+{% block title %}Pull Run Details - BidLens{% endblock %}
+{% block content %}
+{% set admin_nav_active = 'history' %}
+<div class="admin-page-layout">
+  {% include "_admin_nav.html" %}
+  <div class="admin-page-content">
+    <a href="/imports/history" class="back-link">← Pull History</a>
+    <div class="page-header admin-page-header">
+      <div>
+        <h1>{{ run.source }} run details</h1>
+        <p class="page-subtitle">
+          {{ run.filename or "Source pull" }}
+          {% if run.finished_at or run.started_at %}
+            · {{ (run.finished_at or run.started_at).strftime("%b %d, %Y %I:%M %p") }}
+          {% endif %}
+        </p>
+      </div>
+    </div>
+
+    <div class="ingestion-run-summary" aria-label="Run summary">
+      <span><strong>{{ run.processed_count or 0 }}</strong> Processed</span>
+      <span><strong>{{ run.created_count or 0 }}</strong> Created</span>
+      <span><strong>{{ run.updated_count or 0 }}</strong> Updated</span>
+      <span><strong>{{ run.unchanged_count or 0 }}</strong> Unchanged</span>
+      <span><strong>{{ run.skipped_count or 0 }}</strong> Skipped</span>
+      <span><strong>{{ run.error_count or 0 }}</strong> Errors</span>
+    </div>
+
+    {% if update_events %}
+      <section class="card pull-update-events">
+        <div class="pull-update-events-header">
+          <div>
+            <h2>Updated Opportunities</h2>
+            <p>{{ update_events|length }} source update{{ "" if update_events|length == 1 else "s" }} detected in this run.</p>
+          </div>
+          <a href="/admin/source-updates?date_from={{ (run.started_at or run.finished_at).strftime('%Y-%m-%d') }}" class="btn btn-outline-secondary">Open full log</a>
+        </div>
+        <div class="pull-update-event-list">
+          {% for event in update_events %}
+            <a href="/admin/source-updates/{{ event.id }}" class="pull-update-event">
+              <div>
+                <strong>{{ event.opportunity.title }}</strong>
+                <span>
+                  {% for field_name in event.changed_fields %}
+                    {{ field_name|replace("_", " ")|title }}{% if not loop.last %}, {% endif %}
+                  {% endfor %}
+                  changed
+                </span>
+              </div>
+              <span class="source-sync-status source-sync-status--{{ event.salesforce_sync_status }}">
+                {% if event.salesforce_sync_status == "succeeded" %}Synced to Salesforce ✓
+                {% elif event.salesforce_sync_status == "failed" %}Salesforce sync failed ✕
+                {% elif event.salesforce_sync_status == "pending" %}Salesforce sync pending
+                {% else %}Not linked to Salesforce{% endif %}
+              </span>
+            </a>
+          {% endfor %}
+        </div>
+      </section>
+    {% elif run.updated_count %}
+      <section class="card pull-update-events">
+        <h2>Updated Opportunities</h2>
+        <p class="muted">This run reports updates but has no linked audit events. It may predate the Source Update Log.</p>
+      </section>
+    {% endif %}
+
+    {% if details %}
+      <section class="card admin-table-card">
+        <div class="table-wrap">
+          <table class="data-table ingestion-detail-table">
+            <thead>
+              <tr>
+                <th>Result</th>
+                <th>Title</th>
+                <th>Source ID</th>
+                <th>Reason</th>
+                <th>Changed fields</th>
+                <th>Matched opportunity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for detail in details %}
+                <tr>
+                  <td>
+                    <span class="ingestion-result ingestion-result--{{ detail.result|replace('_', '-') }}">
+                      {{ detail.result|replace('_', ' ')|title }}
+                    </span>
+                  </td>
+                  <td>{{ detail.title or "—" }}</td>
+                  <td><code>{{ detail.source_record_id or "—" }}</code></td>
+                  <td>
+                    {{ detail.reason }}
+                    {% if detail.error_message %}
+                      <div class="ingestion-detail-error">{{ detail.error_message }}</div>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if detail.changed_fields_json %}
+                      <div class="ingestion-changed-fields">
+                        {% for field_name in detail.changed_fields_json %}
+                          <span>{{ field_name|replace('_', ' ') }}</span>
+                        {% endfor %}
+                      </div>
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if detail.matched_opportunity_id %}
+                      <a href="/opportunity/{{ detail.matched_opportunity_id }}">
+                        Opportunity {{ detail.matched_opportunity_id }}
+                      </a>
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% else %}
+      <div class="empty-state">
+        <h2>No per-record details</h2>
+        <p>This run predates per-record import explanations.</p>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

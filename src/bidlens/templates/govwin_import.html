@@ -32,7 +32,7 @@
       <div class="source-config-identity">
         <h3>SAM.gov</h3>
         <p>Federal opportunity notices and solicitations.</p>
-        <span class="intake-status-pill">Manual pull available</span>
+        <span class="intake-status-pill">{{ "Configured" if sam_config else "Configuration required" }}</span>
       </div>
       <dl class="source-config-meta">
         <div>
@@ -40,8 +40,14 @@
           <dd>{{ (sam_run.finished_at or sam_run.started_at).strftime("%b %d, %Y %I:%M %p") if sam_run else "No pulls yet" }}</dd>
         </div>
         <div>
-          <dt>Schedule</dt>
-          <dd>No BidLens schedule configured</dd>
+          <dt>Criteria</dt>
+          <dd>
+            {% if sam_config %}
+              {{ sam_config.naics_codes|length }} NAICS · {{ sam_config.posted_days_back }} day window · max {{ sam_config.max_records }}
+            {% else %}
+              Configure source intake criteria
+            {% endif %}
+          </dd>
         </div>
         <div>
           <dt>Connection</dt>
@@ -49,7 +55,7 @@
         </div>
       </dl>
       <div class="source-config-action">
-        <button type="button" id="source-sam-pull-button" class="btn btn-sm btn-primary">Pull Now</button>
+        <a href="/admin/sources/sam{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="btn btn-sm btn-primary">{{ "Manage" if sam_config else "Set up SAM.gov" }}</a>
       </div>
     </article>
 

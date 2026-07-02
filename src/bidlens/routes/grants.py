@@ -37,7 +37,7 @@ def _record_grants_source_activity(
         processed_count=int(result.get("received", 0) or 0),
         created_count=int(result.get("created", 0) or 0),
         updated_count=int(result.get("updated", 0) or 0),
-        unchanged_count=0,
+        unchanged_count=int(result.get("unchanged", 0) or 0),
         skipped_count=int(result.get("skipped", 0) or 0),
         error_count=int(result.get("errors", 0) or 0),
         reason_counts=reason_counts,

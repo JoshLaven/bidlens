@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_opp_card.html" import opp_card %}
-{% from "_queue_layout.html" import queue_heading, queue_search, queue_toolbar, queue_count %}
+{% from "_queue_layout.html" import queue_heading, queue_search, queue_toolbar, queue_count, queue_pagination %}
 {% block title %}Feed - BidLens{% endblock %}
 {% block content %}
 {% set lane_param = '&lane_id=' ~ lane_id if lane_id else '' %}
@@ -43,7 +43,7 @@
 <div id="opportunity-list" data-list-view="feed">
 {% if opportunities %}
     {% for opp in opportunities %}
-        {{ opp_card(opp, view='feed', now=now) }}
+        {{ opp_card(opp, view='feed', now=now, show_admin_crm_actions=(user.current_role == 'admin')) }}
     {% endfor %}
 {% endif %}
 </div>
@@ -51,6 +51,7 @@
     <h2>No opportunities in inbox</h2>
     <p>New opportunities from SAM.gov will appear here.</p>
 </div>
+{{ queue_pagination('/', page, total_pages, result_count, page_size, sort, direction, q, current_tab, org_id_param, lane_id) }}
 {% endblock %}
 
 {% block scripts %}

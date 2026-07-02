@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% set hide_context_sidebar = true %}
+{% block title %}Source Update Log - BidLens{% endblock %}
+{% block content %}
+{% set admin_nav_active = 'source_updates' %}
+<div class="admin-page-layout">
+  {% include "_admin_nav.html" %}
+  <div class="admin-page-content">
+    <div class="page-header admin-page-header">
+      <div>
+        <h1>Source Update Log</h1>
+        <p class="page-subtitle">Historical audit of source changes and automatic Salesforce synchronization.</p>
+      </div>
+    </div>
+
+    <form method="get" action="/admin/source-updates" class="source-update-filters card">
+      <label>
+        <span>Source</span>
+        <select name="source">
+          <option value="">All sources</option>
+          {% for source in sources %}
+            <option value="{{ source }}" {{ "selected" if filters.source == source else "" }}>{{ source_label(source) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Salesforce status</span>
+        <select name="status">
+          <option value="">All statuses</option>
+          <option value="succeeded" {{ "selected" if filters.status == "succeeded" else "" }}>Synced</option>
+          <option value="pending" {{ "selected" if filters.status == "pending" else "" }}>Pending</option>
+          <option value="failed" {{ "selected" if filters.status == "failed" else "" }}>Failed</option>
+          <option value="not_linked" {{ "selected" if filters.status == "not_linked" else "" }}>Not Linked</option>
+        </select>
+      </label>
+      <label>
+        <span>From</span>
+        <input type="date" name="date_from" value="{{ filters.date_from }}">
+      </label>
+      <label>
+        <span>To</span>
+        <input type="date" name="date_to" value="{{ filters.date_to }}">
+      </label>
+      <label>
+        <span>Sync result</span>
+        <select name="result">
+          <option value="">All results</option>
+          <option value="success" {{ "selected" if filters.result == "success" else "" }}>Success</option>
+          <option value="failed" {{ "selected" if filters.result == "failed" else "" }}>Failed</option>
+          <option value="not_attempted" {{ "selected" if filters.result == "not_attempted" else "" }}>Not attempted</option>
+        </select>
+      </label>
+      <div class="source-update-filter-actions">
+        <button type="submit" class="btn btn-primary">Apply</button>
+        <a href="/admin/source-updates" class="btn btn-outline-secondary">Clear</a>
+      </div>
+    </form>
+
+    {% if events %}
+      <section class="card admin-table-card">
+        <div class="table-wrap">
+          <table class="data-table source-update-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Source</th>
+                <th>Opportunity Title</th>
+                <th>Source Record ID</th>
+                <th>Changed Fields</th>
+                <th>Salesforce Status</th>
+                <th>Sync Time</th>
+                <th>Result</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for event in events %}
+                <tr>
+                  <td>{{ event.detected_at.strftime("%b %d %H:%M") }}</td>
+                  <td>{{ source_label(event.source) }}</td>
+                  <td>
+                    <a href="/admin/source-updates/{{ event.id }}">{{ event.opportunity.title }}</a>
+                  </td>
+                  <td><code>{{ event.source_record_id }}</code></td>
+                  <td>
+                    <div class="ingestion-changed-fields">
+                      {% for field_name in event.changed_fields %}
+                        <span>{{ field_name|replace("_", " ") }}</span>
+                      {% endfor %}
+                    </div>
+                  </td>
+                  <td>
+                    <span class="source-sync-status source-sync-status--{{ event.salesforce_sync_status }}">
+                      {{ {"succeeded": "Synced", "pending": "Pending", "failed": "Failed", "not_linked": "Not Linked"}.get(event.salesforce_sync_status, event.salesforce_sync_status|title) }}
+                    </span>
+                  </td>
+                  <td>{{ event.salesforce_synced_at.strftime("%H:%M") if event.salesforce_synced_at else "—" }}</td>
+                  <td>
+                    {% if event.salesforce_sync_status == "succeeded" %}Success
+                    {% elif event.salesforce_sync_status == "failed" %}Failed
+                    {% elif event.salesforce_sync_status == "pending" %}Pending
+                    {% else %}Not attempted{% endif %}
+                  </td>
+                  <td><a href="/admin/source-updates/{{ event.id }}" class="admin-row-arrow" aria-label="View source update details">›</a></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="queue-pagination source-update-pagination" aria-label="Source update log pagination">
+          <a
+            class="btn btn-outline-secondary {{ 'disabled' if page <= 1 else '' }}"
+            href="/admin/source-updates?{{ filter_query }}{% if filter_query %}&{% endif %}page={{ page - 1 }}"
+            {% if page <= 1 %}aria-disabled="true" tabindex="-1"{% endif %}
+          >← Previous</a>
+          <span class="queue-pagination-position">Page {{ page }} of {{ total_pages }} · {{ total_events }} events</span>
+          <a
+            class="btn btn-outline-secondary {{ 'disabled' if page >= total_pages else '' }}"
+            href="/admin/source-updates?{{ filter_query }}{% if filter_query %}&{% endif %}page={{ page + 1 }}"
+            {% if page >= total_pages %}aria-disabled="true" tabindex="-1"{% endif %}
+          >Next →</a>
+        </div>
+      </section>
+    {% else %}
+      <div class="empty-state">
+        <h2>No source updates found</h2>
+        <p>Detected changes will appear here automatically. Try clearing the filters if needed.</p>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

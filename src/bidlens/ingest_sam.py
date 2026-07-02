@@ -1,5 +1,6 @@
 import datetime as dt
 import logging
+import math
 import threading
 from typing import Any, Dict, Optional, Set
 
@@ -8,6 +9,9 @@ from sqlalchemy.exc import IntegrityError
 
 from .sam_client import SamRateLimitError, SamTemporaryUnavailableError, resolve_notice_description, search_opportunities
 from .models import Opportunity, IngestionRun
+from .services.ingestion_details import build_error_detail, build_invalid_detail, build_upsert_detail
+from .services.ingestion_runs import record_source_activity
+from .services.opportunity_monitor import apply_source_update
 from .services.qualification import new_opportunity_qualification_status
 from .services.pursuit_lanes import refresh_opportunity_lane_matches
 
@@ -21,6 +25,14 @@ ALLOWED_TYPES = {
     "Special Notice",
     "RFI",
     "Presolicitation",
+}
+
+NOTICE_TYPE_CODES = {
+    "Presolicitation": "p",
+    "Sources Sought": "r",
+    "Special Notice": "s",
+    "Solicitation": "o",
+    "Combined Synopsis/Solicitation": "k",
 }
 
 
@@ -43,8 +55,21 @@ def ingest_sam(
     manual_pull: bool = False,
     enrich_descriptions: bool = False,
     max_description_enrichments: int = 10,
+    keywords: Optional[Set[str]] = None,
+    agencies: Optional[Set[str]] = None,
+    set_asides: Optional[Set[str]] = None,
+    due_days_from: int | None = None,
+    due_days_to: int | None = None,
+    active_only: bool = False,
+    max_records: int | None = None,
+    saved_search_name: str | None = None,
+    run_type: str | None = None,
 ):
     allowed_types = allowed_types or set()
+    keywords = keywords or set()
+    agencies = agencies or set()
+    set_asides = set_asides or set()
+    naics_list = list(dict.fromkeys(code.strip() for code in naics_list if code.strip()))
 
     if not _INGEST_LOCK.acquire(blocking=False):
         raise RuntimeError("A SAM pull is already in progress")
@@ -55,11 +80,12 @@ def ingest_sam(
         db.commit()
         db.refresh(run)
 
-        inserted = updated = skipped = filtered = errors = 0
+        inserted = updated = unchanged = skipped = filtered = errors = 0
         pages_pulled = 0
         records_seen = 0
         search_requests_made = 0
         results: list[dict[str, Any]] = []
+        record_details: list[dict[str, Any]] = []
         stopped_due_to_rate_limit = False
         rate_limit_retry_after_seconds: float | None = None
         rate_limit_retry_after: str | None = None
@@ -72,7 +98,20 @@ def ingest_sam(
             sorted(allowed_types) if allowed_types else "default",
         )
 
-        for index, naics in enumerate(naics_list):
+        agency_scopes = sorted(agencies) if agencies else [None]
+        search_scopes = [
+            (naics, agency_scope)
+            for naics in naics_list
+            for agency_scope in agency_scopes
+        ]
+        for index, (naics, agency_scope) in enumerate(search_scopes):
+            if max_records is not None and records_seen >= max_records:
+                break
+            per_naics_max = None
+            if max_records is not None:
+                remaining_records = max_records - records_seen
+                remaining_scope_count = max(1, len(search_scopes) - index)
+                per_naics_max = max(1, math.ceil(remaining_records / remaining_scope_count))
             try:
                 result = pull_sam_into_db(
                     db,
@@ -84,16 +123,26 @@ def ingest_sam(
                     allow_rate_limit_wait=not manual_pull,
                     enrich_descriptions=enrich_descriptions,
                     max_description_enrichments=max_description_enrichments,
+                    keywords=keywords,
+                    agencies=agencies,
+                    set_asides=set_asides,
+                    due_days_from=due_days_from,
+                    due_days_to=due_days_to,
+                    active_only=active_only,
+                    max_records=per_naics_max,
+                    organization_name=agency_scope,
                 )
 
                 inserted += int(result.get("inserted", 0))
                 updated += int(result.get("updated", 0))
+                unchanged += int(result.get("unchanged", 0))
                 skipped += int(result.get("skipped", 0))
                 filtered += int(result.get("filtered", 0))
                 errors += int(result.get("errors", 0))
                 pages_pulled += int(result.get("pages_pulled", 0))
                 records_seen += int(result.get("records_seen", 0))
                 search_requests_made += int(result.get("search_requests_made", 0))
+                record_details.extend(result.pop("_record_details", []))
 
                 results.append(result)
                 logger.info(
@@ -141,10 +190,11 @@ def ingest_sam(
                     stopped_due_to_rate_limit = True
                     rate_limit_retry_after_seconds = retry_after_seconds
                     rate_limit_retry_after = retry_after
-                    remaining_naics = [item.strip() for item in naics_list[index + 1:] if item.strip()]
-                    for remaining_naics_code in remaining_naics:
+                    remaining_scopes = search_scopes[index + 1:]
+                    for remaining_naics_code, remaining_agency in remaining_scopes:
                         results.append({
                             "naics": remaining_naics_code,
+                            "agency": remaining_agency,
                             "error": "Skipped because SAM.gov rate limited the manual pull.",
                             "error_type": "rate_limited_skipped",
                             "retry_after_seconds": retry_after_seconds,
@@ -163,7 +213,7 @@ def ingest_sam(
                         "Stopping SAM ingest after rate limit run_id=%s naics=%s remaining_naics=%s manual_pull=%s retry_after=%s retry_after_seconds=%s",
                         run.id,
                         naics,
-                        remaining_naics,
+                        remaining_scopes,
                         manual_pull,
                         retry_after,
                         retry_after_seconds,
@@ -171,6 +221,7 @@ def ingest_sam(
                     break
 
         run.inserted_count = inserted + updated
+        run.unchanged_count = unchanged
         run.skipped_count = skipped
         run.filtered_count = filtered
         run.error_count = errors
@@ -207,11 +258,12 @@ def ingest_sam(
             errors,
         )
 
-        return {
+        final_result = {
             "status": status,
             "run_id": run.id,
             "inserted": inserted,
             "updated": updated,
+            "unchanged": unchanged,
             "skipped": skipped,
             "filtered": filtered,
             "errors": errors,
@@ -219,10 +271,38 @@ def ingest_sam(
             "records_seen": records_seen,
             "search_requests_made": search_requests_made,
             "results": results,
+            "_record_details": record_details,
             "stopped_due_to_rate_limit": stopped_due_to_rate_limit,
             "retry_after_seconds": rate_limit_retry_after_seconds,
             "retry_after": rate_limit_retry_after,
+            "max_records": max_records,
+            "saved_search_name": saved_search_name,
+            "run_type": run_type or ("Manual" if manual_pull else "Scheduled"),
         }
+        run_label = final_result["run_type"]
+        filename = (
+            f"{run_label} saved search: {saved_search_name}"
+            if saved_search_name
+            else f"{run_label} SAM.gov pull"
+        )
+        record_source_activity(
+            db,
+            source="sam.gov",
+            organization_id=organization_id,
+            user_id=None,
+            filename=filename,
+            result=final_result,
+            run_id=run.id,
+            processed_count=records_seen,
+            created_count=inserted,
+            updated_count=updated,
+            unchanged_count=unchanged,
+            skipped_count=skipped,
+            error_count=errors,
+            notes=run.notes,
+        )
+        db.commit()
+        return final_result
     finally:
         _INGEST_LOCK.release()
 
@@ -316,7 +396,13 @@ def _description_needs_fetch(description: str | None) -> bool:
     return bool(description) and description.strip().lower().startswith("http")
 
 
-def upsert_opportunity(db: Session, organization_id: int, data: Dict[str, Any]) -> str:
+def upsert_opportunity(
+    db: Session,
+    organization_id: int,
+    data: Dict[str, Any],
+    *,
+    audit: dict[str, Any] | None = None,
+) -> str:
     """
     Returns: "inserted" | "updated" | "skipped"
     Uses source-specific uniqueness; safe under concurrency.
@@ -341,30 +427,125 @@ def upsert_opportunity(db: Session, organization_id: int, data: Dict[str, Any]) 
                     **data,
                     qualification_status=new_opportunity_qualification_status(db, organization_id),
                     upserted_at=dt.datetime.utcnow(),
+                    last_seen_at=dt.datetime.utcnow(),
                 )
                 db.add(opportunity)
                 db.flush()
                 refresh_opportunity_lane_matches(db, organization_id, opportunity)
+                if audit is not None:
+                    audit.update({
+                        "matched_opportunity_id": opportunity.id,
+                        "salesforce_linked": False,
+                        "changed_fields": {},
+                    })
             return "inserted"
         except IntegrityError:
+            if audit is not None:
+                audit["integrity_error"] = True
             logger.info("Skipping duplicate source record source=%s source_record_id=%s", source, source_record_id)
             return "skipped"
 
-    # Update only non-null values (don’t overwrite with None)
-    changed = False
-    for k, v in data.items():
-        if k in {"source", "source_record_id"}:
-            continue
-        if v is not None and getattr(existing, k) != v:
-            setattr(existing, k, v)
-            changed = True
-
-    if changed:
-        existing.upserted_at = dt.datetime.utcnow()
+    monitor_result = apply_source_update(db, existing, data)
+    if audit is not None:
+        audit.update({
+            "matched_opportunity_id": existing.id,
+            "salesforce_linked": bool(existing.salesforce_opportunity_id),
+            "changed_fields": monitor_result.changed_fields,
+            "salesforce_sync_status": monitor_result.salesforce_sync_status,
+            "salesforce_error": monitor_result.salesforce_error,
+            "update_event_id": monitor_result.update_event_id,
+        })
+    if monitor_result.changed:
         refresh_opportunity_lane_matches(db, organization_id, existing)
         return "updated"
 
-    return "skipped"
+    return "unchanged"
+
+
+def _record_matches_source_criteria(
+    record: dict[str, Any],
+    *,
+    keywords: set[str],
+    agencies: set[str],
+    set_asides: set[str],
+    due_date_from: dt.date | None,
+    due_date_to: dt.date | None,
+    active_only: bool,
+) -> bool:
+    if active_only:
+        active_value = record.get("active")
+        if active_value is False or str(active_value or "").strip().casefold() in {
+            "no",
+            "false",
+            "inactive",
+            "archived",
+            "cancelled",
+            "deleted",
+        }:
+            return False
+
+    if keywords:
+        keyword_text = " ".join(
+            str(record.get(key) or "")
+            for key in (
+                "title",
+                "solicitationTitle",
+                "description",
+                "descriptionText",
+                "noticeDescription",
+                "additionalInfo",
+            )
+        ).casefold()
+        if not any(keyword.casefold() in keyword_text for keyword in keywords):
+            return False
+
+    if agencies:
+        agency_text = " ".join(
+            str(record.get(key) or "")
+            for key in (
+                "department",
+                "subTier",
+                "subtier",
+                "office",
+                "organizationName",
+                "fullParentPathName",
+            )
+        ).casefold()
+        if not any(agency.casefold() in agency_text for agency in agencies):
+            return False
+
+    if set_asides:
+        record_set_asides = {
+            str(record.get(key) or "").strip().casefold()
+            for key in (
+                "typeOfSetAside",
+                "typeOfSetAsideDescription",
+                "setAside",
+                "setAsideCode",
+            )
+            if record.get(key)
+        }
+        if not any(
+            configured.casefold() == candidate or configured.casefold() in candidate
+            for configured in set_asides
+            for candidate in record_set_asides
+        ):
+            return False
+
+    if due_date_from is not None or due_date_to is not None:
+        response_deadline = _parse_date(
+            record.get("responseDeadLine")
+            or record.get("responseDeadline")
+            or record.get("reponseDeadLine")
+        )
+        if response_deadline is None:
+            return False
+        if due_date_from is not None and response_deadline < due_date_from:
+            return False
+        if due_date_to is not None and response_deadline > due_date_to:
+            return False
+
+    return True
 
 
 def pull_sam_into_db(
@@ -380,16 +561,38 @@ def pull_sam_into_db(
     allow_rate_limit_wait: bool = True,
     enrich_descriptions: bool = False,
     max_description_enrichments: int = 10,
+    keywords: Optional[Set[str]] = None,
+    agencies: Optional[Set[str]] = None,
+    set_asides: Optional[Set[str]] = None,
+    due_days_from: int | None = None,
+    due_days_to: int | None = None,
+    active_only: bool = False,
+    max_records: int | None = None,
+    organization_name: str | None = None,
 ) -> Dict[str, Any]:
     allowed_types = allowed_types or set()
+    keywords = keywords or set()
+    agencies = agencies or set()
+    set_asides = set_asides or set()
 
     today = dt.date.today()
     posted_from = today - dt.timedelta(days=days_back)
-    posted_to = today  # <-- you referenced posted_to but never defined it
-    offset = 0         # <-- you referenced offset but never defined it
+    posted_to = today
+    due_date_from = (
+        today + dt.timedelta(days=due_days_from)
+        if due_days_from is not None
+        else today if due_days_to is not None else None
+    )
+    due_date_to = (
+        today + dt.timedelta(days=due_days_to)
+        if due_days_to is not None
+        else today + dt.timedelta(days=365) if due_days_from is not None else None
+    )
+    offset = 0
 
     inserted = 0
     updated = 0
+    unchanged = 0
     skipped = 0
     filtered = 0
     errors = 0
@@ -397,14 +600,29 @@ def pull_sam_into_db(
     pages_pulled = 0
     search_requests_made = 0
     description_enrichments = 0
+    record_details: list[dict[str, Any]] = []
 
     for _page in range(max_pages):
+        if max_records is not None and pulled >= max_records:
+            break
+        request_limit = min(
+            limit,
+            max_records - pulled if max_records is not None else limit,
+        )
         try:
             payload = search_opportunities(
                 naics=naics,
                 posted_from=posted_from,
                 posted_to=posted_to,
-                limit=limit,
+                response_deadline_from=due_date_from,
+                response_deadline_to=due_date_to,
+                organization_name=organization_name,
+                procurement_types=[
+                    NOTICE_TYPE_CODES[notice_type]
+                    for notice_type in sorted(allowed_types)
+                    if notice_type in NOTICE_TYPE_CODES
+                ],
+                limit=request_limit,
                 offset=offset,
                 allow_rate_limit_wait=allow_rate_limit_wait,
             )
@@ -414,6 +632,8 @@ def pull_sam_into_db(
             raise
 
         records = payload.get("opportunitiesData") or payload.get("opportunities") or []
+        if max_records is not None:
+            records = records[: max_records - pulled]
         pulled += len(records)
         pages_pulled += 1
         logger.info(
@@ -427,9 +647,43 @@ def pull_sam_into_db(
 
         for rec in records:
             try:
+                if not _record_matches_source_criteria(
+                    rec,
+                    keywords=keywords,
+                    agencies=agencies,
+                    set_asides=set_asides,
+                    due_date_from=due_date_from,
+                    due_date_to=due_date_to,
+                    active_only=active_only,
+                ):
+                    filtered += 1
+                    record_details.append(build_invalid_detail(
+                        source="sam.gov",
+                        source_record_id=str(
+                            rec.get("noticeId") or rec.get("noticeID") or rec.get("id") or ""
+                        ) or None,
+                        title=rec.get("title") or rec.get("solicitationTitle"),
+                        reason="Record did not match the saved SAM.gov source criteria",
+                    ))
+                    continue
                 data = normalize_sam_record(rec, allowed_types)
                 if data is None:
                     filtered += 1
+                    source_record_id = rec.get("noticeId") or rec.get("noticeID") or rec.get("id")
+                    title = rec.get("title") or rec.get("solicitationTitle") or rec.get("fullTitle")
+                    reason = (
+                        "Missing source_record_id"
+                        if not source_record_id
+                        else "Missing required title"
+                        if not title
+                        else "Record did not meet required fields or configured type filters"
+                    )
+                    record_details.append(build_invalid_detail(
+                        source="sam.gov",
+                        source_record_id=str(source_record_id) if source_record_id else None,
+                        title=str(title) if title else None,
+                        reason=reason,
+                    ))
                     continue
 
                 if enrich_descriptions and data.get("description_url") and description_enrichments < max_description_enrichments:
@@ -468,16 +722,33 @@ def pull_sam_into_db(
                         max_description_enrichments,
                     )
 
-                status = upsert_opportunity(db, organization_id, data)
+                audit: dict[str, Any] = {}
+                status = upsert_opportunity(db, organization_id, data, audit=audit)
                 if status == "inserted":
                     inserted += 1
                 elif status == "updated":
                     updated += 1
+                elif status == "unchanged":
+                    unchanged += 1
                 else:
                     skipped += 1
+                record_details.append(build_upsert_detail(
+                    source="sam.gov",
+                    data=data,
+                    status=status,
+                    audit=audit,
+                ))
 
             except Exception as e:
                 errors += 1
+                record_details.append(build_error_detail(
+                    source="sam.gov",
+                    source_record_id=str(
+                        rec.get("noticeId") or rec.get("noticeID") or rec.get("id") or ""
+                    ) or None,
+                    title=rec.get("title") or rec.get("solicitationTitle"),
+                    error=e,
+                ))
                 logger.exception(
                     "SAM record failed naics=%s sam_notice_id=%s error=%s",
                     naics,
@@ -497,12 +768,13 @@ def pull_sam_into_db(
                 repr(e),
             )
 
-        offset += limit
+        offset += request_limit
 
     return {
         "naics": naics,
         "inserted": inserted,
         "updated": updated,
+        "unchanged": unchanged,
         "skipped": skipped,
         "filtered": filtered,
         "errors": errors,
@@ -513,6 +785,7 @@ def pull_sam_into_db(
         "search_requests_made": search_requests_made,
         "description_enrichments": description_enrichments,
         "enrich_descriptions": enrich_descriptions,
+        "_record_details": record_details,
     }
 
 

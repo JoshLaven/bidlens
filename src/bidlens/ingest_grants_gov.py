@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from .grants_gov_client import GrantsGovApiError, fetch_opportunity_detail, search_recent_opportunities
 from .models import Opportunity
+from .services.ingestion_details import build_error_detail, build_invalid_detail, build_upsert_detail
+from .services.opportunity_monitor import apply_source_update
 from .services.qualification import new_opportunity_qualification_status
 from .services.pursuit_lanes import refresh_opportunity_lane_matches
 
@@ -226,7 +228,13 @@ def normalize_grants_gov_record(record: dict[str, Any]) -> tuple[dict[str, Any] 
     }, None
 
 
-def upsert_grants_gov_opportunity(db: Session, organization_id: int, data: dict[str, Any]) -> str:
+def upsert_grants_gov_opportunity(
+    db: Session,
+    organization_id: int,
+    data: dict[str, Any],
+    *,
+    audit: dict[str, Any] | None = None,
+) -> str:
     existing = (
         db.query(Opportunity)
         .filter(
@@ -244,30 +252,38 @@ def upsert_grants_gov_opportunity(db: Session, organization_id: int, data: dict[
                     **data,
                     qualification_status=new_opportunity_qualification_status(db, organization_id),
                     upserted_at=dt.datetime.utcnow(),
+                    last_seen_at=dt.datetime.utcnow(),
                 )
                 db.add(opportunity)
                 db.flush()
                 refresh_opportunity_lane_matches(db, organization_id, opportunity)
+                if audit is not None:
+                    audit.update({
+                        "matched_opportunity_id": opportunity.id,
+                        "salesforce_linked": False,
+                        "changed_fields": {},
+                    })
             return "created"
         except IntegrityError:
+            if audit is not None:
+                audit["integrity_error"] = True
             logger.info("Skipping duplicate Grants.gov source_record_id=%s", data["source_record_id"])
             return "skipped"
 
-    changed = False
-    for key, value in data.items():
-        if key in {"source", "source_record_id"}:
-            continue
-        if value is not None and getattr(existing, key) != value:
-            setattr(existing, key, value)
-            changed = True
-        elif key == "raw_source_payload" and getattr(existing, key) != value:
-            setattr(existing, key, value)
-            changed = True
-    if changed:
-        existing.upserted_at = dt.datetime.utcnow()
+    monitor_result = apply_source_update(db, existing, data)
+    if audit is not None:
+        audit.update({
+            "matched_opportunity_id": existing.id,
+            "salesforce_linked": bool(existing.salesforce_opportunity_id),
+            "changed_fields": monitor_result.changed_fields,
+            "salesforce_sync_status": monitor_result.salesforce_sync_status,
+            "salesforce_error": monitor_result.salesforce_error,
+            "update_event_id": monitor_result.update_event_id,
+        })
+    if monitor_result.changed:
         refresh_opportunity_lane_matches(db, organization_id, existing)
         return "updated"
-    return "skipped"
+    return "unchanged"
 
 
 def enrich_grants_gov_opportunity_detail(db: Session, opportunity: Opportunity) -> bool:
@@ -286,25 +302,22 @@ def enrich_grants_gov_opportunity_detail(db: Session, opportunity: Opportunity) 
         )
         return False
 
-    changed = False
-    for key in (
+    monitored_fields = (
         "description",
         "description_text",
         "solicitation_number",
         "source_url",
         "posted_date",
         "response_deadline",
-        "raw_source_payload",
-    ):
-        value = normalized.get(key)
-        if value is not None and getattr(opportunity, key) != value:
-            setattr(opportunity, key, value)
-            changed = True
-
-    if changed:
-        opportunity.upserted_at = dt.datetime.utcnow()
-        db.commit()
-    return changed
+    )
+    monitor_result = apply_source_update(
+        db,
+        opportunity,
+        normalized,
+        monitored_fields=monitored_fields,
+    )
+    db.commit()
+    return monitor_result.changed
 
 
 def ingest_grants_gov(db: Session, *, organization_id: int, days_back: int = 14, rows: int = 25) -> dict[str, Any]:
@@ -316,12 +329,15 @@ def ingest_grants_gov(db: Session, *, organization_id: int, days_back: int = 14,
         "received": len(records),
         "created": 0,
         "updated": 0,
+        "unchanged": 0,
         "skipped": 0,
         "errors": 0,
         "detail_errors": 0,
         "skipped_reasons": [],
+        "_record_details": [],
     }
     for index, record in enumerate(records, start=1):
+        detail_lookup_error = None
         source_record_id = _clean(
             _first_value(record, "id", "opportunityId", "opportunityID", "opportunity_id", "oppId", "opp_id")
         )
@@ -330,6 +346,7 @@ def ingest_grants_gov(db: Session, *, organization_id: int, days_back: int = 14,
                 detail_payload = fetch_opportunity_detail(source_record_id)
                 record = _merge_detail_payload(record, detail_payload)
             except (GrantsGovApiError, requests.RequestException) as exc:
+                detail_lookup_error = str(exc)
                 result["detail_errors"] += 1
                 result["skipped_reasons"].append(
                     {"row": index, "reason": f"detail lookup failed for {source_record_id}: {exc}"}
@@ -343,22 +360,47 @@ def ingest_grants_gov(db: Session, *, organization_id: int, days_back: int = 14,
         if reason:
             result["skipped"] += 1
             result["skipped_reasons"].append({"row": index, "reason": reason})
+            result["_record_details"].append(build_invalid_detail(
+                source="grants.gov",
+                source_record_id=source_record_id,
+                title=_clean(_first_value(record, "title", "opportunityTitle", "opportunity_title")),
+                reason=reason,
+            ))
             continue
         try:
-            status = upsert_grants_gov_opportunity(db, organization_id, normalized)
+            audit: dict[str, Any] = {}
+            status = upsert_grants_gov_opportunity(db, organization_id, normalized, audit=audit)
             if status == "created":
                 result["created"] += 1
             elif status == "updated":
                 result["updated"] += 1
+            elif status == "unchanged":
+                result["unchanged"] += 1
             else:
                 result["skipped"] += 1
+            record_detail = build_upsert_detail(
+                source="grants.gov",
+                data=normalized,
+                status=status,
+                audit=audit,
+            )
+            if detail_lookup_error and not record_detail.get("error_message"):
+                record_detail["error_message"] = f"Detail lookup failed: {detail_lookup_error}"
+            result["_record_details"].append(record_detail)
         except Exception as exc:
             result["errors"] += 1
             result["skipped_reasons"].append({"row": index, "reason": repr(exc)})
+            result["_record_details"].append(build_error_detail(
+                source="grants.gov",
+                source_record_id=normalized.get("source_record_id"),
+                title=normalized.get("title"),
+                error=exc,
+            ))
             logger.exception("Grants.gov record failed source_record_id=%s", normalized.get("source_record_id"))
     db.commit()
     result["message"] = (
         f"Grants.gov pull completed: {result['received']} received, {result['created']} created, "
-        f"{result['updated']} updated, {result['skipped']} skipped, {result['errors']} errors."
+        f"{result['updated']} updated, {result['unchanged']} unchanged, "
+        f"{result['skipped']} skipped, {result['errors']} errors."
     )
     return result

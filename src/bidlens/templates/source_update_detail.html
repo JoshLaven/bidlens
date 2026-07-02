@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% set hide_context_sidebar = true %}
+{% block title %}Source Update Details - BidLens{% endblock %}
+{% block content %}
+{% set admin_nav_active = 'source_updates' %}
+<div class="admin-page-layout">
+  {% include "_admin_nav.html" %}
+  <div class="admin-page-content">
+    <a href="/admin/source-updates" class="back-link">← Source Update Log</a>
+    <div class="page-header admin-page-header">
+      <div>
+        <h1>{{ event.opportunity.title }}</h1>
+        <p class="page-subtitle">
+          {{ source_label(event.source) }} · {{ event.source_record_id }} ·
+          {{ event.detected_at.strftime("%b %d, %Y %I:%M %p") }}
+        </p>
+      </div>
+      <span class="source-sync-status source-sync-status--{{ event.salesforce_sync_status }}">
+        {{ {"succeeded": "Synced", "pending": "Pending", "failed": "Failed", "not_linked": "Not Linked"}.get(event.salesforce_sync_status, event.salesforce_sync_status|title) }}
+      </span>
+    </div>
+
+    <div class="source-update-link-row">
+      <a class="btn btn-outline-secondary" href="/opportunity/{{ event.opportunity.id }}">BL Opportunity</a>
+      {% if event.opportunity.salesforce_opportunity_url %}
+        <a class="btn btn-outline-secondary" href="{{ event.opportunity.salesforce_opportunity_url }}" target="_blank" rel="noopener">Salesforce Opportunity ↗</a>
+      {% endif %}
+      {% if event.opportunity.source_url or event.opportunity.sam_url %}
+        <a class="btn btn-outline-secondary" href="{{ event.opportunity.source_url or event.opportunity.sam_url }}" target="_blank" rel="noopener">Original Source ↗</a>
+      {% endif %}
+      {% if event.ingestion_run %}
+        <a class="btn btn-outline-secondary" href="/imports/history/{{ event.ingestion_run.id }}">Import Run {{ event.ingestion_run.id }}</a>
+      {% endif %}
+    </div>
+
+    <section class="card source-update-detail-section">
+      <h2>Opportunity information</h2>
+      <dl class="source-update-metadata source-update-metadata--columns">
+        <div><dt>Agency</dt><dd>{{ event.opportunity.agency or "—" }}</dd></div>
+        <div><dt>Opportunity type</dt><dd>{{ event.opportunity.opportunity_type or "—" }}</dd></div>
+        <div><dt>Solicitation number</dt><dd>{{ event.opportunity.solicitation_number or "—" }}</dd></div>
+        <div><dt>Response deadline</dt><dd>{{ event.opportunity.response_deadline.strftime("%b %d, %Y") if event.opportunity.response_deadline else "—" }}</dd></div>
+        <div><dt>Source record ID</dt><dd>{{ event.source_record_id }}</dd></div>
+        <div><dt>Ingestion run</dt><dd>{{ event.ingestion_run.id if event.ingestion_run else "Not recorded" }}</dd></div>
+      </dl>
+    </section>
+
+    <section class="card source-update-detail-section">
+      <h2>Changed fields</h2>
+      <div class="table-wrap">
+        <table class="data-table source-update-diff-table">
+          <thead><tr><th>Field</th><th>Old value</th><th>New value</th></tr></thead>
+          <tbody>
+            {% for field_name, change in event.changed_fields.items() %}
+              <tr>
+                <td>{{ field_name|replace("_", " ")|title }}</td>
+                <td><pre>{{ change.before if change.before is not none else "—" }}</pre></td>
+                <td><pre>{{ change.after if change.after is not none else "—" }}</pre></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="source-update-audit-grid">
+      <section class="card source-update-detail-section">
+        <h2>Salesforce payload sent</h2>
+        <pre class="source-update-json">{{ event.salesforce_payload|tojson(indent=2) if event.salesforce_payload else "No payload sent." }}</pre>
+      </section>
+      <section class="card source-update-detail-section">
+        <h2>Salesforce response</h2>
+        <pre class="source-update-json">{{ event.salesforce_response|tojson(indent=2) if event.salesforce_response else "No response recorded." }}</pre>
+      </section>
+    </div>
+
+    <section class="card source-update-detail-section">
+      <h2>Sync details</h2>
+      <dl class="source-update-metadata">
+        <div><dt>Sync timestamp</dt><dd>{{ event.salesforce_synced_at.strftime("%b %d, %Y %I:%M %p") if event.salesforce_synced_at else "—" }}</dd></div>
+        <div><dt>Salesforce record</dt><dd>{{ event.opportunity.salesforce_opportunity_id or "Not linked" }}</dd></div>
+        <div><dt>Error</dt><dd class="{{ 'source-update-error' if event.salesforce_error else '' }}">{{ event.salesforce_error or "—" }}</dd></div>
+      </dl>
+    </section>
+  </div>
+</div>
+{% endblock %}

@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 
 from ..models import Opportunity
 from .account_type_classifier import classify_account_type
+from .ingestion_details import build_error_detail, build_invalid_detail, build_upsert_detail
+from .opportunity_monitor import apply_source_update
 from .qualification import new_opportunity_qualification_status
 from .pursuit_lanes import refresh_opportunity_lane_matches
 
@@ -39,6 +41,8 @@ REASON_LABELS = {
     "missing_goventity_title": "Missing GovEntity Title",
     "missing_usable_date": "Missing usable Response Date, Created Date, or Solicitation Date",
     "integrity_error": "Duplicate or integrity error",
+    "duplicate_within_import": "Duplicate row within same import file",
+    "import_error": "Import error",
 }
 
 
@@ -282,18 +286,23 @@ def _normalize_row(row: dict[str, Any], row_number: int) -> tuple[dict[str, Any]
     }, None
 
 
-def _apply_govwin_cross_source_metadata(existing: Opportunity, data: dict[str, Any]) -> bool:
+def _apply_govwin_cross_source_metadata(
+    existing: Opportunity,
+    data: dict[str, Any],
+) -> tuple[bool, dict[str, dict[str, Any]]]:
     """Attach safe GovWin metadata to an existing canonical opportunity.
 
     SAM Notice ID is authoritative for cross-source identity, but source-native
     fields from the existing opportunity should remain intact.
     """
     changed = False
+    changed_fields: dict[str, dict[str, Any]] = {}
 
     def set_if_empty(key: str) -> None:
         nonlocal changed
         value = data.get(key)
         if value is not None and not getattr(existing, key):
+            changed_fields[key] = {"before": getattr(existing, key), "after": value}
             setattr(existing, key, value)
             changed = True
 
@@ -304,10 +313,14 @@ def _apply_govwin_cross_source_metadata(existing: Opportunity, data: dict[str, A
         for key in ("account_type", "account_type_confidence", "account_type_source"):
             value = data.get(key)
             if value is not None and getattr(existing, key) != value:
+                changed_fields[key] = {
+                    "before": getattr(existing, key),
+                    "after": value,
+                }
                 setattr(existing, key, value)
                 changed = True
 
-    return changed
+    return changed, changed_fields
 
 
 def _cross_source_sam_match_diagnostic(data: dict[str, Any], existing: Opportunity) -> dict[str, Any]:
@@ -345,6 +358,8 @@ def upsert_govwin_opportunity(
     db: Session,
     organization_id: int,
     data: dict[str, Any],
+    *,
+    audit: dict[str, Any] | None = None,
 ) -> tuple[str, Opportunity | None, dict[str, Any] | None, str]:
     existing = (
         db.query(Opportunity)
@@ -363,12 +378,22 @@ def upsert_govwin_opportunity(
             data.get("sam_notice_id"),
         )
         if existing_by_sam_notice is not None:
-            changed = _apply_govwin_cross_source_metadata(existing_by_sam_notice, data)
+            changed, changed_fields = _apply_govwin_cross_source_metadata(
+                existing_by_sam_notice,
+                data,
+            )
+            existing_by_sam_notice.last_seen_at = dt.datetime.utcnow()
             if changed:
                 existing_by_sam_notice.upserted_at = dt.datetime.utcnow()
                 refresh_opportunity_lane_matches(db, organization_id, existing_by_sam_notice)
             diagnostic = _cross_source_sam_match_diagnostic(data, existing_by_sam_notice)
             reason = "cross_source_sam_notice_match_enriched" if changed else "cross_source_sam_notice_match"
+            if audit is not None:
+                audit.update({
+                    "matched_opportunity_id": existing_by_sam_notice.id,
+                    "salesforce_linked": bool(existing_by_sam_notice.salesforce_opportunity_id),
+                    "changed_fields": changed_fields,
+                })
             return ("updated" if changed else "unchanged"), existing_by_sam_notice, diagnostic, reason
 
         try:
@@ -378,29 +403,46 @@ def upsert_govwin_opportunity(
                     **data,
                     qualification_status=new_opportunity_qualification_status(db, organization_id),
                     upserted_at=dt.datetime.utcnow(),
+                    last_seen_at=dt.datetime.utcnow(),
                 )
                 db.add(opportunity)
                 db.flush()
                 refresh_opportunity_lane_matches(db, organization_id, opportunity)
+                if audit is not None:
+                    audit.update({
+                        "matched_opportunity_id": opportunity.id,
+                        "salesforce_linked": False,
+                        "changed_fields": {},
+                    })
             return "created", opportunity, None, "new_opportunity"
         except IntegrityError:
+            if audit is not None:
+                audit["integrity_error"] = True
             return "skipped", None, None, "integrity_error"
 
-    changed = False
-    for key, value in data.items():
-        if key in {"source", "source_record_id"}:
-            continue
-        if key in {"account_type", "account_type_confidence", "account_type_source"} and existing.account_type_source == "manual":
-            continue
-        if value is not None and getattr(existing, key) != value:
-            setattr(existing, key, value)
-            changed = True
-        elif key == "raw_source_payload" and getattr(existing, key) != value:
-            setattr(existing, key, value)
-            changed = True
-
-    if changed:
-        existing.upserted_at = dt.datetime.utcnow()
+    excluded_fields = ()
+    if existing.account_type_source == "manual":
+        excluded_fields = (
+            "account_type",
+            "account_type_confidence",
+            "account_type_source",
+        )
+    monitor_result = apply_source_update(
+        db,
+        existing,
+        data,
+        excluded_fields=excluded_fields,
+    )
+    if audit is not None:
+        audit.update({
+            "matched_opportunity_id": existing.id,
+            "salesforce_linked": bool(existing.salesforce_opportunity_id),
+            "changed_fields": monitor_result.changed_fields,
+            "salesforce_sync_status": monitor_result.salesforce_sync_status,
+            "salesforce_error": monitor_result.salesforce_error,
+            "update_event_id": monitor_result.update_event_id,
+        })
+    if monitor_result.changed:
         refresh_opportunity_lane_matches(db, organization_id, existing)
         return "updated", existing, None, "existing_govwin_record_changed"
     return "unchanged", existing, None, "existing_govwin_record"
@@ -474,11 +516,14 @@ def import_govwin_xlsx(db: Session, organization_id: int, file_bytes: bytes) -> 
         "updated": 0,
         "unchanged": 0,
         "skipped": 0,
+        "errors": 0,
         "skipped_reasons": [],
         "duplicate_diagnostics": [],
         "reason_counts": {},
         "reason_labels": REASON_LABELS,
+        "_record_details": [],
     }
+    seen_source_records: dict[str, int | None] = {}
     for index, row in enumerate(rows, start=2):
         normalized, reason = _normalize_row(row, index)
         if reason:
@@ -489,8 +534,48 @@ def import_govwin_xlsx(db: Session, organization_id: int, file_bytes: bytes) -> 
                 "reason": REASON_LABELS.get(reason, reason),
                 "reason_code": reason,
             })
+            result["_record_details"].append(build_invalid_detail(
+                source=SOURCE,
+                source_record_id=_clean(row.get("GovWin Staging Name")),
+                title=_clean(row.get("Title")),
+                reason=REASON_LABELS.get(reason, reason),
+            ))
             continue
-        status, opportunity, sam_match_diagnostic, reason_code = upsert_govwin_opportunity(db, organization_id, normalized)
+        source_record_id = normalized["source_record_id"]
+        if source_record_id in seen_source_records:
+            reason_code = "duplicate_within_import"
+            reason_counts[reason_code] += 1
+            result["skipped"] += 1
+            result["_record_details"].append(build_upsert_detail(
+                source=SOURCE,
+                data=normalized,
+                status="skipped",
+                audit={"matched_opportunity_id": seen_source_records[source_record_id]},
+                reason_code=reason_code,
+            ))
+            continue
+
+        audit: dict[str, Any] = {}
+        try:
+            status, opportunity, sam_match_diagnostic, reason_code = upsert_govwin_opportunity(
+                db,
+                organization_id,
+                normalized,
+                audit=audit,
+            )
+        except Exception as exc:
+            reason_counts["import_error"] += 1
+            result["errors"] += 1
+            result["_record_details"].append(build_error_detail(
+                source=SOURCE,
+                source_record_id=source_record_id,
+                title=normalized.get("title"),
+                error=exc,
+            ))
+            continue
+        seen_source_records[source_record_id] = (
+            opportunity.id if opportunity is not None else audit.get("matched_opportunity_id")
+        )
         reason_counts[reason_code] += 1
         if status == "created":
             result["created"] += 1
@@ -505,6 +590,13 @@ def import_govwin_xlsx(db: Session, organization_id: int, file_bytes: bytes) -> 
                 "reason": REASON_LABELS.get(reason_code, "Duplicate or integrity error"),
                 "reason_code": reason_code,
             })
+        result["_record_details"].append(build_upsert_detail(
+            source=SOURCE,
+            data=normalized,
+            status=status,
+            audit=audit,
+            reason_code=reason_code,
+        ))
         if sam_match_diagnostic is not None:
             sam_match_diagnostic["row"] = index
             result["duplicate_diagnostics"].append(sam_match_diagnostic)

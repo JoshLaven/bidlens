@@ -252,23 +252,30 @@ class SalesforceService:
         return self._opportunity_from_record(records[0])
 
     def update_intake_status(self, opportunity_id: str, intake_status: str = PROSPECT_FEED_STATUS) -> None:
+        self.update_opportunity(
+            opportunity_id,
+            {"Intake_Status__c": intake_status},
+        )
+
+    def update_opportunity(self, opportunity_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         response = requests.patch(
             self._api_url(f"sobjects/Opportunity/{opportunity_id}"),
             headers=self._headers(),
-            json={"Intake_Status__c": intake_status},
+            json=payload,
             timeout=20,
         )
         if response.status_code == 401 and self._refresh_access_token():
             response = requests.patch(
                 self._api_url(f"sobjects/Opportunity/{opportunity_id}"),
                 headers=self._headers(),
-                json={"Intake_Status__c": intake_status},
+                json=payload,
                 timeout=20,
             )
         if response.status_code != 204:
             raise SalesforceApiError(
                 f"Salesforce Opportunity update failed: {response.status_code} {response.text}"
             )
+        return {"status_code": response.status_code, "accepted": True}
 
     def create_opportunity(self, payload: dict[str, Any]) -> str:
         response = requests.post(

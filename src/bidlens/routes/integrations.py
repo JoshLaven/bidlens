@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -14,6 +15,7 @@ from ..database import get_db
 from ..models import IngestionRun, OrgProfile
 from ..services.govwin import GovWinAdapter
 from ..services.govwin_import import upsert_govwin_opportunity
+from ..services.ingestion_details import build_error_detail, build_upsert_detail
 from ..services.ingestion_runs import record_source_activity
 from ..services.integration_credentials import decrypt_credentials, encrypt_credentials
 from ..services.salesforce import SalesforceConfigError, SalesforceService
@@ -219,16 +221,36 @@ async def run_govwin_sync(request: Request, db: Session = Depends(get_db)):
         "updated": 0,
         "unchanged": 0,
         "skipped": 0,
+        "errors": 0,
+        "_record_details": [],
     }
     for raw_opportunity in adapter.sync_saved_search():
         result["processed"] += 1
         normalized = adapter.normalize_opportunity(raw_opportunity)
-        status, _opportunity, _diagnostic, _reason = upsert_govwin_opportunity(
-            db,
-            organization_id,
-            normalized,
-        )
-        result[status if status in result else "skipped"] += 1
+        audit: dict[str, Any] = {}
+        try:
+            status, _opportunity, _diagnostic, reason_code = upsert_govwin_opportunity(
+                db,
+                organization_id,
+                normalized,
+                audit=audit,
+            )
+            result[status if status in result else "skipped"] += 1
+            result["_record_details"].append(build_upsert_detail(
+                source="govwin_api",
+                data=normalized,
+                status=status,
+                audit=audit,
+                reason_code=reason_code,
+            ))
+        except Exception as exc:
+            result["errors"] += 1
+            result["_record_details"].append(build_error_detail(
+                source="govwin_api",
+                source_record_id=normalized.get("source_record_id"),
+                title=normalized.get("title"),
+                error=exc,
+            ))
 
     now = datetime.utcnow()
     profile.govwin_connection_status = "connected"

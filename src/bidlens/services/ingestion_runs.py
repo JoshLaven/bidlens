@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ..models import IngestionRun
+from ..models import IngestionRun, IngestionRunDetail, OpportunityUpdateEvent
 
 
 def record_source_activity(
@@ -28,6 +28,7 @@ def record_source_activity(
     notes: str | None = None,
 ) -> IngestionRun:
     result = result or {}
+    detail_payloads = list(result.pop("_record_details", []) or [])
     now = datetime.utcnow()
     run = db.query(IngestionRun).filter(IngestionRun.id == run_id).first() if run_id else None
     if run is None:
@@ -59,5 +60,40 @@ def record_source_activity(
         }
     run.notes = notes if notes is not None else result.get("message") or run.notes
     db.flush()
+    update_event_ids = [
+        detail.get("_update_event_id")
+        for detail in detail_payloads
+        if detail.get("_update_event_id")
+    ]
+    if update_event_ids:
+        (
+            db.query(OpportunityUpdateEvent)
+            .filter(
+                OpportunityUpdateEvent.organization_id == organization_id,
+                OpportunityUpdateEvent.id.in_(update_event_ids),
+            )
+            .update(
+                {OpportunityUpdateEvent.ingestion_run_id: run.id},
+                synchronize_session=False,
+            )
+        )
+    if detail_payloads:
+        db.add_all(
+            [
+                IngestionRunDetail(
+                    ingestion_run_id=run.id,
+                    source=str(detail.get("source") or source),
+                    source_record_id=detail.get("source_record_id"),
+                    title=detail.get("title"),
+                    result=str(detail.get("result") or "error"),
+                    reason=str(detail.get("reason") or "No reason recorded"),
+                    matched_opportunity_id=detail.get("matched_opportunity_id"),
+                    changed_fields_json=detail.get("changed_fields_json"),
+                    error_message=detail.get("error_message"),
+                    processed_at=detail.get("processed_at") or now,
+                )
+                for detail in detail_payloads
+            ]
+        )
     result["run_id"] = run.id
     return run

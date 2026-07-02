@@ -363,6 +363,140 @@ def _select_intake_source_value(values: list[str]) -> str | None:
     return values[0] if values else None
 
 
+class SalesforceCreateValidationError(ValueError):
+    def __init__(self, detail: dict[str, Any]):
+        super().__init__(str(detail.get("message") or "Salesforce create validation failed"))
+        self.detail = detail
+
+
+def _salesforce_create_payload(
+    service: SalesforceService,
+    opp: Opportunity,
+) -> tuple[dict[str, Any], str, list[str]]:
+    close_date = opp.response_deadline or (date.today() + timedelta(days=30))
+    payload: dict[str, Any] = {
+        "Name": _salesforce_opportunity_name(opp),
+        "StageName": "Prospecting",
+        "CloseDate": close_date.isoformat(),
+        "External_Source_ID_c__c": (opp.source_record_id or "").strip(),
+        "Intake_Status__c": PROSPECT_FEED_STATUS,
+    }
+    description = _best_description_text(opp)
+    if description:
+        payload["Description"] = description[:32000]
+
+    required_fields = service.required_createable_opportunity_fields()
+    valid_stage_names = service.stage_name_values()
+    intake_source_values = service.opportunity_picklist_values("Intake_Source_c__c")
+    selected_intake_source = _select_intake_source_value(intake_source_values)
+    if "Prospecting" not in valid_stage_names:
+        raise SalesforceCreateValidationError({
+            "message": "Salesforce StageName 'Prospecting' is not valid in this org.",
+            "valid_stage_names": valid_stage_names,
+            "created": False,
+        })
+    if not selected_intake_source:
+        raise SalesforceCreateValidationError({
+            "message": "Salesforce Intake_Source_c__c has no active picklist values.",
+            "intake_source_values": intake_source_values,
+            "created": False,
+        })
+    payload["Intake_Source_c__c"] = selected_intake_source
+
+    provided_fields = set(payload)
+    missing_required_fields = [
+        field
+        for field in required_fields
+        if field.get("name") and field["name"] not in provided_fields
+    ]
+    if missing_required_fields:
+        raise SalesforceCreateValidationError({
+            "message": "Salesforce Opportunity has required createable fields outside this POC payload.",
+            "missing_required_fields": missing_required_fields,
+            "required_fields": required_fields,
+            "created": False,
+        })
+    return payload, selected_intake_source, intake_source_values
+
+
+def _promote_interested_opportunity_to_salesforce(
+    db: Session,
+    *,
+    user,
+    opp: Opportunity,
+    ui_version: str,
+    service: SalesforceService | None = None,
+) -> dict[str, Any]:
+    if opp.salesforce_opportunity_id or opp.salesforce_opportunity_url:
+        return {
+            "outcome": "already_linked",
+            "message": "Interested · Linked to Salesforce",
+            "salesforce_opportunity_id": opp.salesforce_opportunity_id,
+            "salesforce_opportunity_url": opp.salesforce_opportunity_url,
+        }
+
+    source_record_id = (opp.source_record_id or "").strip()
+    if not source_record_id:
+        raise ValueError("Opportunity is missing source_record_id")
+
+    service = service or SalesforceService()
+    if not service.is_authorized():
+        raise SalesforceConfigError("Salesforce is not connected.")
+
+    sf_opp = service.find_opportunity_by_external_source_id(source_record_id)
+    if sf_opp:
+        service.update_intake_status(sf_opp.id, PROSPECT_FEED_STATUS)
+        salesforce_url = service.opportunity_record_url(sf_opp.id)
+        _record_salesforce_opportunity_reference(
+            db,
+            opp=opp,
+            salesforce_opp_id=sf_opp.id,
+            salesforce_opp_url=salesforce_url,
+            action="pushed",
+        )
+        push_opportunity_to_crm(
+            db,
+            org_id=_user_org_id(user),
+            user_id=user.id,
+            opp_id=opp.id,
+            ui_version=ui_version,
+        )
+        return {
+            "outcome": "linked",
+            "message": "Interested · Linked to Salesforce",
+            "salesforce_opportunity_id": sf_opp.id,
+            "salesforce_opportunity_url": salesforce_url,
+        }
+
+    payload, selected_intake_source, _intake_source_values = _salesforce_create_payload(
+        service,
+        opp,
+    )
+    salesforce_opp_id = service.create_opportunity(payload)
+    salesforce_url = service.opportunity_record_url(salesforce_opp_id)
+    _record_salesforce_opportunity_reference(
+        db,
+        opp=opp,
+        salesforce_opp_id=salesforce_opp_id,
+        salesforce_opp_url=salesforce_url,
+        action="created",
+    )
+    push_opportunity_to_crm(
+        db,
+        org_id=_user_org_id(user),
+        user_id=user.id,
+        opp_id=opp.id,
+        ui_version=ui_version,
+    )
+    return {
+        "outcome": "created",
+        "message": "Interested · Created in Salesforce",
+        "salesforce_opportunity_id": salesforce_opp_id,
+        "salesforce_opportunity_url": salesforce_url,
+        "selected_intake_source": selected_intake_source,
+    }
+
+
 def _clean_optional_text(value: str | None) -> str | None:
     if value is None:
         return None
@@ -622,6 +756,11 @@ class BulkPassIn(BaseModel):
     ui_version: str = "v1"
 
 
+class BulkQualificationIn(BaseModel):
+    opp_ids: list[int]
+    action: str
+
+
 class CrmPushIn(BaseModel):
     opp_id: int
     ui_version: str = "v1"
@@ -686,6 +825,45 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
             vote=payload.vote,
             ui_version=payload.ui_version,
         )
+        salesforce_result = {
+            "outcome": "not_requested",
+            "message": None,
+            "salesforce_opportunity_id": None,
+            "salesforce_opportunity_url": None,
+        }
+        if result["vote"] == "PURSUE":
+            opp = (
+                db.query(Opportunity)
+                .filter(
+                    Opportunity.id == payload.opp_id,
+                    Opportunity.organization_id == _user_org_id(user),
+                )
+                .one()
+            )
+            try:
+                salesforce_result = _promote_interested_opportunity_to_salesforce(
+                    db,
+                    user=user,
+                    opp=opp,
+                    ui_version=payload.ui_version,
+                )
+            except Exception as exc:
+                db.rollback()
+                logger.warning(
+                    "Interested Salesforce promotion failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s user_id=%s error=%s",
+                    opp.id,
+                    opp.source_record_id,
+                    opp.external_source_key,
+                    user.id,
+                    str(exc),
+                )
+                salesforce_result = {
+                    "outcome": "unavailable",
+                    "message": "Interested · Salesforce unavailable",
+                    "warning": "Interest was saved. Salesforce sync is pending.",
+                    "salesforce_opportunity_id": opp.salesforce_opportunity_id,
+                    "salesforce_opportunity_url": opp.salesforce_opportunity_url,
+                }
         workflow_payload = _crm_workflow_response_payload(db, user, payload.opp_id)
 
         return {
@@ -698,6 +876,11 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
             "pursue_users": workflow_payload["pursue_users"],
             "pass_users": workflow_payload["pass_users"],
             "sidebar": workflow_payload["sidebar"],
+            "salesforce_outcome": salesforce_result["outcome"],
+            "salesforce_message": salesforce_result.get("message"),
+            "salesforce_warning": salesforce_result.get("warning"),
+            "salesforce_opportunity_id": salesforce_result.get("salesforce_opportunity_id"),
+            "salesforce_opportunity_url": salesforce_result.get("salesforce_opportunity_url"),
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -889,6 +1072,57 @@ def reject_opportunity(opp_id: int, request: Request, db: Session = Depends(get_
     return _set_qualification_status(opp_id, QUALIFICATION_REJECTED, request, db)
 
 
+@router.post("/opps/bulk-qualification")
+def bulk_set_qualification_status(
+    payload: BulkQualificationIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_admin(request, db)
+    status_by_action = {
+        "qualify": QUALIFICATION_QUALIFIED,
+        "reject": QUALIFICATION_REJECTED,
+    }
+    status = status_by_action.get(payload.action)
+    if status is None:
+        raise HTTPException(status_code=400, detail="Invalid triage action")
+
+    opp_ids = list(dict.fromkeys(payload.opp_ids))
+    if not opp_ids:
+        raise HTTPException(status_code=400, detail="Select at least one opportunity")
+    if len(opp_ids) > 100:
+        raise HTTPException(status_code=400, detail="Bulk triage is limited to 100 opportunities")
+
+    org_id = _user_org_id(user)
+    opportunities = (
+        db.query(Opportunity)
+        .filter(
+            Opportunity.id.in_(opp_ids),
+            Opportunity.organization_id == org_id,
+            Opportunity.decision_state != "ARCHIVED",
+            Opportunity.qualification_status == QUALIFICATION_UNREVIEWED,
+        )
+        .all()
+    )
+    opportunities_by_id = {opportunity.id: opportunity for opportunity in opportunities}
+    if any(opp_id not in opportunities_by_id for opp_id in opp_ids):
+        raise HTTPException(
+            status_code=400,
+            detail="One or more selected opportunities are no longer awaiting triage",
+        )
+
+    for opportunity in opportunities:
+        opportunity.qualification_status = status
+    db.commit()
+    return {
+        "success": True,
+        "action": payload.action,
+        "qualification_status": status,
+        "updated_count": len(opp_ids),
+        "updated_opportunity_ids": opp_ids,
+    }
+
+
 @router.post("/opps/{opp_id}/push-to-crm")
 def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
@@ -1035,18 +1269,6 @@ def api_create_opp_in_salesforce(opp_id: int, request: Request, db: Session = De
     if opp.decision_state == "ARCHIVED":
         raise HTTPException(status_code=400, detail="Cannot create archived opportunities in CRM")
 
-    close_date = opp.response_deadline or (date.today() + timedelta(days=30))
-    payload: dict[str, Any] = {
-        "Name": _salesforce_opportunity_name(opp),
-        "StageName": "Prospecting",
-        "CloseDate": close_date.isoformat(),
-        "External_Source_ID_c__c": source_record_id,
-        "Intake_Status__c": PROSPECT_FEED_STATUS,
-    }
-    description = _best_description_text(opp)
-    if description:
-        payload["Description"] = description[:32000]
-
     service = SalesforceService()
     try:
         if not service.is_authorized():
@@ -1055,44 +1277,12 @@ def api_create_opp_in_salesforce(opp_id: int, request: Request, db: Session = De
                 detail="Salesforce is not authorized yet. Visit /api/salesforce/oauth/start first.",
             )
 
-        required_fields = service.required_createable_opportunity_fields()
-        valid_stage_names = service.stage_name_values()
-        intake_source_values = service.opportunity_picklist_values("Intake_Source_c__c")
-        selected_intake_source = _select_intake_source_value(intake_source_values)
-        if "Prospecting" not in valid_stage_names:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "message": "Salesforce StageName 'Prospecting' is not valid in this org.",
-                    "valid_stage_names": valid_stage_names,
-                    "created": False,
-                },
+        try:
+            payload, selected_intake_source, intake_source_values = (
+                _salesforce_create_payload(service, opp)
             )
-        if not selected_intake_source:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "message": "Salesforce Intake_Source_c__c has no active picklist values.",
-                    "intake_source_values": intake_source_values,
-                    "created": False,
-                },
-            )
-        payload["Intake_Source_c__c"] = selected_intake_source
-
-        provided_fields = set(payload)
-        missing_required_fields = [
-            field for field in required_fields if field.get("name") and field["name"] not in provided_fields
-        ]
-        if missing_required_fields:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "message": "Salesforce Opportunity has required createable fields outside this POC payload.",
-                    "missing_required_fields": missing_required_fields,
-                    "required_fields": required_fields,
-                    "created": False,
-                },
-            )
+        except SalesforceCreateValidationError as exc:
+            raise HTTPException(status_code=400, detail=exc.detail) from exc
 
         salesforce_opp_id = service.create_opportunity(payload)
         salesforce_opp_url = service.opportunity_record_url(salesforce_opp_id)

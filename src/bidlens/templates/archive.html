@@ -13,7 +13,7 @@
 <div id="opportunity-list" data-list-view="archive">
 {% if opportunities %}
   {% for opp in opportunities %}
-    {{ opp_card(opp, view='user_archive', now=now) }}
+    {{ opp_card(opp, view='user_archive', now=now, show_admin_crm_actions=(user.current_role == 'admin')) }}
   {% endfor %}
 {% endif %}
 </div>

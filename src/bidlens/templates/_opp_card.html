@@ -1,4 +1,4 @@
-{% macro opp_card(opp, view='feed', now=none) %}
+{% macro opp_card(opp, view='feed', now=none, show_admin_crm_actions=false) %}
 {% set raw_agency = (opp.agency or '') %}
 {% set agency_parts = raw_agency.split('.') %}
 {% set agency_ns = namespace(display='', fallback='') %}
@@ -34,13 +34,13 @@
   data-opp-id="{{ opp.id }}"
   data-card-view="{{ view }}"
 >
-  {% if view == 'feed' %}
+  {% if view in ['feed', 'triage'] %}
     <label class="opp-card-select" title="Select opportunity">
       <input
         type="checkbox"
         value="{{ opp.id }}"
-        data-feed-archive-checkbox
-        aria-label="Select {{ opp.title }} for bulk archive"
+        {% if view == 'feed' %}data-feed-archive-checkbox{% else %}data-triage-checkbox{% endif %}
+        aria-label="Select {{ opp.title }} for bulk {{ 'archive' if view == 'feed' else 'triage' }}"
       >
       <span class="sr-only">Select {{ opp.title }}</span>
     </label>
@@ -80,14 +80,16 @@
       </div>
       <div class="opp-card-meta-line">
         <div class="opp-card-agency" title="{{ agency_display }}">{{ agency_display|truncate(60, False, '…') }}</div>
-        {% if source_value %}
-          <span class="source-pill" title="Source: {{ source_value }}">{{ source_label }}</span>
-        {% endif %}
-        {% if opp.account_type %}
-          <span class="source-pill" title="Suggested account type">Account: {{ opp.account_type }}</span>
+        {% if view != 'feed' %}
+          {% if source_value %}
+            <span class="source-pill" title="Source: {{ source_value }}">{{ source_label }}</span>
+          {% endif %}
+          {% if opp.account_type %}
+            <span class="source-pill" title="Suggested account type">Account: {{ opp.account_type }}</span>
+          {% endif %}
         {% endif %}
       </div>
-      {% if view != 'triage' %}
+      {% if view != 'triage' and view != 'feed' %}
         <div
           class="opp-card-team-interest"
           data-team-interest
@@ -96,22 +98,26 @@
           {{ opp.team_interest_label or 'No team interest yet' }}
         </div>
       {% endif %}
-      {% if crm_pushed and opp.crm_pushed_by_label %}
+      {% if view != 'feed' and crm_pushed and opp.crm_pushed_by_label %}
         <div class="opp-card-crm-attribution">Pushed to CRM by {{ opp.crm_pushed_by_label }}</div>
       {% endif %}
-      <div class="opp-card-crm-link-row" data-salesforce-link-container {% if not has_salesforce_linkage %}hidden{% endif %}>
-        <span class="opp-card-crm-status" data-salesforce-status>{{ salesforce_status }}</span>
-        {% if salesforce_url %}
-          <a href="{{ salesforce_url }}" target="_blank" rel="noreferrer" class="opp-card-crm-link" data-salesforce-link>
-            Open in Salesforce
-          </a>
-        {% else %}
-          <a href="#" target="_blank" rel="noreferrer" class="opp-card-crm-link" data-salesforce-link hidden></a>
-        {% endif %}
-      </div>
+      {% if view != 'feed' %}
+        <div class="opp-card-crm-link-row" data-salesforce-link-container {% if not has_salesforce_linkage %}hidden{% endif %}>
+          <span class="opp-card-crm-status" data-salesforce-status>{{ salesforce_status }}</span>
+          {% if salesforce_url %}
+            <a href="{{ salesforce_url }}" target="_blank" rel="noreferrer" class="opp-card-crm-link" data-salesforce-link>
+              Open in Salesforce
+            </a>
+          {% else %}
+            <a href="#" target="_blank" rel="noreferrer" class="opp-card-crm-link" data-salesforce-link hidden></a>
+          {% endif %}
+        </div>
+      {% endif %}
       {% if pursuit_lanes %}
         <div class="opp-card-lane-group" aria-label="Matched pursuit lanes">
-          <div class="opp-card-lane-label">Matched Lanes</div>
+          {% if view != 'feed' %}
+            <div class="opp-card-lane-label">Matched Lanes</div>
+          {% endif %}
           <div class="opp-card-lanes">
             {% for lane in pursuit_lanes %}
               {% set lane_reasons = lane.reasons or [] %}
@@ -177,28 +183,32 @@
     </div>
     {% elif view != 'archive' %}
     <div class="opp-card-actions">
-      {% if not has_salesforce_linkage and not crm_pushed %}
-        <button type="button"
-                class="btn btn-sm opp-card-button opp-card-button--primary btn-primary"
-                data-push-crm-button
-                onclick="pushOpportunityToCrm('{{ opp.id }}')">
-          Push to CRM
-        </button>
-      {% elif not has_salesforce_linkage and crm_pushed_by_current_user %}
-        <button type="button"
-                class="btn btn-sm opp-card-button opp-card-button--primary btn-success"
-                data-push-crm-button
-                disabled>
-          &#10003; Pushed to CRM
-        </button>
-      {% endif %}
-      {% if not has_salesforce_linkage %}
-        <button type="button"
-                class="btn btn-sm opp-card-button opp-card-button--secondary btn-outline-secondary"
-                data-create-crm-button
-                onclick="createOpportunityInCrm('{{ opp.id }}')">
-          Create in CRM
-        </button>
+      {% if show_admin_crm_actions %}
+        <div class="opp-card-admin-actions" aria-label="Administrator CRM tools">
+          {% if not has_salesforce_linkage and not crm_pushed %}
+            <button type="button"
+                    class="btn btn-sm opp-card-button opp-card-button--primary btn-primary"
+                    data-push-crm-button
+                    onclick="pushOpportunityToCrm('{{ opp.id }}')">
+              Push to CRM
+            </button>
+          {% elif not has_salesforce_linkage and crm_pushed_by_current_user %}
+            <button type="button"
+                    class="btn btn-sm opp-card-button opp-card-button--primary btn-success"
+                    data-push-crm-button
+                    disabled>
+              &#10003; Pushed to CRM
+            </button>
+          {% endif %}
+          {% if not has_salesforce_linkage %}
+            <button type="button"
+                    class="btn btn-sm opp-card-button opp-card-button--secondary btn-outline-secondary"
+                    data-create-crm-button
+                    onclick="createOpportunityInCrm('{{ opp.id }}')">
+              Create in CRM
+            </button>
+          {% endif %}
+        </div>
       {% endif %}
       <button type="button"
               class="btn btn-sm opp-card-button opp-card-button--primary {{ 'btn-success' if opp.user_vote == 'PURSUE' else 'btn-primary' }}"
@@ -206,8 +216,10 @@
               onclick="voteOpp('{{ opp.id }}', 'PURSUE')">
         {% if opp.user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}
       </button>
-      <div class="opp-card-actions-secondary">
-        <span class="opp-card-pass-label" data-pass-helper {% if opp.user_vote == 'PASS' %}hidden{% endif %}>Not relevant?</span>
+      <div class="opp-card-actions-secondary{% if view == 'feed' %} opp-card-actions-secondary--feed{% endif %}">
+        {% if view != 'feed' %}
+          <span class="opp-card-pass-label" data-pass-helper {% if opp.user_vote == 'PASS' %}hidden{% endif %}>Not relevant?</span>
+        {% endif %}
         <button type="button"
                 class="btn btn-sm opp-card-button opp-card-button--secondary {{ 'btn-warning' if opp.user_vote == 'PASS' else 'btn-outline-secondary' }}"
                 data-vote-button="PASS"
@@ -215,6 +227,45 @@
           {% if opp.user_vote == 'PASS' %}&#10003; Archived{% else %}Archive{% endif %}
         </button>
       </div>
+      {% if view == 'feed' %}
+        <div
+          class="opp-card-team-interest-control"
+          data-team-interest
+        >
+          <button
+            type="button"
+            class="opp-card-team-interest-trigger"
+            aria-label="{{ opp.team_interest_label or 'No team interest yet' }}"
+            aria-describedby="team-interest-tooltip-{{ opp.id }}"
+            data-team-interest-trigger
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+          </button>
+          <div
+            id="team-interest-tooltip-{{ opp.id }}"
+            class="opp-card-team-interest-tooltip"
+            role="tooltip"
+          >
+            <strong>Team interest</strong>
+            <div data-team-interest-list>
+              {% if opp.user_vote == 'PURSUE' %}
+                <span>You</span>
+              {% endif %}
+              {% for teammate in teammate_interest_users %}
+                <span>{{ teammate }}</span>
+              {% endfor %}
+              {% if opp.user_vote != 'PURSUE' and not teammate_interest_users %}
+                <span>No team interest yet</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      {% endif %}
     </div>
     {% else %}
     <div class="opp-card-actions">
@@ -238,6 +289,54 @@
     </summary>
     <div class="opp-card-expanded">
       <div class="opp-detail-grid">
+        {% if view == 'feed' %}
+          {% if source_value %}
+            <div class="opp-detail-row">
+              <span class="opp-detail-label">Source</span>
+              <span class="opp-detail-value">{{ source_label }}</span>
+            </div>
+          {% endif %}
+
+          {% if opp.solicitation_number %}
+            <div class="opp-detail-row">
+              <span class="opp-detail-label">Solicitation #</span>
+              <span class="opp-detail-value">{{ opp.solicitation_number }}</span>
+            </div>
+          {% endif %}
+
+          {% if opp.naics %}
+            <div class="opp-detail-row">
+              <span class="opp-detail-label">NAICS</span>
+              <span class="opp-detail-value">
+                {{ opp.naics }}
+                {% if opp.naics_title %}
+                  <span class="opp-detail-subvalue">{{ opp.naics_title }}</span>
+                {% endif %}
+              </span>
+            </div>
+          {% endif %}
+
+          {% if opp.posted_date %}
+            <div class="opp-detail-row">
+              <span class="opp-detail-label">Posted</span>
+              <span class="opp-detail-value">{{ opp.posted_date.strftime('%b %d, %Y') }}</span>
+            </div>
+          {% endif %}
+
+          <div class="opp-detail-row">
+            <span class="opp-detail-label">Type</span>
+            <span class="opp-detail-value">{{ opp.normalized_opportunity_type or 'Solicitation' }}</span>
+          </div>
+
+          {% if salesforce_url %}
+            <div class="opp-detail-row">
+              <span class="opp-detail-label">Salesforce</span>
+              <span class="opp-detail-value">
+                <a href="{{ salesforce_url }}" target="_blank" rel="noreferrer" class="opp-card-crm-link">Open in Salesforce</a>
+              </span>
+            </div>
+          {% endif %}
+        {% else %}
         {% if opp.opportunity_type %}
           <div class="opp-detail-row">
             <span class="opp-detail-label">Type</span>
@@ -311,6 +410,7 @@
             <span class="opp-detail-label">Activity</span>
             <span class="opp-detail-value">{{ opp.last_activity.strftime('%b %d, %Y') }}</span>
           </div>
+        {% endif %}
         {% endif %}
       </div>
 

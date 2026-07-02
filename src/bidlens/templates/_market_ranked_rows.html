@@ -1,0 +1,15 @@
+{% if rows %}
+  <div class="market-ranked-list">
+    {% for row in rows %}
+      <div class="market-ranked-row">
+        <div>
+          <span title="{{ row.label }}">{% if source_rows is defined and source_rows %}{{ source_label(row.label) }}{% elif account_type_rows is defined and account_type_rows %}{{ account_type_label(row.label) }}{% else %}{{ row.label }}{% endif %}</span>
+          <strong>{{ row.count }}</strong>
+        </div>
+        <div class="market-ranked-track"><i style="width:{{ (row.count * 100 / maximum)|round if maximum else 0 }}%"></i></div>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="muted">No matching activity.</p>
+{% endif %}

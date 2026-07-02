@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from bidlens.database import Base
-from bidlens.models import IngestionRun, Opportunity, Organization, OrgProfile, User
+from bidlens.models import IngestionRun, IngestionRunDetail, Opportunity, Organization, OrgProfile, User
 from bidlens.routes import integrations
 from bidlens.services.govwin import GovWinAdapter
 from bidlens.services.govwin_import import upsert_govwin_opportunity
@@ -129,6 +129,16 @@ class GovWinIntegrationRouteTests(unittest.TestCase):
         self.assertEqual(len(runs), 2)
         self.assertEqual(runs[0].created_count, 2)
         self.assertEqual(runs[1].unchanged_count, 2)
+        details = (
+            self.db.query(IngestionRunDetail)
+            .filter(IngestionRunDetail.ingestion_run_id.in_([run.id for run in runs]))
+            .order_by(IngestionRunDetail.id.asc())
+            .all()
+        )
+        self.assertEqual(
+            [detail.result for detail in details],
+            ["created", "created", "unchanged", "unchanged"],
+        )
 
     def test_existing_govwin_export_source_remains_idempotent(self):
         adapter = GovWinAdapter({})

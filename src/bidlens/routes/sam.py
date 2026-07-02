@@ -8,12 +8,12 @@ from ..database import get_db
 from ..ingest_sam import (
     backfill_opportunity_descriptions,
     ingest_sam,
-    parse_allowed_types,
     sam_ingest_in_progress,
 )
-from ..models import OrgProfile, User
+from ..models import OrganizationMembership, SamSourceConfig
 from ..auth import get_current_user  # <-- adjust this import to your project
 from ..services.ingestion_runs import record_source_activity
+from ..services.sam_source_config import ingest_kwargs
 from ..tenancy import current_org_id
 
 router = APIRouter(prefix="/sam", tags=["sam"])
@@ -24,13 +24,15 @@ def _user_org_id(user) -> int:
 
 
 def require_org_admin(user, db: Session):
-    first_user = (
-        db.query(User)
-        .filter(User.organization_id == _user_org_id(user))
-        .order_by(User.id.asc())
+    membership = (
+        db.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.organization_id == _user_org_id(user),
+            OrganizationMembership.user_id == user.id,
+        )
         .first()
     )
-    if not first_user or first_user.id != user.id:
+    if not membership or membership.role != "admin":
         raise HTTPException(status_code=403, detail="Only the org admin can run this action.")
     return user
 
@@ -62,18 +64,24 @@ def _retry_after_header_value(retry_after: str | None, retry_after_seconds: floa
 
 
 def _record_sam_source_activity(db: Session, *, org_id: int, user_id: int, result: dict) -> None:
+    search_name = result.get("saved_search_name")
+    run_type = result.get("run_type") or "Manual"
     record_source_activity(
         db,
         source="sam.gov",
         organization_id=org_id,
         user_id=user_id,
-        filename="Manual SAM.gov pull",
+        filename=(
+            f"{run_type} saved search: {search_name}"
+            if search_name
+            else f"{run_type} SAM.gov pull"
+        ),
         result=result,
         run_id=result.get("run_id"),
         processed_count=int(result.get("records_seen", 0) or 0),
         created_count=int(result.get("inserted", 0) or 0),
         updated_count=int(result.get("updated", 0) or 0),
-        unchanged_count=0,
+        unchanged_count=int(result.get("unchanged", 0) or 0),
         skipped_count=int(result.get("skipped", 0) or 0),
         error_count=int(result.get("errors", 0) or 0),
         notes=result.get("message"),
@@ -118,11 +126,15 @@ def _record_sam_noop_activity(db: Session, *, org_id: int, user_id: int, reason:
 @router.post("/pull-now", response_model=None)
 def pull_now(
     request: Request,
+    search_id: int | None = None,
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if not user:
+        return JSONResponse(status_code=401, content={"status": "error", "message": "Login required."})
     setattr(user, "current_organization_id", current_org_id(request, db, user))
     org_id = _user_org_id(user)
+    require_org_admin(user, db)
     if sam_ingest_in_progress():
         return JSONResponse(status_code=409, content={
             "status": "busy",
@@ -137,23 +149,21 @@ def pull_now(
             "results": [],
         })
 
-    profile = db.query(OrgProfile).filter(OrgProfile.org_id == org_id).first()
-    if not profile:
-        profile = OrgProfile(org_id=org_id, sam_naics_codes="541611,541690")
-        db.add(profile)
-        db.commit()
-        db.refresh(profile)
-
-    naics_list = [x.strip() for x in (profile.sam_naics_codes or "").split(",") if x.strip()]
-    days_back = profile.sam_days_back or 7
-    allowed_types = parse_allowed_types(profile.sam_allowed_types)
-    if not naics_list:
+    config_query = db.query(SamSourceConfig).filter(SamSourceConfig.organization_id == org_id)
+    if search_id is not None:
+        config_query = config_query.filter(SamSourceConfig.id == search_id)
+    config = config_query.order_by(SamSourceConfig.name.asc(), SamSourceConfig.id.asc()).first()
+    if not config:
         result = _record_sam_noop_activity(
             db,
             org_id=org_id,
             user_id=user.id,
-            reason="missing_sam_naics_codes",
-            message="No NAICS codes are configured for this organization.",
+            reason="missing_sam_source_config",
+            message=(
+                "The selected SAM.gov saved search was not found."
+                if search_id is not None
+                else "Configure a SAM.gov saved search before running a pull."
+            ),
         )
         return JSONResponse(status_code=400, content=result)
 
@@ -161,11 +171,11 @@ def pull_now(
         result = ingest_sam(
             db,
             organization_id=org_id,
-            naics_list=naics_list,
-            days_back=days_back,
-            allowed_types=allowed_types,
             manual_pull=True,
             enrich_descriptions=False,
+            saved_search_name=config.name,
+            run_type="Manual",
+            **ingest_kwargs(config),
         )
     except RuntimeError as exc:
         if str(exc) == "A SAM pull is already in progress":

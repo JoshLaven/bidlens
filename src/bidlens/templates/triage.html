@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_opp_card.html" import opp_card %}
-{% from "_queue_layout.html" import queue_heading, queue_search, queue_toolbar, queue_count %}
+{% from "_queue_layout.html" import queue_heading, queue_search, queue_toolbar, queue_count, queue_pagination %}
 {% block title %}Triage - BidLens{% endblock %}
 {% block content %}
 {% set org_id_param = request.query_params.get('org_id') %}
@@ -13,12 +13,48 @@
   {% include "_source_controls.html" %}
 {% endif %}
 
-{{ queue_count(result_count, q) }}
+<div class="feed-queue-summary">
+  {{ queue_count(result_count, q) }}
+  <div class="triage-bulk-actions" data-triage-bulk-actions>
+    <button
+      type="button"
+      class="btn btn-sm btn-primary"
+      data-triage-selected="qualify"
+      disabled
+    >
+      Qualify selected
+    </button>
+    <button
+      type="button"
+      class="btn btn-sm btn-outline-secondary"
+      data-triage-selected="reject"
+      disabled
+    >
+      Reject selected
+    </button>
+    <button
+      type="button"
+      class="btn btn-sm btn-outline-secondary"
+      data-triage-visible="qualify"
+      {% if not opportunities %}disabled{% endif %}
+    >
+      Qualify all visible
+    </button>
+    <button
+      type="button"
+      class="btn btn-sm btn-outline-secondary"
+      data-triage-visible="reject"
+      {% if not opportunities %}disabled{% endif %}
+    >
+      Reject all visible
+    </button>
+  </div>
+</div>
 
 <div id="opportunity-list" data-list-view="triage">
   {% if opportunities %}
     {% for opp in opportunities %}
-      {{ opp_card(opp, view='triage', now=now) }}
+      {{ opp_card(opp, view='triage', now=now, show_admin_crm_actions=(user.current_role == 'admin')) }}
     {% endfor %}
   {% endif %}
 </div>
@@ -27,10 +63,84 @@
   <h2>No opportunities waiting for triage</h2>
   <p>New imports will appear here before they enter the Feed.</p>
 </div>
+{{ queue_pagination('/triage', page, total_pages, result_count, page_size, sort, direction, q, none, org_id_param) }}
 {% endblock %}
 
 {% block scripts %}
 <script>
+function triageCheckboxes() {
+  return Array.from(document.querySelectorAll('[data-triage-checkbox]'));
+}
+
+function updateTriageBulkActions() {
+  const checkboxes = triageCheckboxes();
+  const selectedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+
+  document.querySelectorAll('[data-triage-selected]').forEach((button) => {
+    const actionLabel = button.dataset.triageSelected === 'qualify' ? 'Qualify' : 'Reject';
+    button.disabled = selectedCount === 0;
+    button.textContent = selectedCount
+      ? `${actionLabel} selected (${selectedCount})`
+      : `${actionLabel} selected`;
+  });
+  document.querySelectorAll('[data-triage-visible]').forEach((button) => {
+    button.disabled = checkboxes.length === 0;
+  });
+}
+
+async function bulkSetQualificationStatus(action, mode) {
+  const checkboxes = triageCheckboxes();
+  const selected = mode === 'visible'
+    ? checkboxes
+    : checkboxes.filter((checkbox) => checkbox.checked);
+  const oppIds = selected.map((checkbox) => Number(checkbox.value));
+  if (!oppIds.length) return;
+
+  if (
+    mode === 'visible'
+    && !window.confirm(
+      `${action === 'qualify' ? 'Qualify' : 'Reject'} all ${oppIds.length} visible opportunities?`
+    )
+  ) {
+    return;
+  }
+
+  const actionButtons = document.querySelectorAll(
+    '[data-triage-selected], [data-triage-visible]'
+  );
+  actionButtons.forEach((button) => {
+    button.disabled = true;
+  });
+
+  try {
+    const response = await fetch('/api/opps/bulk-qualification', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        opp_ids: oppIds,
+        action: action
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      showToast(data.detail || 'Unable to update triage opportunities', 'error');
+      return;
+    }
+
+    const actionLabel = action === 'qualify' ? 'qualified' : 'rejected';
+    const noun = data.updated_count === 1 ? 'opportunity' : 'opportunities';
+    window.sessionStorage.setItem(
+      'bidlensBulkTriageMessage',
+      `${data.updated_count} ${noun} ${actionLabel}`
+    );
+    window.location.reload();
+  } catch (error) {
+    showToast('Unable to update triage opportunities', 'error');
+  } finally {
+    updateTriageBulkActions();
+  }
+}
+
 async function setQualificationStatus(oppId, action) {
   const endpoint = `/api/opps/${oppId}/${action}`;
   try {
@@ -52,9 +162,30 @@ async function setQualificationStatus(oppId, action) {
       element.textContent = String(Math.max(0, current - 1));
     });
     updateOpportunityEmptyState();
+    updateTriageBulkActions();
   } catch (error) {
     showToast('Unable to update triage status', 'error');
   }
 }
+
+document.querySelectorAll('[data-triage-checkbox]').forEach((checkbox) => {
+  checkbox.addEventListener('change', updateTriageBulkActions);
+});
+document.querySelectorAll('[data-triage-selected]').forEach((button) => {
+  button.addEventListener('click', () => {
+    bulkSetQualificationStatus(button.dataset.triageSelected, 'selected');
+  });
+});
+document.querySelectorAll('[data-triage-visible]').forEach((button) => {
+  button.addEventListener('click', () => {
+    bulkSetQualificationStatus(button.dataset.triageVisible, 'visible');
+  });
+});
+const bulkTriageMessage = window.sessionStorage.getItem('bidlensBulkTriageMessage');
+if (bulkTriageMessage) {
+  window.sessionStorage.removeItem('bidlensBulkTriageMessage');
+  showToast(bulkTriageMessage, 'success');
+}
+updateTriageBulkActions();
 </script>
 {% endblock %}

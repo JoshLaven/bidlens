@@ -47,6 +47,7 @@
                             <span>{{ user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else user.organization.name if user.organization else 'Workspace' }}</span>
                           </div>
                           <a href="/my-settings{{ nav_org_q }}" class="{{ 'active' if active_page == 'my_settings' else '' }}">My Settings</a>
+                          <a href="/company-profile{{ nav_org_q }}" class="{{ 'active' if active_page == 'company_profile' else '' }}">Company Profile</a>
                           {% if user.current_role == 'admin' %}
                             <a href="/administration{{ nav_org_q }}" class="{{ 'active' if active_page == 'administration' else '' }}">Administration</a>
                           {% endif %}
@@ -323,18 +324,42 @@
       const teammateCount = Math.max(0, pursueCount - (currentUserInterested ? 1 : 0));
       const teamInterest = card.querySelector('[data-team-interest]');
       if (teamInterest) {
+        let teamInterestLabel = '';
         if (currentUserInterested) {
-          teamInterest.textContent = teammateCount === 0
+          teamInterestLabel = teammateCount === 0
             ? 'Only you so far'
             : `You + ${teammateCount} ${teammateCount === 1 ? 'teammate' : 'teammates'}`;
         } else {
-          teamInterest.textContent = teammateCount === 0
+          teamInterestLabel = teammateCount === 0
             ? 'No team interest yet'
             : `${teammateCount} ${teammateCount === 1 ? 'teammate' : 'teammates'} interested`;
         }
-        teamInterest.title = pursueUsers.length
-          ? `Interested: ${pursueUsers.join(', ')}`
-          : '';
+
+        const teamInterestTrigger = teamInterest.querySelector('[data-team-interest-trigger]');
+        const teamInterestList = teamInterest.querySelector('[data-team-interest-list]');
+        if (teamInterestTrigger && teamInterestList) {
+          teamInterestTrigger.setAttribute('aria-label', teamInterestLabel);
+          teamInterestList.replaceChildren();
+          const interestedNames = pursueUsers.length
+            ? pursueUsers
+            : (currentUserInterested ? ['You'] : []);
+          if (interestedNames.length) {
+            interestedNames.forEach((name) => {
+              const item = document.createElement('span');
+              item.textContent = name;
+              teamInterestList.appendChild(item);
+            });
+          } else {
+            const empty = document.createElement('span');
+            empty.textContent = 'No team interest yet';
+            teamInterestList.appendChild(empty);
+          }
+        } else {
+          teamInterest.textContent = teamInterestLabel;
+          teamInterest.title = pursueUsers.length
+            ? `Interested: ${pursueUsers.join(', ')}`
+            : '';
+        }
       }
     }
 
@@ -500,15 +525,35 @@
         await animateOpportunityCard(card, effectiveVote, shouldRemove);
 
         const currentListView = document.getElementById('opportunity-list')?.dataset.listView;
-        const message =
-          vote === 'PURSUE'
-            ? (data.in_my_shortlist ? 'Marked interested' : 'Interest removed')
-            : data.toggled_off
-              ? 'Restored to Feed'
-            : currentListView === 'my_shortlist'
-              ? 'Removed from My Shortlist'
-              : 'Opportunity archived';
-        showToast(message, 'success');
+        if (vote === 'PURSUE' && data.in_my_shortlist) {
+          if (data.salesforce_outcome === 'unavailable') {
+            const warning = data.salesforce_warning
+              ? `${data.salesforce_message}. ${data.salesforce_warning}`
+              : data.salesforce_message;
+            showToast(warning || 'Interested · Salesforce unavailable', 'warning');
+          } else if (
+            ['linked', 'created', 'already_linked'].includes(data.salesforce_outcome)
+          ) {
+            showToastWithLink(
+              data.salesforce_message || 'Interested · Linked to Salesforce',
+              'Open in Salesforce',
+              data.salesforce_opportunity_url,
+              'success'
+            );
+          } else {
+            showToast('Marked interested', 'success');
+          }
+        } else {
+          const message =
+            vote === 'PURSUE'
+              ? 'Interest removed'
+              : data.toggled_off
+                ? 'Restored to Feed'
+              : currentListView === 'my_shortlist'
+                ? 'Removed from My Shortlist'
+                : 'Opportunity archived';
+          showToast(message, 'success');
+        }
       } catch (error) {
         showToast('Action failed', 'error');
       }

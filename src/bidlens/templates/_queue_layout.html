@@ -86,3 +86,27 @@
     {% if q %}<span>matching “{{ q }}”</span>{% endif %}
   </div>
 {% endmacro %}
+
+{% macro queue_pagination(route, page, total_pages, result_count, page_size, sort, direction, q=none, current_tab=none, org_id=none, lane_id=none) %}
+  {% if total_pages > 1 %}
+    {% set first_item = ((page - 1) * page_size) + 1 %}
+    {% set last_item = [page * page_size, result_count]|min %}
+    {% set preserved_params = '&sort=' ~ sort ~ '&direction=' ~ direction ~ ('&q=' ~ (q|urlencode) if q else '') ~ ('&tab=' ~ current_tab if current_tab else '') ~ ('&lane_id=' ~ lane_id if lane_id else '') ~ ('&org_id=' ~ org_id if org_id else '') %}
+    <nav class="queue-pagination" aria-label="Opportunity pages">
+      <span>Showing {{ first_item }}–{{ last_item }} of {{ result_count }}</span>
+      <div class="queue-pagination-actions">
+        {% if page > 1 %}
+          <a class="btn btn-sm btn-outline-secondary" href="{{ route }}?page={{ page - 1 }}{{ preserved_params }}">Previous</a>
+        {% else %}
+          <span class="btn btn-sm btn-outline-secondary disabled" aria-disabled="true">Previous</span>
+        {% endif %}
+        <span class="queue-pagination-position">Page {{ page }} of {{ total_pages }}</span>
+        {% if page < total_pages %}
+          <a class="btn btn-sm btn-outline-secondary" href="{{ route }}?page={{ page + 1 }}{{ preserved_params }}">Next</a>
+        {% else %}
+          <span class="btn btn-sm btn-outline-secondary disabled" aria-disabled="true">Next</span>
+        {% endif %}
+      </div>
+    </nav>
+  {% endif %}
+{% endmacro %}

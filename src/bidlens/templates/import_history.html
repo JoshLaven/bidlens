@@ -42,7 +42,13 @@
                   <td>{{ run.created_count or 0 }}</td>
                   <td>{{ run.updated_count or 0 }}</td>
                   <td>{{ run.unchanged_count or 0 }}</td>
-                  <td><span class="admin-row-arrow">›</span></td>
+                  <td>
+                    <a
+                      href="/imports/history/{{ run.id }}"
+                      class="admin-row-arrow"
+                      aria-label="View details for pull history run {{ run.id }}"
+                    >›</a>
+                  </td>
                 </tr>
               {% endfor %}
             </tbody>

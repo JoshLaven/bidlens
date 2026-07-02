@@ -3,232 +3,170 @@
 
 {% block content %}
 {% set source_value = opportunity.source or '' %}
-{% set source_label = 'SAM' if source_value == 'sam' else 'GovWin' if source_value == 'govwin_export' else 'Grants.gov' if source_value == 'grants_gov' else source_value %}
+{% set source_label = 'SAM.gov' if source_value == 'sam' else 'GovWin' if source_value in ['govwin_export', 'govwin_api'] else 'Grants.gov' if source_value == 'grants_gov' else source_value %}
 {% set is_qualified = opportunity.qualification_status == 'qualified' %}
 <div class="detail-page">
 
-  <a href="/" class="btn btn-secondary btn-sm" style="margin-bottom: 24px;">
+  <a href="/" class="detail-back-link">
     &larr; Back to Feed
   </a>
 
-  <div class="detail-header">
-    <div class="detail-title-row">
+  <header class="detail-hero">
+    <div class="detail-hero-copy">
       <h1 class="detail-title">{{ opportunity.title }}</h1>
-      {% if decision_state != 'ARCHIVED' %}
-        <button type="button"
-                class="opp-icon-button detail-email-button"
-                title="Email opportunity"
-                aria-label="Email opportunity"
-                onclick='openOpportunityEmail({ title: {{ opportunity.title|tojson }}, agency: {{ opportunity.agency|tojson }}, due: {{ (opportunity.response_deadline.strftime("%B %d, %Y") if opportunity.response_deadline else "No deadline")|tojson }}, path: {{ ("/opportunity/" ~ opportunity.id)|tojson }}, samUrl: {{ (opportunity.sam_url or "")|tojson }} })'>
-          &#9993;
-        </button>
-      {% endif %}
-      <span class="badge {{ 'badge-rfi' if opportunity.opportunity_type in ['RFI', 'Sources Sought'] else 'badge-type' }}">
-        {{ opportunity.opportunity_type }}
-      </span>
-      {% if source_value %}
-        <span class="source-pill" title="Source: {{ source_value }}">{{ source_label }}</span>
-      {% endif %}
-      <span class="badge">{{ display_status }}</span>
+      <p class="detail-agency">{{ opportunity.agency }}</p>
+      <div class="detail-badges">
+        {% for lane in pursuit_lanes %}
+          <span class="pursuit-lane-pill" title="{{ (lane.reasons or [])|join('; ') }}">{{ lane.name }}</span>
+        {% endfor %}
+      </div>
+      <p class="detail-due-summary {{ 'due-urgent' if days_until_due <= 7 else 'due-soon' if days_until_due <= 14 else '' }}">
+        Due {{ opportunity.response_deadline.strftime('%b %d, %Y') }}
+        <span aria-hidden="true">&middot;</span>
+        {% if days_until_due > 1 %}
+          {{ days_until_due }} days remaining
+        {% elif days_until_due == 1 %}
+          1 day remaining
+        {% elif days_until_due == 0 %}
+          Due today
+        {% else %}
+          Past due
+        {% endif %}
+      </p>
     </div>
 
-    <div class="card-actions" style="margin-bottom: 16px;">
-      <div class="actions-left">
+    <div class="detail-hero-actions">
+      <div class="detail-primary-actions">
         {% if is_qualified and decision_state in ['INBOX', 'SHORTLISTED'] %}
-          {% if not opportunity.crm_pushed %}
-            <button type="button"
-                    class="btn btn-sm btn-primary"
-                    data-push-crm-button
-                    onclick="pushOpportunityToCrm('{{ opportunity.id }}')">
-              Push to CRM
-            </button>
-          {% elif opportunity.crm_pushed_by_current_user %}
-            <button type="button" class="btn btn-sm btn-success" disabled>
-              &#10003; Pushed to CRM
-            </button>
-          {% endif %}
           <button type="button"
-                  class="btn btn-sm btn-secondary"
-                  data-create-crm-button
-                  onclick="createOpportunityInCrm('{{ opportunity.id }}')">
-            Create in CRM (POC)
-          </button>
-          <button type="button"
-                  class="btn btn-sm {{ 'btn-primary' if user_vote != 'PURSUE' else 'btn-success' }}"
+                  class="btn btn-sm opp-card-button opp-card-button--primary btn-primary detail-interest-action"
+                  data-vote-button="PURSUE"
                   onclick="voteOpp('{{ opportunity.id }}', 'PURSUE')">
-            {% if user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}
+            Interested
           </button>
           <button type="button"
-                  class="btn btn-sm {{ 'btn-secondary' if user_vote != 'PASS' else 'btn-warning' }}"
+                  class="btn btn-sm opp-card-button opp-card-button--secondary btn-outline-secondary"
+                  data-vote-button="PASS"
                   onclick="voteOpp('{{ opportunity.id }}', 'PASS')">
-            {% if user_vote == 'PASS' %}&#10003; Archived{% else %}Archive{% endif %}
-          </button>
-        {% endif %}
-        {% if is_qualified and decision_state == 'SHORTLISTED' %}
-          <button type="button" class="btn btn-outline-danger btn-sm"
-                  onclick="showArchiveModal('{{ opportunity.id }}')">
             Archive
           </button>
         {% endif %}
         {% if decision_state == 'ARCHIVED' %}
           <span class="badge" style="padding: 6px 12px;">Archived{% if opportunity.archived_reason %}: {{ opportunity.archived_reason }}{% endif %}</span>
         {% endif %}
-      </div>
 
-      <div class="actions-right">
-        {% if is_qualified and decision_state != 'ARCHIVED' %}
-        <form method="POST" action="/opportunity/{{ opportunity.id }}/watch" style="display:inline;">
-          <button class="btn btn-sm {{ 'btn-success' if user_opp and user_opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if user_opp and user_opp.watched else 'Follow' }}">
-            {% if user_opp and user_opp.watched %}★ Following{% else %}☆ Follow{% endif %}
-          </button>
-        </form>
-        {% elif user_opp and user_opp.watched %}
-        <span class="badge" style="padding: 6px 12px;">★ Following</span>
-        {% endif %}
       </div>
     </div>
-  </div>
+  </header>
+
+  <nav class="detail-section-nav" aria-label="Opportunity sections" role="tablist">
+    <button type="button" id="detail-tab-overview" role="tab" aria-selected="true" aria-controls="detail-panel-overview" data-detail-tab="overview"><span>Overview</span></button>
+    <button type="button" id="detail-tab-ai-brief" role="tab" aria-selected="false" aria-controls="detail-panel-ai-brief" data-detail-tab="ai-brief"><span>AI Brief</span></button>
+    <button type="button" id="detail-tab-description" role="tab" aria-selected="false" aria-controls="detail-panel-description" data-detail-tab="description"><span>Description</span></button>
+    <button type="button" id="detail-tab-notes" role="tab" aria-selected="false" aria-controls="detail-panel-notes" data-detail-tab="notes"><span>Notes</span></button>
+    <button type="button" id="detail-tab-identifiers" role="tab" aria-selected="false" aria-controls="detail-panel-identifiers" data-detail-tab="identifiers"><span>Identifiers</span></button>
+    <button type="button" id="detail-tab-crm" role="tab" aria-selected="false" aria-controls="detail-panel-crm" data-detail-tab="crm"><span>CRM</span></button>
+  </nav>
 
   <div class="detail-primary">
 
     <!-- Opportunity Summary -->
-    <details open class="accordion">
+    <details open class="accordion detail-section detail-tab-panel" id="detail-panel-overview"
+             role="tabpanel" aria-labelledby="detail-tab-overview" data-detail-panel="overview">
       <summary class="accordion-summary">Opportunity Summary</summary>
-      <div class="accordion-body">
-
-        <div class="key-info-row">
-          <span class="key-info-label">Agency</span>
-          <span class="key-info-value">{{ opportunity.agency }}</span>
-        </div>
-
-        {% if is_qualified %}
-          <div class="key-info-row">
-            <span class="key-info-label">Team Interest</span>
-            <span class="key-info-value">
-              {{ team_interest_label }}
-              {% if teammate_interest_users %}
-                <span class="key-info-subvalue">{{ teammate_interest_users|join(', ') }}</span>
-              {% endif %}
-            </span>
-          </div>
-        {% endif %}
-
-        {% if opportunity.account_type %}
-          <div class="key-info-row">
-            <span class="key-info-label">Account Type</span>
-            <span class="key-info-value">
-              {{ opportunity.account_type }}
-              {% if opportunity.account_type_confidence or opportunity.account_type_source %}
-                <span class="key-info-subvalue">
-                  {{ opportunity.account_type_source or "unknown" }}{% if opportunity.account_type_confidence %} · {{ opportunity.account_type_confidence }}{% endif %}
+      <div class="accordion-body detail-overview-sheet">
+        <article class="detail-workspace-spread">
+          <aside class="detail-workspace-column">
+            {% if is_qualified %}
+              <div class="detail-context-row detail-context-row--interest">
+                <button type="button"
+                        class="detail-context-interest"
+                        aria-label="{{ team_interest_label }}"
+                        aria-describedby="workspace-team-interest-tooltip">
+                  <span class="detail-context-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+                      <circle cx="9" cy="7" r="4"></circle>
+                      <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+                      <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                  </span>
+                  <span>
+                    <span class="detail-spread-label">Team Interest</span>
+                    <strong>{{ team_interest_label }}</strong>
+                  </span>
+                </button>
+                <span id="workspace-team-interest-tooltip" class="opp-card-team-interest-tooltip" role="tooltip">
+                  <strong>Interested</strong>
+                  {% if user_vote == 'PURSUE' %}<span>You</span>{% endif %}
+                  {% for teammate in teammate_interest_users %}<span>{{ teammate }}</span>{% endfor %}
+                  {% if user_vote != 'PURSUE' and not teammate_interest_users %}<span>No team interest yet</span>{% endif %}
                 </span>
-              {% endif %}
-            </span>
-          </div>
-        {% endif %}
-
-        <div class="key-info-row">
-          <span class="key-info-label">Response Deadline</span>
-          <span class="key-info-value {{ 'due-urgent' if days_until_due <= 7 else 'due-soon' if days_until_due <= 14 else '' }}">
-            {{ opportunity.response_deadline.strftime('%B %d, %Y') }}
-            {% if days_until_due >= 0 %}
-              ({{ days_until_due }} days left)
-            {% else %}
-              (past due)
+              </div>
             {% endif %}
-          </span>
-        </div>
 
-        <div class="key-info-row">
-          <span class="key-info-label">Posted</span>
-          <span class="key-info-value">{{ opportunity.posted_date.strftime('%B %d, %Y') }}</span>
-        </div>
-
-        {% if source_value %}
-          <div class="key-info-row">
-            <span class="key-info-label">Source</span>
-            <span class="key-info-value">{{ source_label }}</span>
-          </div>
-        {% endif %}
-
-        {% if opportunity.solicitation_number %}
-          <div class="key-info-row">
-            <span class="key-info-label">Solicitation #</span>
-            <span class="key-info-value">{{ opportunity.solicitation_number }}</span>
-          </div>
-        {% endif %}
-
-        {% if grants_gov_metadata %}
-          {% if grants_gov_metadata.status %}
-            <div class="key-info-row">
-              <span class="key-info-label">Opportunity Status</span>
-              <span class="key-info-value">{{ grants_gov_metadata.status }}</span>
+            <div class="detail-context-row">
+              <span class="detail-context-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M3 21h18"></path>
+                  <path d="M5 21V7l7-4 7 4v14"></path>
+                  <path d="M9 21v-4h6v4"></path>
+                  <path d="M9 9h.01M15 9h.01M9 13h.01M15 13h.01"></path>
+                </svg>
+              </span>
+              <span class="detail-context-copy">
+                <span class="detail-spread-label">Salesforce</span>
+                {% if opportunity.salesforce_opportunity_url %}
+                  <a href="{{ opportunity.salesforce_opportunity_url }}" target="_blank" rel="noreferrer">View Opportunity &#8599;</a>
+                {% else %}
+                  <span class="detail-spread-muted">Not linked</span>
+                {% endif %}
+              </span>
             </div>
-          {% endif %}
+          </aside>
 
-          {% if grants_gov_metadata.version %}
-            <div class="key-info-row">
-              <span class="key-info-label">Version</span>
-              <span class="key-info-value">{{ grants_gov_metadata.version }}</span>
-            </div>
-          {% endif %}
+          <section class="detail-opportunity-column">
+            <p class="detail-column-kicker">Opportunity reference</p>
 
-          {% if grants_gov_metadata.last_updated %}
-            <div class="key-info-row">
-              <span class="key-info-label">Last Updated</span>
-              <span class="key-info-value">{{ grants_gov_metadata.last_updated }}</span>
-            </div>
-          {% endif %}
-        {% endif %}
+            {% if source_value %}
+              <div class="detail-spread-source">
+                <div>
+                  <span class="detail-spread-label">Source</span>
+                  <span class="source-pill" title="Source: {{ source_value }}">{{ source_label }}</span>
+                </div>
+                {% if opportunity.source_url or opportunity.sam_url %}
+                  <a href="{{ opportunity.source_url or opportunity.sam_url }}" target="_blank" rel="noreferrer">View source &#8599;</a>
+                {% endif %}
+              </div>
+            {% endif %}
 
-        {% if opportunity.naics %}
-          <div class="key-info-row">
-            <span class="key-info-label">NAICS</span>
-            <span class="key-info-value">
-              {{ opportunity.naics }}
-              {% if opportunity.naics_title %}
-                <span class="key-info-subvalue">{{ opportunity.naics_title }}</span>
-              {% endif %}
-            </span>
-          </div>
-        {% endif %}
+            {% if opportunity.solicitation_number %}
+              <div class="detail-spread-reference">
+                <span class="detail-spread-label">Solicitation Number</span>
+                <strong>{{ opportunity.solicitation_number }}</strong>
+              </div>
+            {% endif %}
 
-        {% if opportunity.set_aside %}
-          <div class="key-info-row">
-            <span class="key-info-label">Set-Aside</span>
-            <span class="key-info-value">{{ opportunity.set_aside }}</span>
-          </div>
-        {% endif %}
-
-        {% if user_opp and user_opp.internal_deadline %}
-          <div class="key-info-row">
-            <span class="key-info-label">Internal Deadline</span>
-            <span class="key-info-value">{{ user_opp.internal_deadline.strftime('%B %d, %Y') }}</span>
-          </div>
-        {% endif %}
-
-        {% if grants_gov_metadata and grants_gov_metadata.source %}
-          <div class="key-info-row">
-            <span class="key-info-label">Grants.gov Source</span>
-            <span class="key-info-value">{{ grants_gov_metadata.source }}</span>
-          </div>
-        {% endif %}
-
-        {% if opportunity.source_url or opportunity.sam_url %}
-          <a href="{{ opportunity.source_url or opportunity.sam_url }}" target="_blank"
-             class="btn btn-secondary btn-sm"
-             style="margin-top: 12px; justify-content: center;">
-            View Source &rarr;
-          </a>
-        {% endif %}
-
+            <dl class="detail-spread-folio">
+              <div>
+                <dt>Type</dt>
+                <dd>{{ normalized_opportunity_type }}</dd>
+              </div>
+              <div>
+                <dt>Posted Date</dt>
+                <dd>{{ opportunity.posted_date.strftime('%B %d, %Y') }}</dd>
+              </div>
+            </dl>
+          </section>
+        </article>
       </div>
     </details>
 
-    {% if opportunity.salesforce_opportunity_id or opportunity.salesforce_opportunity_url or opportunity.salesforce_synced_at %}
-      <details open class="accordion">
-        <summary class="accordion-summary">Salesforce</summary>
+      <details open class="accordion detail-section detail-tab-panel" id="detail-panel-crm"
+               role="tabpanel" aria-labelledby="detail-tab-crm" data-detail-panel="crm" hidden>
+        <summary class="accordion-summary">CRM</summary>
         <div class="accordion-body">
+          {% if opportunity.salesforce_opportunity_id or opportunity.salesforce_opportunity_url or opportunity.salesforce_synced_at %}
           {% if opportunity.salesforce_opportunity_id or opportunity.salesforce_opportunity_url %}
             <div class="key-info-row">
               <span class="key-info-label">Status</span>
@@ -273,13 +211,39 @@
               <span class="key-info-value">Pushed to CRM by {{ opportunity.crm_pushed_by_label }}</span>
             </div>
           {% endif %}
+          {% else %}
+            <p class="detail-panel-empty">This opportunity is not linked to Salesforce.</p>
+          {% endif %}
+
+          {% if user.current_role == 'admin' and is_qualified and decision_state in ['INBOX', 'SHORTLISTED'] %}
+            <div class="detail-admin-crm-tools" aria-label="Administrator CRM tools">
+              {% if not opportunity.crm_pushed %}
+                <button type="button"
+                        class="btn btn-sm btn-outline-secondary"
+                        data-push-crm-button
+                        onclick="pushOpportunityToCrm('{{ opportunity.id }}')">
+                  Push to CRM
+                </button>
+              {% elif opportunity.crm_pushed_by_current_user %}
+                <button type="button" class="btn btn-sm btn-success" disabled>
+                  &#10003; Pushed to CRM
+                </button>
+              {% endif %}
+              <button type="button"
+                      class="btn btn-sm btn-outline-secondary"
+                      data-create-crm-button
+                      onclick="createOpportunityInCrm('{{ opportunity.id }}')">
+                Create in CRM
+              </button>
+            </div>
+          {% endif %}
         </div>
       </details>
-    {% endif %}
 
     <!-- Opportunity Brief -->
-    <details open class="accordion">
-      <summary class="accordion-summary">Opportunity Brief</summary>
+    <details open class="accordion detail-section detail-tab-panel" id="detail-panel-ai-brief"
+             role="tabpanel" aria-labelledby="detail-tab-ai-brief" data-detail-panel="ai-brief" hidden>
+      <summary class="accordion-summary">AI Brief</summary>
       <div class="accordion-body">
 
         <div class="brief-actions" style="display:flex; justify-content:flex-end; margin-bottom: 12px;">
@@ -383,16 +347,25 @@
 
     <!-- Original description -->
     {% if resolved_description %}
-      <details class="accordion">
+      <details open class="accordion detail-section detail-tab-panel" id="detail-panel-description"
+               role="tabpanel" aria-labelledby="detail-tab-description" data-detail-panel="description" hidden>
         <summary class="accordion-summary">Original Description</summary>
         <div class="accordion-body prewrap">
           {{ resolved_description }}
         </div>
       </details>
+    {% else %}
+      <section class="accordion detail-section detail-tab-panel" id="detail-panel-description"
+               role="tabpanel" aria-labelledby="detail-tab-description" data-detail-panel="description" hidden>
+        <div class="accordion-body">
+          <p class="detail-panel-empty">No source description is available.</p>
+        </div>
+      </section>
     {% endif %}
 
     {% if grants_gov_documents and (grants_gov_documents.folders or grants_gov_documents.document_urls) %}
-      <details class="accordion">
+      <details open class="accordion detail-section detail-tab-panel detail-tab-subsection"
+               data-detail-panel="description" hidden>
         <summary class="accordion-summary">Opportunity Documents</summary>
         <div class="accordion-body">
           {% for folder in grants_gov_documents.folders %}
@@ -465,7 +438,8 @@
       </details>
     {% endif %}
 
-    <details open class="accordion">
+    <details open class="accordion detail-section detail-tab-panel" id="detail-panel-notes"
+             role="tabpanel" aria-labelledby="detail-tab-notes" data-detail-panel="notes" hidden>
       <summary class="accordion-summary">Internal Notes</summary>
       <div class="accordion-body">
         <form method="POST" action="/opportunities/{{ opportunity.id }}/notes" class="internal-notes-form">
@@ -500,31 +474,30 @@
       </div>
     </details>
 
-    <details class="accordion">
-      <summary class="accordion-summary">Metadata</summary>
+    <details open class="accordion detail-section detail-tab-panel" id="detail-panel-identifiers"
+             role="tabpanel" aria-labelledby="detail-tab-identifiers" data-detail-panel="identifiers" hidden>
+      <summary class="accordion-summary">Identifiers &amp; Metadata</summary>
       <div class="accordion-body">
         <div class="key-info-row">
-          <span class="key-info-label">Internal Opportunity ID</span>
+          <span class="key-info-label">BidLens Database ID</span>
           <span class="key-info-value">{{ opportunity.id }}</span>
         </div>
 
         {% if opportunity.bidlens_id %}
           <div class="key-info-row">
-            <span class="key-info-label">BidLens ID</span>
+            <span class="key-info-label">BidLens Opportunity ID</span>
             <span class="key-info-value">{{ opportunity.bidlens_id }}</span>
-          </div>
-        {% endif %}
-
-        {% if opportunity.source %}
-          <div class="key-info-row">
-            <span class="key-info-label">Source System Key</span>
-            <span class="key-info-value">{{ opportunity.source }}</span>
           </div>
         {% endif %}
 
         {% if opportunity.source_record_id %}
           <div class="key-info-row">
-            <span class="key-info-label">Source Record ID</span>
+            <span class="key-info-label">
+              {% if source_value == 'sam' %}SAM.gov Notice ID
+              {% elif source_value in ['govwin_export', 'govwin_api'] %}GovWin Opportunity ID
+              {% elif source_value == 'grants_gov' %}Grants.gov Opportunity ID
+              {% else %}{{ source_label or 'Source' }} Record ID{% endif %}
+            </span>
             <span class="key-info-value">{{ opportunity.source_record_id }}</span>
           </div>
         {% endif %}
@@ -536,9 +509,9 @@
           </div>
         {% endif %}
 
-        {% if opportunity.sam_notice_id %}
+        {% if opportunity.sam_notice_id and opportunity.sam_notice_id != opportunity.source_record_id %}
           <div class="key-info-row">
-            <span class="key-info-label">SAM.gov ID</span>
+            <span class="key-info-label">SAM.gov Notice ID</span>
             <span class="key-info-value">{{ opportunity.sam_notice_id }}</span>
           </div>
         {% endif %}
@@ -547,6 +520,13 @@
           <div class="key-info-row">
             <span class="key-info-label">GovWin Staging ID</span>
             <span class="key-info-value">{{ opportunity.govwin_staging_id }}</span>
+          </div>
+        {% endif %}
+
+        {% if opportunity.salesforce_opportunity_id %}
+          <div class="key-info-row">
+            <span class="key-info-label">Salesforce Opportunity ID</span>
+            <span class="key-info-value">{{ opportunity.salesforce_opportunity_id }}</span>
           </div>
         {% endif %}
 
@@ -580,6 +560,44 @@
 {% include "_archive_modal.html" %}
 {% block scripts %}
 <script>
+function activateDetailTab(tabName, focusTab = false) {
+  const tabs = Array.from(document.querySelectorAll('[data-detail-tab]'));
+  const panels = Array.from(document.querySelectorAll('[data-detail-panel]'));
+  const activeTab = tabs.find((tab) => tab.dataset.detailTab === tabName) || tabs[0];
+  if (!activeTab) return;
+
+  tabs.forEach((tab) => {
+    const selected = tab === activeTab;
+    tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+    tab.tabIndex = selected ? 0 : -1;
+  });
+
+  panels.forEach((panel) => {
+    const selected = panel.dataset.detailPanel === activeTab.dataset.detailTab;
+    panel.hidden = !selected;
+    if (selected && panel.tagName === 'DETAILS') {
+      panel.open = true;
+    }
+  });
+
+  if (focusTab) {
+    activeTab.focus();
+  }
+}
+
+const detailTabs = Array.from(document.querySelectorAll('[data-detail-tab]'));
+detailTabs.forEach((tab, index) => {
+  tab.addEventListener('click', () => activateDetailTab(tab.dataset.detailTab));
+  tab.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    event.preventDefault();
+    const offset = event.key === 'ArrowRight' ? 1 : -1;
+    const nextIndex = (index + offset + detailTabs.length) % detailTabs.length;
+    activateDetailTab(detailTabs[nextIndex].dataset.detailTab, true);
+  });
+});
+activateDetailTab('overview');
+
 let briefGenerationInFlight = false;
 
 async function generateBrief(oppId) {

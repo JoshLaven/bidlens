@@ -35,8 +35,14 @@ router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
 logger = logging.getLogger(__name__)
 
-SOLICITATION_TYPES = ["Solicitation", "Combined Synopsis/Solicitation", "Award Notice", "Grant"]
-RFI_TYPES = ["RFI", "Sources Sought", "Special Notice", "Pre-Solicitation"]
+RFI_TYPE_INDICATORS = (
+    "rfi",
+    "request for information",
+    "sources sought",
+    "special notice",
+    "presolicitation",
+    "pre-solicitation",
+)
 QUALIFICATION_UNREVIEWED = "unreviewed"
 QUALIFICATION_QUALIFIED = "qualified"
 QUALIFICATION_REJECTED = "rejected"
@@ -49,6 +55,8 @@ DATE_TYPE_IMPORTED = "imported"
 DATE_TYPE_DUE = "due"
 DATE_TYPE_POSTED = "posted"
 DATE_TYPES = {DATE_TYPE_IMPORTED, DATE_TYPE_DUE, DATE_TYPE_POSTED}
+FEED_PAGE_SIZE = 50
+TRIAGE_PAGE_SIZE = 100
 BRIEF_SECTION_DEFS = [
     ("executive_summary", "Executive Summary"),
     ("key_dates", "Key Dates"),
@@ -191,11 +199,12 @@ def _is_admin(user) -> bool:
 
 
 def _apply_type_tab(query, tab: str):
-    """Filter query by solicitation/RFI type tab."""
-    if tab == "solicitations":
-        return query.filter(Opportunity.opportunity_type.in_(SOLICITATION_TYPES))
-    else:
-        return query.filter(Opportunity.opportunity_type.in_(RFI_TYPES))
+    """Filter using the same two-category BidLens type shown on Feed cards."""
+    normalized_raw_type = func.lower(func.coalesce(Opportunity.opportunity_type, ""))
+    is_rfi = or_(
+        *(normalized_raw_type.like(f"%{indicator}%") for indicator in RFI_TYPE_INDICATORS)
+    )
+    return query.filter(is_rfi if tab == "rfi" else ~is_rfi)
 
 
 def _agency_parts_for_export(raw_agency: str | None) -> tuple[str | None, str | None]:
@@ -354,6 +363,16 @@ def _team_interest_label(*, total: int, current_user_interested: bool) -> str:
     return f"{teammate_count} {noun} interested"
 
 
+def _normalized_opportunity_type(opportunity: Opportunity) -> str:
+    """Return the BidLens type while preserving the source's raw type."""
+    raw_type = (opportunity.opportunity_type or "").strip().casefold()
+    return (
+        "RFI"
+        if any(indicator in raw_type for indicator in RFI_TYPE_INDICATORS)
+        else "Solicitation"
+    )
+
+
 def _enrich_opps(rows, db, user, watched_col=True):
     """Add computed fields (days, vote counts, user vote) to opportunity rows."""
     today = date.today()
@@ -427,6 +446,7 @@ def _enrich_opps(rows, db, user, watched_col=True):
             total=opp.pursue_count,
             current_user_interested=opp.current_user_interested,
         )
+        opp.normalized_opportunity_type = _normalized_opportunity_type(opp)
         opp.pursuit_lanes = lane_map.get(opp.id, [])
         opp.crm_pushed_by_current_user = bool(getattr(opp, "crm_pushed", False) and opp.crm_pushed_by == user.id)
         opp.crm_pushed_by_label = crm_user_map.get(getattr(opp, "crm_pushed_by", None))
@@ -972,6 +992,12 @@ def _normalize_sort_direction(direction: str = "") -> str:
     return "asc" if direction == "asc" else "desc"
 
 
+def _pagination_values(result_count: int, page: int, page_size: int) -> tuple[int, int, int]:
+    total_pages = max(1, (result_count + page_size - 1) // page_size)
+    current_page = min(max(1, page), total_pages)
+    return current_page, total_pages, (current_page - 1) * page_size
+
+
 def _apply_feed_ordering(query, *, sort: str = "imported", direction: str = "desc"):
     sort = _normalize_feed_sort(sort)
     direction = _normalize_sort_direction(direction)
@@ -1086,6 +1112,7 @@ async def feed(
     show_past_due: str = "",
     lane_id: int | None = None,
     q: str = "",
+    page: int = 1,
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -1105,7 +1132,12 @@ async def feed(
     query = _apply_feed_ordering(query, sort=selected_sort, direction=selected_direction)
 
     result_count = query.count()
-    rows = query.limit(50).all()
+    current_page, total_pages, offset = _pagination_values(
+        result_count,
+        page,
+        FEED_PAGE_SIZE,
+    )
+    rows = query.offset(offset).limit(FEED_PAGE_SIZE).all()
 
     return templates.TemplateResponse("feed.html", {
         "request": request,
@@ -1119,6 +1151,9 @@ async def feed(
         "lane_id": lane_id,
         "q": search_query,
         "result_count": result_count,
+        "page": current_page,
+        "page_size": FEED_PAGE_SIZE,
+        "total_pages": total_pages,
         "active_lanes": _active_lanes(db, user),
         "triage_enabled": user.triage_enabled,
         "now": datetime.utcnow(),
@@ -1133,6 +1168,7 @@ async def triage_queue(
     direction: str = "desc",
     date_filter: str = "",
     q: str = "",
+    page: int = 1,
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -1160,7 +1196,12 @@ async def triage_queue(
     query = _apply_feed_search(query, search_term=q)
     query = _apply_feed_ordering(query, sort=selected_sort, direction=selected_direction)
     result_count = query.count()
-    rows = query.limit(100).all()
+    current_page, total_pages, offset = _pagination_values(
+        result_count,
+        page,
+        TRIAGE_PAGE_SIZE,
+    )
+    rows = query.offset(offset).limit(TRIAGE_PAGE_SIZE).all()
 
     return templates.TemplateResponse("triage.html", {
         "request": request,
@@ -1172,6 +1213,9 @@ async def triage_queue(
         "direction": selected_direction,
         "q": q,
         "result_count": result_count,
+        "page": current_page,
+        "page_size": TRIAGE_PAGE_SIZE,
+        "total_pages": total_pages,
         "now": datetime.utcnow(),
     })
 
@@ -1568,6 +1612,28 @@ async def opportunity_detail(
         .order_by(OpportunityNote.created_at.desc())
         .all()
     )
+    pursuit_lanes = [
+        {
+            "id": lane.id,
+            "name": lane.name,
+            "reasons": match.matched_reasons or [],
+        }
+        for match, lane in (
+            db.query(OpportunityPursuitLaneMatch, PursuitLane)
+            .join(
+                PursuitLane,
+                PursuitLane.id == OpportunityPursuitLaneMatch.pursuit_lane_id,
+            )
+            .filter(
+                OpportunityPursuitLaneMatch.organization_id == _user_org_id(user),
+                OpportunityPursuitLaneMatch.opportunity_id == opportunity.id,
+                PursuitLane.organization_id == _user_org_id(user),
+                PursuitLane.is_active.is_(True),
+            )
+            .order_by(PursuitLane.name.asc())
+            .all()
+        )
+    ]
 
     return templates.TemplateResponse("detail.html", {
         "request": request,
@@ -1576,6 +1642,7 @@ async def opportunity_detail(
         "user_opp": user_opp,
         "decision_state": opportunity.decision_state,
         "display_status": _current_org_status(opportunity),
+        "normalized_opportunity_type": _normalized_opportunity_type(opportunity),
         "days_until_due": days_until_due,
         "pursue_count": c["pursue"],
         "pass_count": c["pass"],
@@ -1600,6 +1667,7 @@ async def opportunity_detail(
         "grants_gov_metadata": grants_gov_metadata,
         "grants_gov_documents": grants_gov_documents,
         "opportunity_notes": notes,
+        "pursuit_lanes": pursuit_lanes,
         "sidebar": get_sidebar(db, user),
     })
 
@@ -1719,7 +1787,11 @@ async def calendar_page(
         UserOpportunity.status.in_([OpportunityStatus.SAVED, OpportunityStatus.IN_PROGRESS]),
     ).all()
 
-    saved_items = [item for item in saved_items if item.opportunity.opportunity_type in SOLICITATION_TYPES]
+    saved_items = [
+        item
+        for item in saved_items
+        if _normalized_opportunity_type(item.opportunity) == "Solicitation"
+    ]
 
     for item in saved_items:
         item.display_date = item.internal_deadline or item.opportunity.response_deadline

@@ -353,6 +353,10 @@ def search_opportunities(
     naics: str,
     posted_from: dt.date,
     posted_to: dt.date,
+    response_deadline_from: dt.date | None = None,
+    response_deadline_to: dt.date | None = None,
+    organization_name: str | None = None,
+    procurement_types: list[str] | None = None,
     limit: int = 100,
     offset: int = 0,
     max_retries: int = 3,
@@ -370,6 +374,14 @@ def search_opportunities(
         "limit": limit,
         "offset": offset,
     }
+    if response_deadline_from is not None:
+        params["rdlfrom"] = _mmddyyyy(response_deadline_from)
+    if response_deadline_to is not None:
+        params["rdlto"] = _mmddyyyy(response_deadline_to)
+    if organization_name:
+        params["organizationName"] = organization_name
+    if procurement_types:
+        params["ptype"] = procurement_types
 
     backoff = 1.0
     last_exc = None

@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% set hide_context_sidebar = true %}
+{% block title %}Market Activity - BidLens{% endblock %}
+{% block content %}
+{% set admin_nav_active = 'market_activity' %}
+<div class="admin-page-layout">
+  {% include "_admin_nav.html" %}
+  <div class="admin-page-content">
+    <div class="page-header admin-page-header">
+      <div>
+        <h1>Market Activity</h1>
+        <p class="page-subtitle">Source-side opportunity volume and workflow conversion—not revenue forecasting.</p>
+      </div>
+    </div>
+
+    <nav class="market-view-tabs" aria-label="Market Activity views">
+      <a href="/admin/market-activity?{{ filter_query }}&view=overview" class="{{ 'active' if view == 'overview' else '' }}" aria-current="{{ 'page' if view == 'overview' else 'false' }}">Overview</a>
+      <a href="/admin/market-activity?{{ filter_query }}&view=trends" class="{{ 'active' if view == 'trends' else '' }}" aria-current="{{ 'page' if view == 'trends' else 'false' }}">Trends</a>
+    </nav>
+
+    <form method="get" action="/admin/market-activity" class="market-activity-filters card">
+      <input type="hidden" name="view" value="{{ view }}">
+      {% if request.query_params.get("org_id") %}
+        <input type="hidden" name="org_id" value="{{ request.query_params.get('org_id') }}">
+      {% endif %}
+      <label><span>From</span><input type="date" name="date_from" value="{{ filters.start_date.isoformat() }}"></label>
+      <label><span>To</span><input type="date" name="date_to" value="{{ filters.end_date.isoformat() }}"></label>
+      <label>
+        <span>Source</span>
+        <select name="source">
+          <option value="">All sources</option>
+          {% for source in options.sources %}
+            <option value="{{ source }}" {{ "selected" if filters.source == source else "" }}>{{ source_label(source) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Account Type</span>
+        <select name="account_type">
+          <option value="">All account types</option>
+          {% for account_type in options.account_types %}
+            <option value="{{ account_type }}" {{ "selected" if filters.account_type == account_type else "" }}>{{ account_type_label(account_type) }}</option>
+          {% endfor %}
+          <option value="__other__" {{ "selected" if filters.account_type == "__other__" else "" }}>Other</option>
+        </select>
+      </label>
+      <label>
+        <span>NAICS</span>
+        <select name="category">
+          <option value="">All NAICS</option>
+          {% for category in options.categories %}
+            <option value="{{ category }}" {{ "selected" if filters.category == category else "" }}>{{ category }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="market-activity-check">
+        <input type="checkbox" name="qualified_only" value="1" {{ "checked" if filters.qualified_only else "" }}>
+        <span>Qualified only</span>
+      </label>
+      <label class="market-activity-check">
+        <input type="checkbox" name="pushed_only" value="1" {{ "checked" if filters.pushed_only else "" }}>
+        <span>Pushed to Salesforce only</span>
+      </label>
+      <div class="market-activity-filter-actions">
+        <button type="submit" class="btn btn-primary">Apply</button>
+        <a href="/admin/market-activity{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}&view={{ view }}{% else %}?view={{ view }}{% endif %}" class="btn btn-outline-secondary">Reset</a>
+      </div>
+    </form>
+
+    <section class="market-metric-grid" aria-label="Market activity summary">
+      <article class="card market-metric">
+        <span>Total imported</span><strong>{{ dashboard.metrics.total }}</strong>
+        <small>Created in BidLens during period</small>
+      </article>
+      <article class="card market-metric">
+        <span>Qualified</span><strong>{{ dashboard.metrics.qualified }}</strong>
+        <small>Qualified, interested, or pursued</small>
+      </article>
+      <article class="card market-metric">
+        <span>Rejected / archived</span><strong>{{ dashboard.metrics.rejected }}</strong>
+        <small>Rejected, archived, or passed</small>
+      </article>
+      <article class="card market-metric">
+        <span>Pushed to Salesforce</span><strong>{{ dashboard.metrics.pushed }}</strong>
+        <small>Linked, pushed, or created</small>
+      </article>
+      <article class="card market-metric">
+        <span>Active open</span><strong>{{ dashboard.metrics.active_open }}</strong>
+        <small>Open deadline and not rejected</small>
+      </article>
+    </section>
+
+    {% if dashboard.monthly and view == "overview" %}
+      <section class="market-dashboard-grid">
+        <article class="card market-panel">
+          <h2>Opportunities by source</h2>
+          {% with rows=dashboard.by_source, maximum=dashboard.max_source, source_rows=true %}
+            {% include "_market_ranked_rows.html" %}
+          {% endwith %}
+        </article>
+        <article class="card market-panel">
+          <h2>Upcoming due dates by month</h2>
+          {% with rows=dashboard.upcoming_due_dates, maximum=dashboard.max_due %}
+            {% include "_market_ranked_rows.html" %}
+          {% endwith %}
+        </article>
+        <article class="card market-panel">
+          <h2>Top agencies</h2>
+          {% with rows=dashboard.top_agencies, maximum=dashboard.max_agency %}
+            {% include "_market_ranked_rows.html" %}
+          {% endwith %}
+        </article>
+        <article class="card market-panel">
+          <h2>Top NAICS</h2>
+          {% with rows=dashboard.top_categories, maximum=dashboard.max_category %}
+            {% include "_market_ranked_rows.html" %}
+          {% endwith %}
+        </article>
+      </section>
+    {% elif dashboard.monthly and view == "trends" %}
+      <section class="market-trends-grid">
+        <article class="card market-trend-panel market-trend-panel--wide">
+          <div class="market-trend-heading">
+            <div><h2>Opportunities Imported by Month</h2><p>BidLens intake volume during the selected period.</p></div>
+          </div>
+          <div class="market-column-chart" role="img" aria-label="Opportunities imported by month">
+            {% for row in dashboard.monthly %}
+              <div class="market-column">
+                <strong>{{ row.imported }}</strong>
+                <div class="market-column-bars"><i class="market-column-bar--imported" style="height:{{ (row.imported * 100 / dashboard.max_imported)|round if dashboard.max_imported else 0 }}%"></i></div>
+                <span>{{ row.label }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        </article>
+
+        <article class="card market-trend-panel market-trend-panel--wide">
+          <div class="market-trend-heading">
+            <div><h2>Qualified Opportunities by Month</h2><p>Current qualified or pursued opportunities by import month.</p></div>
+          </div>
+          <div class="market-column-chart" role="img" aria-label="Qualified opportunities by month">
+            {% for row in dashboard.monthly %}
+              <div class="market-column">
+                <strong>{{ row.qualified }}</strong>
+                <div class="market-column-bars"><i class="market-column-bar--qualified" style="height:{{ (row.qualified * 100 / dashboard.max_qualified)|round if dashboard.max_qualified else 0 }}%"></i></div>
+                <span>{{ row.label }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        </article>
+
+        <article class="card market-trend-panel market-trend-panel--wide">
+          <div class="market-trend-heading">
+            <div><h2>Imported vs Qualified</h2><p>How much of the incoming opportunity stream currently becomes qualified.</p></div>
+            <div class="market-chart-legend"><span><i class="legend-imported"></i>Imported</span><span><i class="legend-qualified"></i>Qualified</span></div>
+          </div>
+          <div class="market-column-chart market-column-chart--grouped" role="img" aria-label="Imported versus qualified opportunities by month">
+            {% for row in dashboard.monthly %}
+              <div class="market-column">
+                <strong>{{ ((row.qualified * 100 / row.imported)|round(1)) if row.imported else 0 }}%</strong>
+                <div class="market-column-bars">
+                  <i class="market-column-bar--imported" style="height:{{ (row.imported * 100 / dashboard.max_imported)|round if dashboard.max_imported else 0 }}%"></i>
+                  <i class="market-column-bar--qualified" style="height:{{ (row.qualified * 100 / dashboard.max_imported)|round if dashboard.max_imported else 0 }}%"></i>
+                </div>
+                <span>{{ row.label }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        </article>
+
+        <article class="card market-trend-panel">
+          <div class="market-trend-heading"><div><h2>Opportunities by Source</h2><p>Contribution from each monitored opportunity source.</p></div></div>
+          {% with rows=dashboard.by_source, maximum=dashboard.max_source, source_rows=true %}
+            {% include "_market_ranked_rows.html" %}
+          {% endwith %}
+        </article>
+
+        <article class="card market-trend-panel">
+          <div class="market-trend-heading"><div><h2>Opportunities by Account Type</h2><p>Market activity across the organization’s primary segments.</p></div></div>
+          {% with rows=dashboard.by_account_type, maximum=dashboard.max_account_type, account_type_rows=true %}
+            {% include "_market_ranked_rows.html" %}
+          {% endwith %}
+        </article>
+      </section>
+    {% else %}
+      <div class="empty-state market-activity-empty">
+        <h2>No opportunities match these filters</h2>
+        <p>Adjust the date range or clear one of the market activity filters.</p>
+      </div>
+    {% endif %}
+
+    <p class="market-activity-definition">
+      Monthly activity is grouped by BidLens import month and reflects each opportunity’s current workflow state.
+    </p>
+  </div>
+</div>
+{% endblock %}

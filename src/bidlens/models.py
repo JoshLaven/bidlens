@@ -84,6 +84,7 @@ class Opportunity(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     upserted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    last_seen_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)
 
     # Org-level decision state: INBOX → SHORTLISTED or ARCHIVED
     decision_state = Column(String, nullable=False, default="INBOX", server_default="INBOX", index=True)
@@ -119,6 +120,32 @@ class Opportunity(Base):
     user_opportunities = relationship("UserOpportunity", back_populates="opportunity")
     notes = relationship("OpportunityNote", back_populates="opportunity", cascade="all, delete-orphan")
     pursuit_lane_matches = relationship("OpportunityPursuitLaneMatch", back_populates="opportunity", cascade="all, delete-orphan")
+    update_events = relationship(
+        "OpportunityUpdateEvent",
+        back_populates="opportunity",
+        cascade="all, delete-orphan",
+    )
+
+
+class OpportunityUpdateEvent(Base):
+    __tablename__ = "opportunity_update_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
+    ingestion_run_id = Column(Integer, ForeignKey("ingestion_runs.id"), nullable=True, index=True)
+    source = Column(String, nullable=False, index=True)
+    source_record_id = Column(String, nullable=False, index=True)
+    detected_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    changed_fields = Column(JSON, nullable=False, default=dict)
+    salesforce_payload = Column(JSON, nullable=True)
+    salesforce_response = Column(JSON, nullable=True)
+    salesforce_sync_status = Column(String, nullable=False)
+    salesforce_synced_at = Column(DateTime(timezone=True), nullable=True)
+    salesforce_error = Column(Text, nullable=True)
+
+    opportunity = relationship("Opportunity", back_populates="update_events")
+    ingestion_run = relationship("IngestionRun", back_populates="update_events")
 
 class OpportunityBrief(Base):
     __tablename__ = "opportunity_briefs"
@@ -167,6 +194,32 @@ class IngestionRun(Base):
     reason_summary_json = Column(JSON, nullable=True)
 
     notes = Column(Text, nullable=True)
+    details = relationship(
+        "IngestionRunDetail",
+        back_populates="ingestion_run",
+        cascade="all, delete-orphan",
+    )
+    update_events = relationship("OpportunityUpdateEvent", back_populates="ingestion_run")
+
+
+class IngestionRunDetail(Base):
+    __tablename__ = "ingestion_run_details"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    ingestion_run_id = Column(Integer, ForeignKey("ingestion_runs.id"), nullable=False, index=True)
+    source = Column(String, nullable=False, index=True)
+    source_record_id = Column(String, nullable=True, index=True)
+    title = Column(String, nullable=True)
+    result = Column(String, nullable=False, index=True)
+    reason = Column(Text, nullable=False)
+    matched_opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=True, index=True)
+    changed_fields_json = Column(JSON, nullable=True)
+    error_message = Column(Text, nullable=True)
+    processed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    ingestion_run = relationship("IngestionRun", back_populates="details")
+
+
 class Vote(Base):
     __tablename__ = "votes"
     __table_args__ = (UniqueConstraint("org_id", "opp_id", "user_id", name="uq_vote"),)
@@ -294,6 +347,29 @@ class OrgProfile(Base):
     govwin_last_sync_at = Column(DateTime(timezone=True), nullable=True)
     govwin_last_sync_status = Column(String, nullable=True)
 
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class SamSourceConfig(Base):
+    __tablename__ = "sam_source_configs"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "name", name="uq_sam_source_config_org_name"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    name = Column(String, nullable=False, default="Default SAM.gov Search")
+    naics_codes = Column(JSON, nullable=False, default=list)
+    keywords = Column(JSON, nullable=False, default=list)
+    agencies = Column(JSON, nullable=False, default=list)
+    set_asides = Column(JSON, nullable=False, default=list)
+    notice_types = Column(JSON, nullable=False, default=list)
+    posted_days_back = Column(Integer, nullable=False, default=30, server_default="30")
+    due_days_from = Column(Integer, nullable=True)
+    due_days_to = Column(Integer, nullable=True)
+    active_only = Column(Boolean, nullable=False, default=True, server_default="1")
+    max_records = Column(Integer, nullable=False, default=100, server_default="100")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 

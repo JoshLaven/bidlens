@@ -16,7 +16,7 @@
 <div id="opportunity-list" data-list-view="my_shortlist">
 {% if opportunities %}
     {% for opp in opportunities %}
-        {{ opp_card(opp, view='my_shortlist') }}
+        {{ opp_card(opp, view='my_shortlist', show_admin_crm_actions=(user.current_role == 'admin')) }}
     {% endfor %}
 {% endif %}
 </div>

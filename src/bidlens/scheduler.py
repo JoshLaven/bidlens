@@ -1,26 +1,35 @@
-import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import datetime as dt
 from .database import SessionLocal
 from .ingest_sam import ingest_sam
-from .models import Organization
+from .models import SamSourceConfig
+from .services.sam_source_config import ingest_kwargs
 
 print("[SCHEDULER] scheduler.py imported")
 
 def run_sam_ingest():
     print("[SCHEDULER] run_sam_ingest fired at", dt.datetime.utcnow().isoformat(), "UTC")
-    naics_env = os.getenv("SAM_NAICS", "541611,541690")
-    naics_list = [x.strip() for x in naics_env.split(",") if x.strip()]
 
     db = SessionLocal()
     try:
-        org = db.query(Organization).order_by(Organization.id.asc()).first()
-        if not org:
-            print("[SAM INGEST] skipped: no organization configured")
+        configs = db.query(SamSourceConfig).order_by(SamSourceConfig.organization_id.asc()).all()
+        if not configs:
+            print("[SAM INGEST] skipped: no workspace has a saved SAM.gov source configuration")
             return
-        results = ingest_sam(db, organization_id=org.id, naics_list=naics_list, days_back=7)
-        print("[SAM INGEST] done:", results)
+        for config in configs:
+            try:
+                results = ingest_sam(
+                    db,
+                    organization_id=config.organization_id,
+                    saved_search_name=config.name,
+                    run_type="Scheduled",
+                    **ingest_kwargs(config),
+                )
+                print(f"[SAM INGEST] org={config.organization_id} done:", results)
+            except Exception as exc:
+                db.rollback()
+                print(f"[SAM INGEST] org={config.organization_id} error:", repr(exc))
     except Exception as e:
         print("[SAM INGEST] error:", repr(e))
     finally:
