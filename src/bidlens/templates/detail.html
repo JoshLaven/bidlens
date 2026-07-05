@@ -39,10 +39,16 @@
       <div class="detail-primary-actions">
         {% if is_qualified and decision_state in ['INBOX', 'SHORTLISTED'] %}
           <button type="button"
-                  class="btn btn-sm opp-card-button opp-card-button--primary btn-primary detail-interest-action"
+                  class="btn btn-sm opp-card-button opp-card-button--primary {{ 'btn-success' if user_vote == 'PURSUE' else 'btn-primary' }} detail-interest-action"
                   data-vote-button="PURSUE"
+                  data-action-opp-id="{{ opportunity.id }}"
+                  {% if user.current_role == 'admin' %}data-admin-crm-action{% endif %}
                   onclick="voteOpp('{{ opportunity.id }}', 'PURSUE')">
-            Interested
+            {% if user.current_role == 'admin' %}
+              {% if user_vote == 'PURSUE' %}&#10003; Pushed to CRM{% else %}Push to CRM{% endif %}
+            {% else %}
+              {% if user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}
+            {% endif %}
           </button>
           <button type="button"
                   class="btn btn-sm opp-card-button opp-card-button--secondary btn-outline-secondary"
@@ -66,6 +72,9 @@
     <button type="button" id="detail-tab-notes" role="tab" aria-selected="false" aria-controls="detail-panel-notes" data-detail-tab="notes"><span>Notes</span></button>
     <button type="button" id="detail-tab-identifiers" role="tab" aria-selected="false" aria-controls="detail-panel-identifiers" data-detail-tab="identifiers"><span>Identifiers</span></button>
     <button type="button" id="detail-tab-crm" role="tab" aria-selected="false" aria-controls="detail-panel-crm" data-detail-tab="crm"><span>CRM</span></button>
+    <button type="button" id="detail-tab-history" role="tab" aria-selected="false" aria-controls="detail-panel-history" data-detail-tab="history">
+      <span>History{% if history_unread_count %} <span class="detail-history-badge" data-history-unread-count>({{ history_unread_count }})</span>{% endif %}</span>
+    </button>
   </nav>
 
   <div class="detail-primary">
@@ -149,9 +158,15 @@
 
             <dl class="detail-spread-folio">
               <div>
-                <dt>Type</dt>
+                <dt>Stage</dt>
                 <dd>{{ normalized_opportunity_type }}</dd>
               </div>
+              {% if opportunity.source_stage and opportunity.source_stage != normalized_opportunity_type %}
+                <div>
+                  <dt>Source Stage</dt>
+                  <dd>{{ opportunity.source_stage }}</dd>
+                </div>
+              {% endif %}
               <div>
                 <dt>Posted Date</dt>
                 <dd>{{ opportunity.posted_date.strftime('%B %d, %Y') }}</dd>
@@ -215,28 +230,6 @@
             <p class="detail-panel-empty">This opportunity is not linked to Salesforce.</p>
           {% endif %}
 
-          {% if user.current_role == 'admin' and is_qualified and decision_state in ['INBOX', 'SHORTLISTED'] %}
-            <div class="detail-admin-crm-tools" aria-label="Administrator CRM tools">
-              {% if not opportunity.crm_pushed %}
-                <button type="button"
-                        class="btn btn-sm btn-outline-secondary"
-                        data-push-crm-button
-                        onclick="pushOpportunityToCrm('{{ opportunity.id }}')">
-                  Push to CRM
-                </button>
-              {% elif opportunity.crm_pushed_by_current_user %}
-                <button type="button" class="btn btn-sm btn-success" disabled>
-                  &#10003; Pushed to CRM
-                </button>
-              {% endif %}
-              <button type="button"
-                      class="btn btn-sm btn-outline-secondary"
-                      data-create-crm-button
-                      onclick="createOpportunityInCrm('{{ opportunity.id }}')">
-                Create in CRM
-              </button>
-            </div>
-          {% endif %}
         </div>
       </details>
 
@@ -553,6 +546,32 @@
       </div>
     </details>
 
+    <section class="detail-section detail-tab-panel" id="detail-panel-history"
+             role="tabpanel" aria-labelledby="detail-tab-history" data-detail-panel="history" hidden>
+      <div class="accordion-body detail-history-panel">
+        {% if history_events %}
+          {% set history_group = namespace(day='') %}
+          <div class="opportunity-history-timeline">
+            {% for event in history_events %}
+              {% if event.day_label != history_group.day %}
+                {% set history_group.day = event.day_label %}
+                <h3 class="opportunity-history-day">{{ event.day_label }}</h3>
+              {% endif %}
+              <article class="opportunity-history-event">
+                <span class="opportunity-history-marker" aria-hidden="true"></span>
+                <div>
+                  <div class="opportunity-history-title">{{ event.timeline_title }}</div>
+                  <time class="opportunity-history-time" datetime="{{ event.occurred_at.isoformat() }}">{{ event.time_label }}</time>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="detail-panel-empty">No opportunity history has been recorded yet.</p>
+        {% endif %}
+      </div>
+    </section>
+
   </div>
 </div>
 {% endblock %}
@@ -587,7 +606,19 @@ function activateDetailTab(tabName, focusTab = false) {
 
 const detailTabs = Array.from(document.querySelectorAll('[data-detail-tab]'));
 detailTabs.forEach((tab, index) => {
-  tab.addEventListener('click', () => activateDetailTab(tab.dataset.detailTab));
+  tab.addEventListener('click', async () => {
+    activateDetailTab(tab.dataset.detailTab);
+    if (tab.dataset.detailTab !== 'history') return;
+    try {
+      const response = await fetch('/api/opps/{{ opportunity.id }}/history/read', {
+        method: 'POST'
+      });
+      if (!response.ok) return;
+      document.querySelector('[data-history-unread-count]')?.remove();
+    } catch (error) {
+      // The timeline remains usable if read-state persistence is unavailable.
+    }
+  });
   tab.addEventListener('keydown', (event) => {
     if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
     event.preventDefault();

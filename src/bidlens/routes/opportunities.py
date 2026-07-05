@@ -19,10 +19,17 @@ from ..models import (
     OpportunityStatus,
     OrgProfile,
     OpportunityNote,
+    OpportunityHistoryEvent,
     OrganizationMembership,
 )
 from ..auth import attach_request_user_context, get_current_user
 from ..services import get_vote_counts, get_user_votes, get_last_activity, get_vote_user_maps
+from ..services.opportunity_history import unread_history_count
+from ..services.opportunity_stages import (
+    DISPLAY_STAGES,
+    RFI_TYPE_INDICATORS,
+    normalize_display_stage,
+)
 from sqlalchemy import and_, or_, select
 from dataclasses import dataclass
 from typing import Optional
@@ -35,14 +42,6 @@ router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
 logger = logging.getLogger(__name__)
 
-RFI_TYPE_INDICATORS = (
-    "rfi",
-    "request for information",
-    "sources sought",
-    "special notice",
-    "presolicitation",
-    "pre-solicitation",
-)
 QUALIFICATION_UNREVIEWED = "unreviewed"
 QUALIFICATION_QUALIFIED = "qualified"
 QUALIFICATION_REJECTED = "rejected"
@@ -198,6 +197,38 @@ def _is_admin(user) -> bool:
     return getattr(user, "current_role", "member") == "admin"
 
 
+def _history_source_label(source: str | None) -> str:
+    return {
+        "sam": "SAM.gov",
+        "sam.gov": "SAM.gov",
+        "grants_gov": "Grants.gov",
+        "govwin_export": "GovWin",
+        "govwin_api": "GovWin",
+        "salesforce": "Salesforce",
+    }.get(str(source or "").strip().lower(), str(source or "source"))
+
+
+def _prepare_history_events(events: list[OpportunityHistoryEvent]) -> list[OpportunityHistoryEvent]:
+    today = date.today()
+    titles = {
+        "opportunity_imported": "Opportunity imported from {source}",
+        "source_updated": "Opportunity updated from {source}",
+        "salesforce_synchronized": "Synchronized to Salesforce",
+    }
+    for event in events:
+        event_date = event.occurred_at.date()
+        if event_date == today:
+            event.day_label = "Today"
+        elif event_date == today - timedelta(days=1):
+            event.day_label = "Yesterday"
+        else:
+            event.day_label = f"{event.occurred_at.strftime('%B')} {event_date.day}"
+        event.time_label = event.occurred_at.strftime("%I:%M %p").lstrip("0")
+        template = titles.get(event.event_type, event.event_type.replace("_", " ").title())
+        event.timeline_title = template.format(source=_history_source_label(event.source))
+    return events
+
+
 def _apply_type_tab(query, tab: str):
     """Filter using the same two-category BidLens type shown on Feed cards."""
     normalized_raw_type = func.lower(func.coalesce(Opportunity.opportunity_type, ""))
@@ -205,6 +236,83 @@ def _apply_type_tab(query, tab: str):
         *(normalized_raw_type.like(f"%{indicator}%") for indicator in RFI_TYPE_INDICATORS)
     )
     return query.filter(is_rfi if tab == "rfi" else ~is_rfi)
+
+
+def _stage_conditions():
+    source = func.lower(func.coalesce(Opportunity.source, ""))
+    raw_source_stage = func.lower(
+        func.trim(
+            func.coalesce(
+                Opportunity.source_stage,
+                Opportunity.opportunity_type,
+                "",
+            )
+        )
+    )
+    normalized_raw_type = func.lower(func.coalesce(Opportunity.opportunity_type, ""))
+    is_govwin = source.in_(("govwin_export", "govwin_api"))
+    is_forecast = or_(
+        and_(is_govwin, raw_source_stage == "forecast pre-rfp"),
+        normalized_raw_type == "forecast",
+    )
+    is_rfi = or_(
+        and_(is_govwin, raw_source_stage == "pre-rfp"),
+        *(normalized_raw_type.like(f"%{indicator}%") for indicator in RFI_TYPE_INDICATORS),
+    )
+    return is_forecast, is_rfi
+
+
+def _normalize_stage_filters(stages=None) -> tuple[str, ...]:
+    if stages is None:
+        return DISPLAY_STAGES
+    if isinstance(stages, str):
+        raw_values = stages.split(",") if stages else []
+    else:
+        raw_values = stages
+    normalized = {
+        str(value or "").strip().casefold()
+        for value in raw_values
+        if str(value or "").strip()
+    }
+    if "all" in normalized:
+        return DISPLAY_STAGES
+    return tuple(
+        stage for stage in DISPLAY_STAGES if stage.casefold() in normalized
+    )
+
+
+def _apply_stage_filter(query, stages=None):
+    selected = _normalize_stage_filters(stages)
+    if selected == DISPLAY_STAGES:
+        return query
+    if not selected:
+        return query.filter(Opportunity.id.is_(None))
+    is_forecast, is_rfi = _stage_conditions()
+    stage_conditions = {
+        "Forecast": is_forecast,
+        "RFI": and_(is_rfi, ~is_forecast),
+        "RFP": and_(~is_forecast, ~is_rfi),
+    }
+    return query.filter(or_(*(stage_conditions[stage] for stage in selected)))
+
+
+def _exclude_inactive_govwin_stages(query):
+    source = func.lower(func.coalesce(Opportunity.source, ""))
+    raw_source_stage = func.lower(
+        func.trim(
+            func.coalesce(
+                Opportunity.source_stage,
+                Opportunity.opportunity_type,
+                "",
+            )
+        )
+    )
+    return query.filter(
+        ~and_(
+            source.in_(("govwin_export", "govwin_api")),
+            raw_source_stage == "source selection",
+        )
+    )
 
 
 def _agency_parts_for_export(raw_agency: str | None) -> tuple[str | None, str | None]:
@@ -273,6 +381,7 @@ def _export_view_query(
     show_past_due: str = "",
     lane_id: int | None = None,
     search: str = "",
+    stages=None,
 ):
     if view == "shortlist":
         q = _team_interest_query(db, user, tab)
@@ -282,12 +391,15 @@ def _export_view_query(
     elif view == "my_shortlist":
         q = _my_shortlist_query(db, user, tab)
         q = _apply_feed_search(q, search_term=search)
+        q = _apply_lane_filter(q, db, user, lane_id=lane_id)
+        q = _apply_stage_filter(q, stages)
     else:
-        q = _feed_query(db, user, tab)
+        q = _feed_query(db, user)
         q = apply_org_filters(q, db, user)
         q = _apply_lane_filter(q, db, user, lane_id=lane_id)
         q = _apply_feed_search(q, search_term=search)
         q = _apply_past_due_filter(q)
+        q = _apply_stage_filter(q, stages)
 
     return q
 
@@ -364,12 +476,11 @@ def _team_interest_label(*, total: int, current_user_interested: bool) -> str:
 
 
 def _normalized_opportunity_type(opportunity: Opportunity) -> str:
-    """Return the BidLens type while preserving the source's raw type."""
-    raw_type = (opportunity.opportunity_type or "").strip().casefold()
-    return (
-        "RFI"
-        if any(indicator in raw_type for indicator in RFI_TYPE_INDICATORS)
-        else "Solicitation"
+    """Return the BidLens display stage while preserving the source values."""
+    return normalize_display_stage(
+        source=opportunity.source,
+        opportunity_type=opportunity.opportunity_type,
+        source_stage=opportunity.source_stage,
     )
 
 
@@ -475,8 +586,12 @@ def _opp_list_query(db: Session, user, decision_state: str, tab: str):
     return q
 
 
-def _feed_query(db: Session, user, tab: str):
-    """Main feed: organization opportunities the current user has not reviewed."""
+def _feed_query(db: Session, user, tab: str | None = None):
+    """Main feed: all organization opportunities the current user has not reviewed.
+
+    ``tab`` remains accepted for legacy callers and URLs, but opportunity type
+    is descriptive metadata rather than a Feed partition.
+    """
     q = (
         db.query(Opportunity, UserOpportunity.watched.label("watched"))
         .outerjoin(
@@ -490,9 +605,9 @@ def _feed_query(db: Session, user, tab: str):
         .filter(Opportunity.organization_id == _user_org_id(user))
         .filter(Opportunity.decision_state != "ARCHIVED")
         .filter(Opportunity.qualification_status == QUALIFICATION_QUALIFIED)
+        .filter(Opportunity.crm_pushed.is_(False))
+        .filter(Opportunity.salesforce_opportunity_id.is_(None))
     )
-    q = _apply_type_tab(q, tab)
-
     interested_opp_ids = (
         select(Vote.opp_id)
         .where(
@@ -502,14 +617,6 @@ def _feed_query(db: Session, user, tab: str):
         )
     )
     q = q.filter(~Opportunity.id.in_(interested_opp_ids))
-
-    q = q.filter(
-        or_(
-            Opportunity.crm_pushed.is_(False),
-            Opportunity.crm_pushed_by.is_(None),
-            Opportunity.crm_pushed_by != user.id,
-        )
-    )
 
     archived_opp_ids = (
         select(Vote.opp_id)
@@ -521,7 +628,7 @@ def _feed_query(db: Session, user, tab: str):
     )
     q = q.filter(~Opportunity.id.in_(archived_opp_ids))
 
-    return q
+    return _exclude_inactive_govwin_stages(q)
 
 
 def _user_archive_query(db: Session, user, tab: str):
@@ -581,10 +688,14 @@ def _team_interest_query(db: Session, user, tab: str):
 
 
 def _my_shortlist_query(db: Session, user, tab: str):
-    """User's personal interested/promoted list."""
+    """User's personal interested list.
+
+    ``tab`` remains accepted for legacy links, but stages are now controlled by
+    the same multi-select filter used by the Feed.
+    """
     q = (
         db.query(Opportunity, UserOpportunity.watched.label("watched"))
-        .outerjoin(
+        .join(
             Vote,
             and_(
                 Vote.opp_id == Opportunity.id,
@@ -604,9 +715,7 @@ def _my_shortlist_query(db: Session, user, tab: str):
         .filter(Opportunity.decision_state != "ARCHIVED")
         .filter(Opportunity.organization_id == _user_org_id(user))
         .filter(Opportunity.qualification_status == QUALIFICATION_QUALIFIED)
-        .filter(or_(Vote.id.isnot(None), Opportunity.crm_pushed_by == user.id))
     )
-    q = _apply_type_tab(q, tab)
     return q
 
 
@@ -1034,18 +1143,11 @@ def _queue_counts(db: Session, user, tab: str) -> dict[str, int]:
         base
         .filter(~Opportunity.id.in_(interested_opp_ids))
         .filter(~Opportunity.id.in_(passed_opp_ids))
-        .filter(
-            or_(
-                Opportunity.crm_pushed.is_(False),
-                Opportunity.crm_pushed_by.is_(None),
-                Opportunity.crm_pushed_by != user.id,
-            )
-        )
         .count()
     )
     my_interested_count_query = (
         db.query(func.count(func.distinct(Opportunity.id)))
-        .outerjoin(
+        .join(
             Vote,
             and_(
                 Vote.opp_id == Opportunity.id,
@@ -1057,7 +1159,6 @@ def _queue_counts(db: Session, user, tab: str) -> dict[str, int]:
         .filter(Opportunity.organization_id == org_id)
         .filter(Opportunity.decision_state != "ARCHIVED")
         .filter(Opportunity.qualification_status == QUALIFICATION_QUALIFIED)
-        .filter(or_(Vote.id.isnot(None), Opportunity.crm_pushed_by == user.id))
     )
     my_interested_count = _apply_type_tab(my_interested_count_query, tab).scalar() or 0
     passed_count = (
@@ -1112,6 +1213,8 @@ async def feed(
     show_past_due: str = "",
     lane_id: int | None = None,
     q: str = "",
+    stages: str | None = None,
+    stage: str | None = None,
     page: int = 1,
     db: Session = Depends(get_db),
 ):
@@ -1124,11 +1227,15 @@ async def feed(
     selected_direction = _normalize_sort_direction(direction)
     # Legacy date/pass parameters remain accepted for old links, but the Feed
     # always represents the current user's active queue.
-    query = _feed_query(db, user, tab)
+    query = _feed_query(db, user)
     query = apply_org_filters(query, db, user)
     query = _apply_lane_filter(query, db, user, lane_id=lane_id)
     query = _apply_feed_search(query, search_term=search_query)
     query = _apply_past_due_filter(query)
+    selected_stages = _normalize_stage_filters(
+        stages if stages is not None else ([stage] if stage and stage != "All" else None)
+    )
+    query = _apply_stage_filter(query, selected_stages)
     query = _apply_feed_ordering(query, sort=selected_sort, direction=selected_direction)
 
     result_count = query.count()
@@ -1143,13 +1250,14 @@ async def feed(
         "request": request,
         "user": user,
         "opportunities": _enrich_opps(rows, db, user),
-        "current_tab": tab,
         "active_page": "feed",
         "sidebar": get_sidebar(db, user),
         "sort": selected_sort,
         "direction": selected_direction,
         "lane_id": lane_id,
         "q": search_query,
+        "selected_stages": selected_stages,
+        "stages_value": ",".join(selected_stages),
         "result_count": result_count,
         "page": current_page,
         "page_size": FEED_PAGE_SIZE,
@@ -1168,6 +1276,8 @@ async def triage_queue(
     direction: str = "desc",
     date_filter: str = "",
     q: str = "",
+    stages: str | None = None,
+    stage: str | None = None,
     page: int = 1,
     db: Session = Depends(get_db),
 ):
@@ -1191,9 +1301,14 @@ async def triage_queue(
         .filter(Opportunity.decision_state != "ARCHIVED")
         .filter(Opportunity.qualification_status == QUALIFICATION_UNREVIEWED)
     )
+    query = _exclude_inactive_govwin_stages(query)
     selected_sort = _normalize_feed_sort(sort)
     selected_direction = _normalize_sort_direction(direction)
+    selected_stages = _normalize_stage_filters(
+        stages if stages is not None else ([stage] if stage and stage != "All" else None)
+    )
     query = _apply_feed_search(query, search_term=q)
+    query = _apply_stage_filter(query, selected_stages)
     query = _apply_feed_ordering(query, sort=selected_sort, direction=selected_direction)
     result_count = query.count()
     current_page, total_pages, offset = _pagination_values(
@@ -1212,6 +1327,8 @@ async def triage_queue(
         "sort": selected_sort,
         "direction": selected_direction,
         "q": q,
+        "selected_stages": selected_stages,
+        "stages_value": ",".join(selected_stages),
         "result_count": result_count,
         "page": current_page,
         "page_size": TRIAGE_PAGE_SIZE,
@@ -1283,6 +1400,10 @@ async def my_shortlist(
     sort: str = "imported",
     direction: str = "desc",
     q: str = "",
+    stages: str | None = None,
+    stage: str | None = None,
+    lane_id: int | None = None,
+    page: int = 1,
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -1291,11 +1412,21 @@ async def my_shortlist(
 
     selected_sort = _normalize_feed_sort(sort)
     selected_direction = _normalize_sort_direction(direction)
+    selected_stages = _normalize_stage_filters(
+        stages if stages is not None else ([stage] if stage and stage != "All" else None)
+    )
     query = _my_shortlist_query(db, user, tab)
     query = _apply_feed_search(query, search_term=q)
+    query = _apply_lane_filter(query, db, user, lane_id=lane_id)
+    query = _apply_stage_filter(query, selected_stages)
     query = _apply_feed_ordering(query, sort=selected_sort, direction=selected_direction)
     result_count = query.count()
-    rows = query.all()
+    current_page, total_pages, offset = _pagination_values(
+        result_count,
+        page,
+        FEED_PAGE_SIZE,
+    )
+    rows = query.offset(offset).limit(FEED_PAGE_SIZE).all()
 
     opps = _enrich_opps(rows, db, user)
 
@@ -1305,10 +1436,18 @@ async def my_shortlist(
         "opportunities": opps,
         "current_tab": tab,
         "active_page": "my_shortlist",
+        "sidebar": get_sidebar(db, user),
         "sort": selected_sort,
         "direction": selected_direction,
+        "lane_id": lane_id,
         "q": q,
+        "selected_stages": selected_stages,
+        "stages_value": ",".join(selected_stages),
         "result_count": result_count,
+        "page": current_page,
+        "page_size": FEED_PAGE_SIZE,
+        "total_pages": total_pages,
+        "active_lanes": _active_lanes(db, user),
     })
 
 
@@ -1368,6 +1507,7 @@ async def export_opportunities_csv(
     show_past_due: str = "",
     lane_id: int | None = None,
     q: str = "",
+    stages: str | None = None,
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -1389,6 +1529,7 @@ async def export_opportunities_csv(
         show_past_due=show_past_due,
         lane_id=lane_id,
         search=q,
+        stages=stages,
     )
 
     rows = q.all()
@@ -1634,6 +1775,26 @@ async def opportunity_detail(
             .all()
         )
     ]
+    history_events = _prepare_history_events(
+        (
+            db.query(OpportunityHistoryEvent)
+            .filter(
+                OpportunityHistoryEvent.organization_id == _user_org_id(user),
+                OpportunityHistoryEvent.opportunity_id == opportunity.id,
+            )
+            .order_by(
+                OpportunityHistoryEvent.occurred_at.desc(),
+                OpportunityHistoryEvent.id.desc(),
+            )
+            .all()
+        )
+    )
+    history_unread_count = unread_history_count(
+        db,
+        organization_id=_user_org_id(user),
+        opportunity_id=opportunity.id,
+        user_id=user.id,
+    )
 
     return templates.TemplateResponse("detail.html", {
         "request": request,
@@ -1668,6 +1829,8 @@ async def opportunity_detail(
         "grants_gov_documents": grants_gov_documents,
         "opportunity_notes": notes,
         "pursuit_lanes": pursuit_lanes,
+        "history_events": history_events,
+        "history_unread_count": history_unread_count,
         "sidebar": get_sidebar(db, user),
     })
 
@@ -1790,7 +1953,7 @@ async def calendar_page(
     saved_items = [
         item
         for item in saved_items
-        if _normalized_opportunity_type(item.opportunity) == "Solicitation"
+        if _normalized_opportunity_type(item.opportunity) == "RFP"
     ]
 
     for item in saved_items:
@@ -1825,10 +1988,10 @@ def get_sidebar(db: Session, user: User):
     """Sidebar: My Interested Due Soon + Following."""
     today = date.today()
 
-    # My Interested Due Soon: current user's CRM pushes or interest signal.
+    # My Interested Due Soon: current user's interest signal.
     my_shortlisted = (
         db.query(Opportunity)
-        .outerjoin(
+        .join(
             Vote,
             and_(
                 Vote.opp_id == Opportunity.id,
@@ -1840,8 +2003,7 @@ def get_sidebar(db: Session, user: User):
         .filter(Opportunity.decision_state != "ARCHIVED")
         .filter(Opportunity.organization_id == _user_org_id(user))
         .filter(Opportunity.qualification_status == QUALIFICATION_QUALIFIED)
-        .filter(or_(Vote.id.isnot(None), Opportunity.crm_pushed_by == user.id))
-        .order_by(Opportunity.response_deadline.asc())
+        .order_by(Vote.updated_at.desc(), Vote.id.desc(), Opportunity.response_deadline.asc())
         .limit(5)
         .all()
     )

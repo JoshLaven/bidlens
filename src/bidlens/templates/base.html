@@ -90,12 +90,15 @@
                 {% if sidebar and sidebar.my_shortlisted and sidebar.my_shortlisted|length > 0 %}
                   <div class="side-list">
                     {% for opp in sidebar.my_shortlisted %}
-                      <a class="side-item" href="/opportunity/{{ opp.id }}{{ nav_org_q }}">
-                        <div class="side-item-title">{{ opp.title }}</div>
+                      <div class="side-item" data-shortlist-opp-id="{{ opp.id }}">
+                        <a class="side-item-title" href="/opportunity/{{ opp.id }}{{ nav_org_q }}">{{ opp.title }}</a>
                         <div class="side-item-meta">
                           <span class="side-muted">Due {{ opp.response_deadline.strftime('%b') }} {{ opp.response_deadline.day }} ({{ opp.days_until_due }}D)</span>
+                          {% if opp.salesforce_opportunity_url %}
+                            <a class="side-salesforce-link" href="{{ opp.salesforce_opportunity_url }}" target="_blank" rel="noreferrer">View in Salesforce →</a>
+                          {% endif %}
                         </div>
-                      </a>
+                      </div>
                     {% endfor %}
                   </div>
                   <a href="/my-shortlist{{ nav_org_q }}" class="side-view-all">View all →</a>
@@ -272,12 +275,15 @@
       }
 
       const listHtml = items.map((item) => `
-        <a class="side-item" href="/opportunity/${item.id}">
-          <div class="side-item-title">${escapeHtml(item.title)}</div>
+        <div class="side-item" data-shortlist-opp-id="${item.id}">
+          <a class="side-item-title" href="/opportunity/${item.id}">${escapeHtml(item.title)}</a>
           <div class="side-item-meta">
             <span class="side-muted">${escapeHtml(item.due_label || '—')}</span>
+            ${item.salesforce_opportunity_url ? `
+              <a class="side-salesforce-link" href="${escapeHtml(item.salesforce_opportunity_url)}" target="_blank" rel="noreferrer">View in Salesforce →</a>
+            ` : ''}
           </div>
-        </a>
+        </div>
       `).join('');
 
       const viewAllHtml = viewAllHref
@@ -292,7 +298,134 @@
       renderSidebarSection('sidebar-my-shortlisted-body', sidebar.my_shortlisted || [], 'Shortlisted opportunities will appear here.', '/my-shortlist');
     }
 
+    function beginOptimisticShortlist(card, isAdminCrmAction) {
+      const container = document.getElementById('sidebar-my-shortlisted-body');
+      if (!container || !card) {
+        return {
+          cancel() {},
+          markSuccess() {},
+          markSalesforceFailure() {},
+        };
+      }
+
+      const oppId = card.dataset.oppId;
+      const existing = container.querySelector(`[data-shortlist-opp-id="${oppId}"]`);
+      const existingNextSibling = existing?.nextElementSibling || null;
+      if (existing) {
+        existing.remove();
+      }
+
+      let list = container.querySelector('.side-list');
+      if (!list) {
+        container.replaceChildren();
+        list = document.createElement('div');
+        list.className = 'side-list';
+        container.appendChild(list);
+
+        const viewAll = document.createElement('a');
+        viewAll.href = '/my-shortlist';
+        viewAll.className = 'side-view-all';
+        viewAll.textContent = 'View all →';
+        container.appendChild(viewAll);
+      }
+
+      const item = document.createElement('div');
+      item.className = 'side-item side-item--optimistic';
+      item.dataset.shortlistOppId = oppId;
+
+      const title = document.createElement('a');
+      title.className = 'side-item-title';
+      title.href = `/opportunity/${oppId}`;
+      title.textContent = card.dataset.shortlistTitle || 'Opportunity';
+      item.appendChild(title);
+
+      const meta = document.createElement('div');
+      meta.className = 'side-item-meta';
+      const due = document.createElement('span');
+      due.className = 'side-muted';
+      due.textContent = card.dataset.shortlistDueLabel || '—';
+      meta.appendChild(due);
+
+      if (isAdminCrmAction) {
+        const pending = document.createElement('span');
+        pending.className = 'side-salesforce-status side-salesforce-status--pending';
+        pending.textContent = 'Creating in Salesforce…';
+        meta.appendChild(pending);
+      }
+
+      item.appendChild(meta);
+      list.prepend(item);
+      const arrivalTimer = window.setTimeout(() => {
+        item.classList.remove('side-item--optimistic');
+      }, 1300);
+
+      const shortlistItems = Array.from(list.querySelectorAll('.side-item'));
+      const displacedItem = shortlistItems.length > 5 ? shortlistItems[5] : null;
+      displacedItem?.remove();
+
+      const removeSalesforceState = () => {
+        meta
+          .querySelectorAll('.side-salesforce-status, .side-salesforce-link')
+          .forEach((element) => element.remove());
+      };
+
+      return {
+        cancel() {
+          window.clearTimeout(arrivalTimer);
+          item.remove();
+          if (existing && list.isConnected) {
+            if (existingNextSibling?.isConnected) {
+              list.insertBefore(existing, existingNextSibling);
+            } else {
+              list.appendChild(existing);
+            }
+          }
+          if (displacedItem && list.isConnected) {
+            list.appendChild(displacedItem);
+          }
+          if (list.isConnected && !list.querySelector('.side-item')) {
+            container.innerHTML = '<div class="side-empty">Shortlisted opportunities will appear here.</div>';
+          }
+        },
+        markSuccess(salesforceUrl) {
+          removeSalesforceState();
+          if (salesforceUrl) {
+            const link = document.createElement('a');
+            link.className = 'side-salesforce-link';
+            link.href = salesforceUrl;
+            link.target = '_blank';
+            link.rel = 'noreferrer';
+            link.textContent = 'View in Salesforce →';
+            meta.appendChild(link);
+          }
+        },
+        markSalesforceFailure() {
+          removeSalesforceState();
+          const failed = document.createElement('span');
+          failed.className = 'side-salesforce-status side-salesforce-status--failed';
+          failed.textContent = 'Salesforce sync failed';
+          meta.appendChild(failed);
+        },
+      };
+    }
+
+    function setPursueButtonState(button, selected) {
+      if (!button) return;
+      const isAdminCrmAction = button.hasAttribute('data-admin-crm-action');
+      const isDetailAction = button.classList.contains('detail-interest-action');
+      button.className = `btn btn-sm opp-card-button opp-card-button--primary ${selected ? 'btn-success' : 'btn-primary'}${isDetailAction ? ' detail-interest-action' : ''}`;
+      button.innerHTML = selected
+        ? (isAdminCrmAction ? '&#10003; Pushed to CRM' : '&#10003; Interested')
+        : (isAdminCrmAction ? 'Push to CRM' : 'Interested');
+    }
+
     function updateOpportunityCard(oppId, vote, data) {
+      document
+        .querySelectorAll(`[data-vote-button="PURSUE"][data-action-opp-id="${oppId}"]`)
+        .forEach((button) => {
+          setPursueButtonState(button, vote === 'PURSUE');
+        });
+
       const card = document.getElementById(`opp-card-${oppId}`);
       if (!card) return;
 
@@ -306,10 +439,6 @@
       const pursueButton = card.querySelector('[data-vote-button="PURSUE"]');
       const passButton = card.querySelector('[data-vote-button="PASS"]');
       const passHelper = card.querySelector('[data-pass-helper]');
-      if (pursueButton) {
-        pursueButton.className = `btn btn-sm opp-card-button opp-card-button--primary ${vote === 'PURSUE' ? 'btn-success' : 'btn-primary'}`;
-        pursueButton.innerHTML = vote === 'PURSUE' ? '&#10003; Interested' : 'Interested';
-      }
       if (passButton) {
         passButton.className = `btn btn-sm opp-card-button opp-card-button--secondary ${vote === 'PASS' ? 'btn-warning' : 'btn-outline-secondary'}`;
         passButton.innerHTML = vote === 'PASS' ? '&#10003; Archived' : 'Archive';
@@ -337,6 +466,10 @@
 
         const teamInterestTrigger = teamInterest.querySelector('[data-team-interest-trigger]');
         const teamInterestList = teamInterest.querySelector('[data-team-interest-list]');
+        const teamInterestCount = teamInterest.querySelector('[data-team-interest-count]');
+        if (teamInterestCount) {
+          teamInterestCount.textContent = String(pursueCount);
+        }
         if (teamInterestTrigger && teamInterestList) {
           teamInterestTrigger.setAttribute('aria-label', teamInterestLabel);
           teamInterestList.replaceChildren();
@@ -498,9 +631,131 @@
       });
     }
 
+    function beginOptimisticPursue(card, button, shouldRemove) {
+      const original = {
+        buttonClassName: button.className,
+        buttonHtml: button.innerHTML,
+        buttonDisabled: button.disabled,
+        cardHadPursue: card?.classList.contains('opp-card--pursue') || false,
+        cardHadPass: card?.classList.contains('opp-card--pass') || false,
+      };
+      let delayTimer = null;
+      let exitTimer = null;
+      let settled = false;
+      let resolveCompletion;
+      const completion = new Promise((resolve) => {
+        resolveCompletion = resolve;
+      });
+
+      card.dataset.votePending = 'true';
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      setPursueButtonState(button, true);
+      card.classList.remove('opp-card--pass');
+      card.classList.add('opp-card--pursue');
+
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolveCompletion();
+      };
+
+      if (shouldRemove) {
+        delayTimer = window.setTimeout(() => {
+          requestAnimationFrame(() => {
+            if (settled) return;
+            card.classList.add('opp-card--exit-forward');
+            exitTimer = window.setTimeout(() => {
+              if (settled) return;
+              card.hidden = true;
+              finish();
+            }, 380);
+          });
+        }, 180);
+      } else {
+        finish();
+      }
+
+      return {
+        completion,
+        cancel() {
+          window.clearTimeout(delayTimer);
+          window.clearTimeout(exitTimer);
+          const wasHidden = card.hidden;
+          card.hidden = false;
+          if (wasHidden) {
+            card.getBoundingClientRect();
+          }
+          card.classList.remove('opp-card--exit-forward');
+          card.classList.toggle('opp-card--pursue', original.cardHadPursue);
+          card.classList.toggle('opp-card--pass', original.cardHadPass);
+          button.className = original.buttonClassName;
+          button.innerHTML = original.buttonHtml;
+          button.disabled = original.buttonDisabled;
+          button.removeAttribute('aria-busy');
+          delete card.dataset.votePending;
+          finish();
+        },
+        async commit() {
+          await completion;
+          button.disabled = original.buttonDisabled;
+          button.removeAttribute('aria-busy');
+          delete card.dataset.votePending;
+          if (shouldRemove && card.isConnected) {
+            card.remove();
+            decrementQueueResultCount();
+            updateOpportunityEmptyState();
+          }
+        },
+      };
+    }
+
+    function actionErrorMessage(data, fallback = 'Action failed') {
+      if (data?.salesforce_error) return data.salesforce_error;
+      if (typeof data?.detail === 'string') return data.detail;
+      if (data?.detail?.message) return data.detail.message;
+      if (data?.salesforce_warning) return data.salesforce_warning;
+      if (data?.salesforce_message) return data.salesforce_message;
+      return fallback;
+    }
+
     async function voteOpp(oppId, vote) {
+      let optimisticPursue = null;
+      let optimisticShortlist = null;
+      let actionButton = null;
+      let card = null;
       try {
-        const card = document.getElementById(`opp-card-${oppId}`);
+        card = document.getElementById(`opp-card-${oppId}`);
+        actionButton = document.querySelector(
+          `[data-vote-button="${vote}"][data-action-opp-id="${oppId}"]`
+        );
+        if (actionButton?.disabled || card?.dataset.votePending === 'true') {
+          return;
+        }
+        const isAdminCrmAction = Boolean(
+          vote === 'PURSUE' && actionButton?.hasAttribute('data-admin-crm-action')
+        );
+        const isNewPursue = Boolean(
+          vote === 'PURSUE'
+          && card
+          && actionButton
+          && !actionButton.classList.contains('btn-success')
+        );
+        const optimisticShouldRemove = isNewPursue
+          && shouldRemoveOpportunityCard(oppId, 'PURSUE', { in_my_shortlist: true });
+
+        if (isNewPursue) {
+          optimisticPursue = beginOptimisticPursue(
+            card,
+            actionButton,
+            optimisticShouldRemove
+          );
+          optimisticShortlist = beginOptimisticShortlist(card, isAdminCrmAction);
+        } else if (actionButton) {
+          actionButton.disabled = true;
+          actionButton.setAttribute('aria-busy', 'true');
+        }
+
         const res = await fetch('/api/vote', {
           method: 'POST',
           headers: {'Content-Type':'application/json'},
@@ -513,40 +768,71 @@
 
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          showToast(data.detail || 'Action failed', 'error');
-          return;
+          throw new Error(actionErrorMessage(data));
+        }
+        const effectiveVote = data.vote || null;
+        const salesforceFailed = Boolean(
+          isAdminCrmAction && data.salesforce_outcome === 'unavailable'
+        );
+        if (optimisticShortlist && effectiveVote === 'PURSUE') {
+          const persistedShortlistItem = (data.sidebar?.my_shortlisted || [])
+            .find((item) => String(item.id) === String(oppId));
+          const salesforceUrl = (
+            data.salesforce_opportunity_url
+            || persistedShortlistItem?.salesforce_opportunity_url
+            || null
+          );
+          if (salesforceFailed) {
+            optimisticShortlist.markSalesforceFailure();
+          } else {
+            optimisticShortlist.markSuccess(salesforceUrl);
+          }
+        } else {
+          refreshSidebar(data.sidebar);
+        }
+        const shouldRemove = shouldRemoveOpportunityCard(oppId, effectiveVote, data);
+        const optimisticRemovalSucceeded = Boolean(
+          optimisticPursue
+          && effectiveVote === 'PURSUE'
+          && shouldRemove === optimisticShouldRemove
+        );
+
+        if (optimisticRemovalSucceeded) {
+          updateOpportunityCard(oppId, effectiveVote, data);
+          await optimisticPursue.commit();
+        } else {
+          optimisticPursue?.cancel();
+          updateOpportunityCard(oppId, effectiveVote, data);
+          if (actionButton) {
+            actionButton.disabled = false;
+            actionButton.removeAttribute('aria-busy');
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 180));
+          await animateOpportunityCard(card, effectiveVote, shouldRemove);
         }
 
-        const effectiveVote = data.vote || null;
-        updateOpportunityCard(oppId, effectiveVote, data);
-        refreshSidebar(data.sidebar);
-        const shouldRemove = shouldRemoveOpportunityCard(oppId, effectiveVote, data);
-        await new Promise((resolve) => window.setTimeout(resolve, 180));
-        await animateOpportunityCard(card, effectiveVote, shouldRemove);
-
         const currentListView = document.getElementById('opportunity-list')?.dataset.listView;
-        if (vote === 'PURSUE' && data.in_my_shortlist) {
-          if (data.salesforce_outcome === 'unavailable') {
-            const warning = data.salesforce_warning
-              ? `${data.salesforce_message}. ${data.salesforce_warning}`
-              : data.salesforce_message;
-            showToast(warning || 'Interested · Salesforce unavailable', 'warning');
-          } else if (
-            ['linked', 'created', 'already_linked'].includes(data.salesforce_outcome)
+        if (salesforceFailed) {
+          showToast(actionErrorMessage(data, 'Push to CRM failed'), 'error');
+        } else if (vote === 'PURSUE' && data.in_my_shortlist) {
+          if (
+            currentListView !== 'feed'
+            && isAdminCrmAction
+            && ['linked', 'created', 'already_linked'].includes(data.salesforce_outcome)
           ) {
             showToastWithLink(
-              data.salesforce_message || 'Interested · Linked to Salesforce',
+              data.salesforce_message || 'Pushed to CRM',
               'Open in Salesforce',
               data.salesforce_opportunity_url,
               'success'
             );
-          } else {
-            showToast('Marked interested', 'success');
+          } else if (currentListView !== 'feed') {
+            showToast(isAdminCrmAction ? 'Pushed to CRM' : 'Marked interested', 'success');
           }
         } else {
           const message =
             vote === 'PURSUE'
-              ? 'Interest removed'
+              ? (isAdminCrmAction ? 'CRM interest removed' : 'Interest removed')
               : data.toggled_off
                 ? 'Restored to Feed'
               : currentListView === 'my_shortlist'
@@ -555,120 +841,13 @@
           showToast(message, 'success');
         }
       } catch (error) {
-        showToast('Action failed', 'error');
-      }
-    }
-
-    async function pushOpportunityToCrm(oppId) {
-      try {
-        const res = await fetch(`/api/opps/${oppId}/push-to-crm`, { method: 'POST' });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          showToast(data.detail || 'CRM push failed', 'error');
-          return;
+        optimisticPursue?.cancel();
+        optimisticShortlist?.cancel();
+        if (actionButton) {
+          actionButton.disabled = false;
+          actionButton.removeAttribute('aria-busy');
         }
-
-        const card = document.getElementById(`opp-card-${oppId}`);
-        const button = card?.querySelector('[data-push-crm-button]');
-        if (button) {
-          button.className = 'btn btn-sm opp-card-button opp-card-button--primary btn-success';
-          button.innerHTML = '&#10003; Pushed to CRM';
-          button.disabled = true;
-        }
-        document
-          .querySelectorAll(`[data-push-crm-button][onclick*="'${oppId}'"]`)
-          .forEach((button) => {
-            button.classList.remove('btn-primary');
-            button.classList.remove('opp-card-button--primary');
-            button.classList.add('btn-success');
-            button.innerHTML = '&#10003; Pushed to CRM';
-            button.disabled = true;
-        });
-        await completeCrmWorkflow(oppId, data);
-        showToastWithLink(
-          'Salesforce Opportunity updated.',
-          'Open in Salesforce',
-          data.salesforce_opportunity_url,
-          'success'
-        );
-      } catch (error) {
-        showToast('CRM push failed', 'error');
-      }
-    }
-
-    function crmErrorMessage(data, fallback) {
-      if (!data || !data.detail) {
-        return fallback;
-      }
-      if (typeof data.detail === 'string') {
-        return data.detail;
-      }
-      if (data.detail.message) {
-        return data.detail.message;
-      }
-      return fallback;
-    }
-
-    function updateSalesforceLink(oppId, salesforceUrl, salesforceStatus) {
-      document.querySelectorAll(`#opp-card-${oppId} [data-salesforce-link-container]`).forEach((container) => {
-        const link = container.querySelector('[data-salesforce-link]');
-        if (link && salesforceUrl) {
-          link.href = salesforceUrl;
-          link.textContent = 'Open in Salesforce';
-          link.hidden = false;
-        }
-        const status = container.querySelector('[data-salesforce-status]');
-        if (status && salesforceStatus) {
-          status.textContent = salesforceStatus;
-        }
-        container.hidden = false;
-      });
-      document
-        .querySelectorAll(`#opp-card-${oppId} [data-push-crm-button], #opp-card-${oppId} [data-create-crm-button]`)
-        .forEach((button) => {
-          button.remove();
-        });
-    }
-
-    async function completeCrmWorkflow(oppId, data) {
-      const card = document.getElementById(`opp-card-${oppId}`);
-      updateSalesforceLink(oppId, data.salesforce_opportunity_url, data.salesforce_status);
-      updateOpportunityCard(oppId, 'PURSUE', data);
-      refreshSidebar(data.sidebar);
-
-      const shouldRemove = shouldRemoveOpportunityCard(oppId, 'PURSUE', data);
-      await new Promise((resolve) => window.setTimeout(resolve, 180));
-      await animateOpportunityCard(card, 'PURSUE', shouldRemove);
-    }
-
-    async function createOpportunityInCrm(oppId) {
-      try {
-        const res = await fetch(`/api/opps/${oppId}/create-in-crm`, { method: 'POST' });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          showToast(crmErrorMessage(data, 'CRM create failed'), 'error');
-          return;
-        }
-
-        document
-          .querySelectorAll(`[data-create-crm-button][onclick*="'${oppId}'"]`)
-          .forEach((button) => {
-            button.classList.remove('btn-secondary');
-            button.classList.remove('btn-outline-secondary');
-            button.classList.add('btn-success');
-            button.innerHTML = '&#10003; Created in CRM';
-            button.disabled = true;
-          });
-        await completeCrmWorkflow(oppId, data);
-
-        showToastWithLink(
-          'Salesforce Opportunity created.',
-          'Open in Salesforce',
-          data.salesforce_opportunity_url,
-          'success'
-        );
-      } catch (error) {
-        showToast('CRM create failed', 'error');
+        showToast(error?.message || 'Action failed', 'error');
       }
     }
     </script>

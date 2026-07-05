@@ -11,6 +11,7 @@ from .sam_client import SamRateLimitError, SamTemporaryUnavailableError, resolve
 from .models import Opportunity, IngestionRun
 from .services.ingestion_details import build_error_detail, build_invalid_detail, build_upsert_detail
 from .services.ingestion_runs import record_source_activity
+from .services.opportunity_history import record_imported_history
 from .services.opportunity_monitor import apply_source_update
 from .services.qualification import new_opportunity_qualification_status
 from .services.pursuit_lanes import refresh_opportunity_lane_matches
@@ -431,6 +432,7 @@ def upsert_opportunity(
                 )
                 db.add(opportunity)
                 db.flush()
+                record_imported_history(db, opportunity)
                 refresh_opportunity_lane_matches(db, organization_id, opportunity)
                 if audit is not None:
                     audit.update({

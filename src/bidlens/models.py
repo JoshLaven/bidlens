@@ -68,6 +68,7 @@ class Opportunity(Base):
     title = Column(String, nullable=False)
     agency = Column(String, nullable=False)
     opportunity_type = Column(String, nullable=False)
+    source_stage = Column(String, nullable=True, index=True)
     posted_date = Column(Date, nullable=False)
     response_deadline = Column(Date, nullable=False)
     naics = Column(String, nullable=True)
@@ -125,6 +126,11 @@ class Opportunity(Base):
         back_populates="opportunity",
         cascade="all, delete-orphan",
     )
+    history_events = relationship(
+        "OpportunityHistoryEvent",
+        back_populates="opportunity",
+        cascade="all, delete-orphan",
+    )
 
 
 class OpportunityUpdateEvent(Base):
@@ -146,6 +152,52 @@ class OpportunityUpdateEvent(Base):
 
     opportunity = relationship("Opportunity", back_populates="update_events")
     ingestion_run = relationship("IngestionRun", back_populates="update_events")
+
+
+class OpportunityHistoryEvent(Base):
+    __tablename__ = "opportunity_history_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
+    event_type = Column(String, nullable=False, index=True)
+    source = Column(String, nullable=True, index=True)
+    occurred_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    event_data = Column(JSON, nullable=True)
+
+    opportunity = relationship("Opportunity", back_populates="history_events")
+    recipients = relationship(
+        "OpportunityHistoryRecipient",
+        back_populates="event",
+        cascade="all, delete-orphan",
+    )
+
+
+class OpportunityHistoryRecipient(Base):
+    __tablename__ = "opportunity_history_recipients"
+    __table_args__ = (
+        UniqueConstraint(
+            "history_event_id",
+            "user_id",
+            name="uq_opportunity_history_recipient_event_user",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
+    history_event_id = Column(
+        Integer,
+        ForeignKey("opportunity_history_events.id"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    read_at = Column(DateTime(timezone=True), nullable=True, index=True)
+
+    event = relationship("OpportunityHistoryEvent", back_populates="recipients")
+
 
 class OpportunityBrief(Base):
     __tablename__ = "opportunity_briefs"

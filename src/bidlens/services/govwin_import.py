@@ -15,7 +15,16 @@ from sqlalchemy.orm import Session
 from ..models import Opportunity
 from .account_type_classifier import classify_account_type
 from .ingestion_details import build_error_detail, build_invalid_detail, build_upsert_detail
+from .opportunity_history import (
+    EVENT_SOURCE_UPDATED,
+    record_history_event,
+    record_imported_history,
+)
 from .opportunity_monitor import apply_source_update
+from .opportunity_stages import (
+    govwin_display_stage,
+    is_excluded_govwin_stage,
+)
 from .qualification import new_opportunity_qualification_status
 from .pursuit_lanes import refresh_opportunity_lane_matches
 
@@ -40,6 +49,7 @@ REASON_LABELS = {
     "missing_govwin_staging_name": "Missing GovWin Staging Name",
     "missing_goventity_title": "Missing GovEntity Title",
     "missing_usable_date": "Missing usable Response Date, Created Date, or Solicitation Date",
+    "source_selection": "Source Selection opportunities are outside the discovery workflow",
     "integrity_error": "Duplicate or integrity error",
     "duplicate_within_import": "Duplicate row within same import file",
     "import_error": "Import error",
@@ -239,6 +249,12 @@ def _normalize_row(row: dict[str, Any], row_number: int) -> tuple[dict[str, Any]
     if not agency:
         return None, "missing_goventity_title"
 
+    # GovWin spreadsheet exports use Status for the lifecycle stage. Type is
+    # retained as a fallback for older/custom exports and the API adapter.
+    source_stage = _clean(row.get("Status")) or _clean(row.get("Type"))
+    if is_excluded_govwin_stage(source_stage):
+        return None, "source_selection"
+
     response_deadline = _parse_date(row.get("Response Date"))
     created_date = _parse_date(row.get("Created Date"))
     solicitation_date = _parse_date(row.get("Solicitation Date"))
@@ -267,9 +283,8 @@ def _normalize_row(row: dict[str, Any], row_number: int) -> tuple[dict[str, Any]
         "raw_source_payload": payload,
         "title": title,
         "agency": agency,
-        # Existing model requires opportunity_type; GovWin exports often omit a
-        # type column, so use a generic display-compatible value for V1.
-        "opportunity_type": _clean(row.get("Type")) or "Solicitation",
+        "opportunity_type": govwin_display_stage(source_stage) or "RFP",
+        "source_stage": source_stage,
         "posted_date": posted_date,
         "response_deadline": response_deadline,
         "naics": _clean(row.get("Primary NAICS Id")),
@@ -385,6 +400,16 @@ def upsert_govwin_opportunity(
             existing_by_sam_notice.last_seen_at = dt.datetime.utcnow()
             if changed:
                 existing_by_sam_notice.upserted_at = dt.datetime.utcnow()
+                record_history_event(
+                    db,
+                    opportunity=existing_by_sam_notice,
+                    event_type=EVENT_SOURCE_UPDATED,
+                    source=data["source"],
+                    event_data={
+                        "source_record_id": data["source_record_id"],
+                        "changed_fields": sorted(changed_fields),
+                    },
+                )
                 refresh_opportunity_lane_matches(db, organization_id, existing_by_sam_notice)
             diagnostic = _cross_source_sam_match_diagnostic(data, existing_by_sam_notice)
             reason = "cross_source_sam_notice_match_enriched" if changed else "cross_source_sam_notice_match"
@@ -407,6 +432,7 @@ def upsert_govwin_opportunity(
                 )
                 db.add(opportunity)
                 db.flush()
+                record_imported_history(db, opportunity)
                 refresh_opportunity_lane_matches(db, organization_id, opportunity)
                 if audit is not None:
                     audit.update({

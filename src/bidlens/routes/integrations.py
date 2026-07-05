@@ -15,7 +15,8 @@ from ..database import get_db
 from ..models import IngestionRun, OrgProfile
 from ..services.govwin import GovWinAdapter
 from ..services.govwin_import import upsert_govwin_opportunity
-from ..services.ingestion_details import build_error_detail, build_upsert_detail
+from ..services.opportunity_stages import is_excluded_govwin_stage
+from ..services.ingestion_details import build_error_detail, build_invalid_detail, build_upsert_detail
 from ..services.ingestion_runs import record_source_activity
 from ..services.integration_credentials import decrypt_credentials, encrypt_credentials
 from ..services.salesforce import SalesforceConfigError, SalesforceService
@@ -226,6 +227,16 @@ async def run_govwin_sync(request: Request, db: Session = Depends(get_db)):
     }
     for raw_opportunity in adapter.sync_saved_search():
         result["processed"] += 1
+        raw_stage = raw_opportunity.get("source_stage") or raw_opportunity.get("opportunity_type")
+        if is_excluded_govwin_stage(raw_stage):
+            result["skipped"] += 1
+            result["_record_details"].append(build_invalid_detail(
+                source="govwin_api",
+                source_record_id=str(raw_opportunity.get("opportunity_id") or "").strip() or None,
+                title=str(raw_opportunity.get("title") or "").strip() or None,
+                reason="Source Selection opportunities are outside the discovery workflow",
+            ))
+            continue
         normalized = adapter.normalize_opportunity(raw_opportunity)
         audit: dict[str, Any] = {}
         try:

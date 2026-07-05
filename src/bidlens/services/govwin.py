@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from .account_type_classifier import classify_account_type
+from .opportunity_stages import govwin_display_stage
 
 
 SOURCE = "govwin_api"
@@ -49,7 +50,7 @@ class GovWinAdapter:
                 "opportunity_id": "GW-MOCK-1001",
                 "title": "Mock Public Health Research Services",
                 "agency": "Department of Health and Human Services",
-                "opportunity_type": "Solicitation",
+                "opportunity_type": "Post-RFP",
                 "posted_date": today.isoformat(),
                 "response_deadline": (today + timedelta(days=45)).isoformat(),
                 "solicitation_number": "GW-MOCK-PH-1001",
@@ -61,7 +62,7 @@ class GovWinAdapter:
                 "opportunity_id": "GW-MOCK-1002",
                 "title": "Mock State Education Evaluation Support",
                 "agency": "State of Arizona Department of Education",
-                "opportunity_type": "Solicitation",
+                "opportunity_type": "Pre-RFP",
                 "posted_date": today.isoformat(),
                 "response_deadline": (today + timedelta(days=60)).isoformat(),
                 "solicitation_number": "GW-MOCK-ED-1002",
@@ -81,6 +82,9 @@ class GovWinAdapter:
             or posted_date + timedelta(days=30)
         )
         description = str(opportunity.get("description") or "").strip() or None
+        source_stage = self._optional_text(
+            opportunity.get("source_stage") or opportunity.get("opportunity_type")
+        )
         return {
             "source": SOURCE,
             "source_record_id": opportunity_id,
@@ -90,7 +94,8 @@ class GovWinAdapter:
             "raw_source_payload": dict(opportunity),
             "title": str(opportunity.get("title") or f"GovWin Opportunity {opportunity_id}").strip(),
             "agency": agency,
-            "opportunity_type": str(opportunity.get("opportunity_type") or "Solicitation").strip(),
+            "opportunity_type": govwin_display_stage(source_stage) or "RFP",
+            "source_stage": source_stage,
             "posted_date": posted_date,
             "response_deadline": response_deadline,
             "naics": self._optional_text(opportunity.get("naics")),

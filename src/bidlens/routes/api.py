@@ -7,6 +7,11 @@ from ..database import get_db
 from ..auth import get_current_user
 from ..state_machine import OppState
 from ..services import transition_state, cast_vote, push_opportunity_to_crm
+from ..services.opportunity_history import (
+    EVENT_SALESFORCE_SYNCHRONIZED,
+    mark_history_read,
+    record_history_event,
+)
 from ..services.salesforce import (
     PROSPECT_FEED_STATUS,
     SalesforceApiError,
@@ -357,6 +362,26 @@ def _record_salesforce_opportunity_reference(
     db.commit()
 
 
+def _record_salesforce_synchronized_history(
+    db: Session,
+    *,
+    opp: Opportunity,
+    salesforce_opp_id: str,
+    action: str,
+) -> None:
+    record_history_event(
+        db,
+        opportunity=opp,
+        event_type=EVENT_SALESFORCE_SYNCHRONIZED,
+        source="salesforce",
+        event_data={
+            "salesforce_opportunity_id": salesforce_opp_id,
+            "action": action,
+        },
+    )
+    db.commit()
+
+
 def _select_intake_source_value(values: list[str]) -> str | None:
     if "BidLens" in values:
         return "BidLens"
@@ -427,14 +452,6 @@ def _promote_interested_opportunity_to_salesforce(
     ui_version: str,
     service: SalesforceService | None = None,
 ) -> dict[str, Any]:
-    if opp.salesforce_opportunity_id or opp.salesforce_opportunity_url:
-        return {
-            "outcome": "already_linked",
-            "message": "Interested · Linked to Salesforce",
-            "salesforce_opportunity_id": opp.salesforce_opportunity_id,
-            "salesforce_opportunity_url": opp.salesforce_opportunity_url,
-        }
-
     source_record_id = (opp.source_record_id or "").strip()
     if not source_record_id:
         raise ValueError("Opportunity is missing source_record_id")
@@ -442,6 +459,41 @@ def _promote_interested_opportunity_to_salesforce(
     service = service or SalesforceService()
     if not service.is_authorized():
         raise SalesforceConfigError("Salesforce is not connected.")
+
+    sf_opp = None
+    if opp.salesforce_opportunity_id:
+        salesforce_opp_id = opp.salesforce_opportunity_id
+        service.update_intake_status(salesforce_opp_id, PROSPECT_FEED_STATUS)
+        salesforce_url = (
+            opp.salesforce_opportunity_url
+            or service.opportunity_record_url(salesforce_opp_id)
+        )
+        _record_salesforce_opportunity_reference(
+            db,
+            opp=opp,
+            salesforce_opp_id=salesforce_opp_id,
+            salesforce_opp_url=salesforce_url,
+            action="pushed",
+        )
+        push_opportunity_to_crm(
+            db,
+            org_id=_user_org_id(user),
+            user_id=user.id,
+            opp_id=opp.id,
+            ui_version=ui_version,
+        )
+        _record_salesforce_synchronized_history(
+            db,
+            opp=opp,
+            salesforce_opp_id=salesforce_opp_id,
+            action="updated",
+        )
+        return {
+            "outcome": "linked",
+            "message": "Pushed to CRM · Updated in Salesforce",
+            "salesforce_opportunity_id": salesforce_opp_id,
+            "salesforce_opportunity_url": salesforce_url,
+        }
 
     sf_opp = service.find_opportunity_by_external_source_id(source_record_id)
     if sf_opp:
@@ -461,9 +513,15 @@ def _promote_interested_opportunity_to_salesforce(
             opp_id=opp.id,
             ui_version=ui_version,
         )
+        _record_salesforce_synchronized_history(
+            db,
+            opp=opp,
+            salesforce_opp_id=sf_opp.id,
+            action="updated",
+        )
         return {
             "outcome": "linked",
-            "message": "Interested · Linked to Salesforce",
+            "message": "Pushed to CRM · Updated in Salesforce",
             "salesforce_opportunity_id": sf_opp.id,
             "salesforce_opportunity_url": salesforce_url,
         }
@@ -488,9 +546,15 @@ def _promote_interested_opportunity_to_salesforce(
         opp_id=opp.id,
         ui_version=ui_version,
     )
+    _record_salesforce_synchronized_history(
+        db,
+        opp=opp,
+        salesforce_opp_id=salesforce_opp_id,
+        action="created",
+    )
     return {
         "outcome": "created",
-        "message": "Interested · Created in Salesforce",
+        "message": "Pushed to CRM · Created in Salesforce",
         "salesforce_opportunity_id": salesforce_opp_id,
         "salesforce_opportunity_url": salesforce_url,
         "selected_intake_source": selected_intake_source,
@@ -780,6 +844,7 @@ def _serialize_sidebar(sidebar: dict) -> dict:
                 "title": opp.title,
                 "days_until_due": getattr(opp, "days_until_due", None),
                 "due_label": due_label,
+                "salesforce_opportunity_url": getattr(opp, "salesforce_opportunity_url", None),
             })
         return out
 
@@ -831,7 +896,11 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
             "salesforce_opportunity_id": None,
             "salesforce_opportunity_url": None,
         }
-        if result["vote"] == "PURSUE":
+        is_admin_crm_action = (
+            result["vote"] == "PURSUE"
+            and _current_user_role(db, user) == "admin"
+        )
+        if is_admin_crm_action:
             opp = (
                 db.query(Opportunity)
                 .filter(
@@ -859,8 +928,9 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
                 )
                 salesforce_result = {
                     "outcome": "unavailable",
-                    "message": "Interested · Salesforce unavailable",
-                    "warning": "Interest was saved. Salesforce sync is pending.",
+                    "message": "Push failed · Salesforce unavailable",
+                    "warning": "Salesforce sync was not completed. The opportunity remains in My Shortlist.",
+                    "error": str(exc),
                     "salesforce_opportunity_id": opp.salesforce_opportunity_id,
                     "salesforce_opportunity_url": opp.salesforce_opportunity_url,
                 }
@@ -879,8 +949,10 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
             "salesforce_outcome": salesforce_result["outcome"],
             "salesforce_message": salesforce_result.get("message"),
             "salesforce_warning": salesforce_result.get("warning"),
+            "salesforce_error": salesforce_result.get("error"),
             "salesforce_opportunity_id": salesforce_result.get("salesforce_opportunity_id"),
             "salesforce_opportunity_url": salesforce_result.get("salesforce_opportunity_url"),
+            "admin_crm_action": is_admin_crm_action,
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1067,6 +1139,29 @@ def qualify_opportunity(opp_id: int, request: Request, db: Session = Depends(get
     return _set_qualification_status(opp_id, QUALIFICATION_QUALIFIED, request, db)
 
 
+@router.post("/opps/{opp_id}/history/read")
+def read_opportunity_history(opp_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    opportunity = (
+        db.query(Opportunity)
+        .filter(
+            Opportunity.id == opp_id,
+            Opportunity.organization_id == _user_org_id(user),
+        )
+        .first()
+    )
+    if not opportunity:
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+
+    marked_read = mark_history_read(
+        db,
+        organization_id=_user_org_id(user),
+        opportunity_id=opp_id,
+        user_id=user.id,
+    )
+    return {"success": True, "marked_read": marked_read, "unread_count": 0}
+
+
 @router.post("/opps/{opp_id}/reject")
 def reject_opportunity(opp_id: int, request: Request, db: Session = Depends(get_db)):
     return _set_qualification_status(opp_id, QUALIFICATION_REJECTED, request, db)
@@ -1193,6 +1288,12 @@ def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depe
             opp_id=opp.id,
             ui_version="v1",
         )
+        _record_salesforce_synchronized_history(
+            db,
+            opp=opp,
+            salesforce_opp_id=sf_opp.id,
+            action="updated",
+        )
         workflow_payload = _crm_workflow_response_payload(db, user, opp.id)
         logger.info(
             "Salesforce CRM push succeeded bidlens_opp_id=%s source_record_id=%s external_source_key=%s salesforce_opp_id=%s success=true",
@@ -1299,6 +1400,12 @@ def api_create_opp_in_salesforce(opp_id: int, request: Request, db: Session = De
             user_id=user.id,
             opp_id=opp.id,
             ui_version="v1",
+        )
+        _record_salesforce_synchronized_history(
+            db,
+            opp=opp,
+            salesforce_opp_id=salesforce_opp_id,
+            action="created",
         )
         workflow_payload = _crm_workflow_response_payload(db, user, opp.id)
         logger.info(

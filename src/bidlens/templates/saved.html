@@ -18,7 +18,7 @@
   <input type="hidden" name="state" value="{{ state_filter or 'saved' }}">
   <select name="type" onchange="this.form.submit()">
       <option value="">All Types</option>
-      <option value="solicitation" {{ 'selected' if type_filter == 'solicitation' else '' }}>Solicitations</option>
+      <option value="solicitation" {{ 'selected' if type_filter == 'solicitation' else '' }}>RFPs</option>
       <option value="rfi" {{ 'selected' if type_filter == 'rfi' else '' }}>RFIs & Sources Sought</option>
   </select>
 </form>
@@ -45,7 +45,10 @@
             </div>
             <div class="card-meta">
                 <span class="card-agency">{{ item.opportunity.agency }}</span>
-                <span class="badge {{ 'badge-rfi' if item.opportunity.opportunity_type in ['RFI', 'Sources Sought'] else 'badge-type' }}">{{ item.opportunity.opportunity_type }}</span>
+                {% set saved_type = (item.opportunity.opportunity_type or '')|lower %}
+                {% set saved_source_stage = (item.opportunity.source_stage or '')|lower %}
+                {% set saved_stage = 'Forecast' if saved_type == 'forecast' or saved_source_stage == 'forecast pre-rfp' else 'RFI' if saved_type in ['rfi', 'sources sought', 'special notice', 'presolicitation'] or saved_source_stage == 'pre-rfp' else 'RFP' %}
+                <span class="badge {{ 'badge-rfi' if saved_stage == 'RFI' else 'badge-type' }}">{{ saved_stage }}</span>
             </div>
             <div class="card-meta">
                 <span class="due-date">

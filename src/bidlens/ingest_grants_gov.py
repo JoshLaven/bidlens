@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from .grants_gov_client import GrantsGovApiError, fetch_opportunity_detail, search_recent_opportunities
 from .models import Opportunity
 from .services.ingestion_details import build_error_detail, build_invalid_detail, build_upsert_detail
+from .services.opportunity_history import record_imported_history
 from .services.opportunity_monitor import apply_source_update
 from .services.qualification import new_opportunity_qualification_status
 from .services.pursuit_lanes import refresh_opportunity_lane_matches
@@ -256,6 +257,7 @@ def upsert_grants_gov_opportunity(
                 )
                 db.add(opportunity)
                 db.flush()
+                record_imported_history(db, opportunity)
                 refresh_opportunity_lane_matches(db, organization_id, opportunity)
                 if audit is not None:
                     audit.update({

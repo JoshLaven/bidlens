@@ -9,6 +9,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from ..models import Opportunity, OpportunityUpdateEvent
+from .opportunity_history import (
+    EVENT_SALESFORCE_SYNCHRONIZED,
+    EVENT_SOURCE_UPDATED,
+    record_history_event,
+)
 from .salesforce import SalesforceService
 
 
@@ -25,6 +30,7 @@ DEFAULT_MONITORED_FIELDS = (
     "title",
     "agency",
     "opportunity_type",
+    "source_stage",
     "posted_date",
     "response_deadline",
     "naics",
@@ -147,6 +153,18 @@ def apply_source_update(
     )
     db.add(event)
     db.flush()
+    record_history_event(
+        db,
+        opportunity=opportunity,
+        event_type=EVENT_SOURCE_UPDATED,
+        source=opportunity.source,
+        event_data={
+            "source_record_id": opportunity.source_record_id,
+            "changed_fields": sorted(changes),
+            "update_event_id": event.id,
+        },
+        occurred_at=now,
+    )
 
     if not opportunity.salesforce_opportunity_id:
         return OpportunityMonitorResult(
@@ -171,6 +189,17 @@ def apply_source_update(
         event.salesforce_sync_status = "succeeded"
         event.salesforce_synced_at = now
         opportunity.salesforce_synced_at = now
+        record_history_event(
+            db,
+            opportunity=opportunity,
+            event_type=EVENT_SALESFORCE_SYNCHRONIZED,
+            source="salesforce",
+            event_data={
+                "salesforce_opportunity_id": opportunity.salesforce_opportunity_id,
+                "update_event_id": event.id,
+            },
+            occurred_at=now,
+        )
         logger.info(
             "Opportunity monitor Salesforce sync succeeded opportunity_id=%s source=%s "
             "source_record_id=%s salesforce_opportunity_id=%s changed_fields=%s",

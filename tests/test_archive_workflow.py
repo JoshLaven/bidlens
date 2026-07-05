@@ -154,7 +154,7 @@ class FeedRouteArchiveTests(unittest.TestCase):
                 )
             )
 
-        feed_query.assert_called_once_with(db, user, "solicitations")
+        feed_query.assert_called_once_with(db, user)
 
 
 if __name__ == "__main__":

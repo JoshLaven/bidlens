@@ -6,11 +6,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from bidlens.database import Base
-from bidlens.models import Opportunity, Organization
+from bidlens.models import Opportunity, Organization, Vote
 from bidlens.routes.opportunities import (
     FEED_PAGE_SIZE,
     _apply_feed_ordering,
+    _apply_stage_filter,
     _feed_query,
+    _my_shortlist_query,
     _pagination_values,
 )
 
@@ -80,6 +82,58 @@ class QueuePaginationTests(unittest.TestCase):
         self.assertEqual(page, 2)
         self.assertEqual(total_pages, 2)
         self.assertEqual([row[0].source for row in second_page], ["grants_gov"])
+
+    def test_feed_includes_rfi_types_without_a_separate_tab(self):
+        solicitation = self._opportunity(
+            "sam",
+            "solicitation-1",
+            datetime(2026, 6, 2),
+        )
+        rfi = self._opportunity(
+            "sam",
+            "rfi-1",
+            datetime(2026, 6, 3),
+        )
+        rfi.opportunity_type = "Sources Sought"
+        self.db.add_all([solicitation, rfi])
+        self.db.commit()
+
+        rows = _feed_query(self.db, self.user, "solicitations").all()
+
+        self.assertEqual(
+            {opportunity.id for opportunity, _watched in rows},
+            {solicitation.id, rfi.id},
+        )
+
+    def test_my_shortlist_uses_feed_stage_filters_instead_of_legacy_tabs(self):
+        forecast = self._opportunity(
+            "govwin_export",
+            "forecast-1",
+            datetime(2026, 6, 1),
+        )
+        forecast.opportunity_type = "Forecast"
+        forecast.source_stage = "Forecast Pre-RFP"
+        rfi = self._opportunity("sam", "rfi-1", datetime(2026, 6, 2))
+        rfi.opportunity_type = "Sources Sought"
+        rfp = self._opportunity("sam", "rfp-1", datetime(2026, 6, 3))
+        self.db.add_all([forecast, rfi, rfp])
+        self.db.flush()
+        self.db.add_all([
+            Vote(org_id=self.org.id, user_id=self.user.id, opp_id=opp.id, vote="PURSUE")
+            for opp in (forecast, rfi, rfp)
+        ])
+        self.db.commit()
+
+        base = _my_shortlist_query(self.db, self.user, "solicitations")
+        self.assertEqual(
+            {opp.id for opp, _watched in base.all()},
+            {forecast.id, rfi.id, rfp.id},
+        )
+        filtered = _apply_stage_filter(base, "Forecast,RFI").all()
+        self.assertEqual(
+            {opp.id for opp, _watched in filtered},
+            {forecast.id, rfi.id},
+        )
 
 
 if __name__ == "__main__":

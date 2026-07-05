@@ -25,6 +25,7 @@ from ..services.market_activity import (
     market_activity_filter_options,
 )
 from ..services.govwin_import import REASON_LABELS, import_govwin_xlsx
+from ..services.opportunity_stages import normalize_display_stage
 from ..services.sam_source_config import (
     SAM_NOTICE_TYPES,
     SamConfigValidationError,
@@ -638,6 +639,11 @@ async def source_update_detail_page(
         "request": request,
         "user": user,
         "event": event,
+        "display_stage": normalize_display_stage(
+            source=event.opportunity.source,
+            opportunity_type=event.opportunity.opportunity_type,
+            source_stage=event.opportunity.source_stage,
+        ),
         "source_label": _source_label,
         "active_page": "imports",
         "sidebar": get_sidebar(db, user),

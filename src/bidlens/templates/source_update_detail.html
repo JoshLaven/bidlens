@@ -37,7 +37,7 @@
       <h2>Opportunity information</h2>
       <dl class="source-update-metadata source-update-metadata--columns">
         <div><dt>Agency</dt><dd>{{ event.opportunity.agency or "—" }}</dd></div>
-        <div><dt>Opportunity type</dt><dd>{{ event.opportunity.opportunity_type or "—" }}</dd></div>
+        <div><dt>Stage</dt><dd>{{ display_stage or "—" }}</dd></div>
         <div><dt>Solicitation number</dt><dd>{{ event.opportunity.solicitation_number or "—" }}</dd></div>
         <div><dt>Response deadline</dt><dd>{{ event.opportunity.response_deadline.strftime("%b %d, %Y") if event.opportunity.response_deadline else "—" }}</dd></div>
         <div><dt>Source record ID</dt><dd>{{ event.source_record_id }}</dd></div>

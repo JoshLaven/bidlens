@@ -127,6 +127,33 @@ class IngestionRunDetailTests(unittest.TestCase):
         self.assertIn("Import failed", detail.reason)
         self.assertEqual(run.error_count, 1)
 
+    def test_govwin_stage_mapping_and_source_selection_skip(self):
+        expected = {
+            "Forecast Pre-RFP": "Forecast",
+            "Pre-RFP": "RFI",
+            "Post-RFP": "RFP",
+        }
+        for source_stage, display_stage in expected.items():
+            row = self._row(f"stage-{display_stage}", f"{display_stage} opportunity")
+            row["Status"] = source_stage
+            row["Type"] = "Legacy Type Value"
+            normalized, reason = _normalize_row(row, 2)
+            self.assertIsNone(reason)
+            self.assertEqual(normalized["source_stage"], source_stage)
+            self.assertEqual(normalized["opportunity_type"], display_stage)
+
+        source_selection = self._row("source-selection", "Award in review")
+        source_selection["Type"] = "Source Selection"
+        with patch(
+            "bidlens.services.govwin_import.parse_xlsx_rows",
+            return_value=[source_selection],
+        ):
+            result = import_govwin_xlsx(self.db, self.org.id, b"mock workbook")
+
+        self.assertEqual(result["created"], 0)
+        self.assertEqual(result["skipped"], 1)
+        self.assertEqual(result["reason_counts"], {"source_selection": 1})
+
     def test_sam_pull_persists_one_detail_per_processed_record(self):
         record = {
             "noticeId": "sam-detail-1",
