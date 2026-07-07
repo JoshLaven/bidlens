@@ -14,6 +14,10 @@
       <span class="admin-settings-nav-icon" aria-hidden="true">◷</span>
       <span class="admin-nav-label">Pull History</span>
     </a>
+    <a href="/admin/opportunity-lookup{{ admin_org_q }}" class="{{ 'active' if admin_nav_active == 'opportunity_lookup' else '' }}" title="Opportunity Lookup">
+      <span class="admin-settings-nav-icon" aria-hidden="true">⌕</span>
+      <span class="admin-nav-label">Opportunity Lookup</span>
+    </a>
     <a href="/admin/source-updates{{ admin_org_q }}" class="{{ 'active' if admin_nav_active == 'source_updates' else '' }}" title="Source Update Log">
       <span class="admin-settings-nav-icon" aria-hidden="true">↻</span>
       <span class="admin-nav-label">Source Update Log</span>
@@ -30,9 +34,9 @@
       <span class="admin-settings-nav-icon" aria-hidden="true">◇</span>
       <span class="admin-nav-label">Pursuit Lanes</span>
     </a>
-    <a href="/integrations{{ admin_org_q }}" class="{{ 'active' if admin_nav_active == 'integrations' else '' }}" title="Integrations">
+    <a href="/integrations{{ admin_org_q }}" class="{{ 'active' if admin_nav_active == 'integrations' else '' }}" title="Configuration Center">
       <span class="admin-settings-nav-icon" aria-hidden="true">☁</span>
-      <span class="admin-nav-label">Integrations</span>
+      <span class="admin-nav-label">Configuration Center</span>
     </a>
   </nav>
   <div class="admin-page-help">

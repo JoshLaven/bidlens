@@ -19,6 +19,16 @@
       </div>
     </div>
 
+    {% if run.status == "paused_rate_limit" %}
+      <section class="card">
+        <strong>Paused — SAM quota exceeded</strong>
+        <p class="muted" style="margin-bottom:0;">
+          Progress is saved and the next pull will resume this run
+          {% if run.retry_after_at %}after {{ run.retry_after_at.strftime("%b %d, %Y %I:%M %p") }}{% endif %}.
+        </p>
+      </section>
+    {% endif %}
+
     <div class="ingestion-run-summary" aria-label="Run summary">
       <span><strong>{{ run.processed_count or 0 }}</strong> Processed</span>
       <span><strong>{{ run.created_count or 0 }}</strong> Created</span>

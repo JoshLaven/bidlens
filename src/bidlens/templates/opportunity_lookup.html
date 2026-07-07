@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% set hide_context_sidebar = true %}
+{% block title %}Opportunity Lookup - BidLens{% endblock %}
+{% block content %}
+{% set admin_nav_active = 'opportunity_lookup' %}
+{% set lookup_org_id = request.query_params.get("org_id") %}
+{% set lookup_org_q = "?org_id=" ~ lookup_org_id if lookup_org_id else "" %}
+<div class="admin-page-layout">
+  {% include "_admin_nav.html" %}
+  <div class="admin-page-content">
+    <div class="page-header admin-page-header">
+      <div>
+        <h1>Opportunity Lookup</h1>
+        <p class="page-subtitle">Find an opportunity anywhere in this workspace, regardless of workflow state.</p>
+      </div>
+    </div>
+
+    <form method="get" action="/admin/opportunity-lookup" class="card opportunity-lookup-search">
+      {% if lookup_org_id %}<input type="hidden" name="org_id" value="{{ lookup_org_id }}">{% endif %}
+      <label for="opportunity-lookup-query">Search all opportunities</label>
+      <div class="opportunity-lookup-search-row">
+        <input
+          id="opportunity-lookup-query"
+          class="feed-search-input"
+          type="search"
+          name="q"
+          value="{{ q }}"
+          placeholder="Title, agency, solicitation number, or source ID"
+          autocomplete="off"
+          autofocus
+        >
+        <button type="submit" class="btn btn-primary">Search</button>
+        {% if q %}<a href="/admin/opportunity-lookup{{ lookup_org_q }}" class="btn btn-outline-secondary">Clear</a>{% endif %}
+      </div>
+      <p>Searches title, agency, solicitation/opportunity number, source record ID, SAM notice ID, GovWin staging ID, and Grants.gov opportunity ID.</p>
+    </form>
+
+    {% if q and results %}
+      <div class="opportunity-lookup-result-summary">
+        {{ total_results }} result{{ "" if total_results == 1 else "s" }} for “{{ q }}”
+      </div>
+      <section class="card admin-table-card opportunity-lookup-results">
+        <div class="table-wrap">
+          <table class="data-table opportunity-lookup-table">
+            <thead>
+              <tr>
+                <th>Opportunity</th>
+                <th>Source / Identifiers</th>
+                <th>Stage</th>
+                <th>Organization Workflow</th>
+                <th>Supporting Status</th>
+                <th>Last Updated</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in results %}
+                {% set opportunity = item.opportunity %}
+                <tr>
+                  <td>
+                    <a class="opportunity-lookup-title" href="/opportunity/{{ opportunity.id }}{{ lookup_org_q }}">{{ opportunity.title }}</a>
+                    <span class="opportunity-lookup-agency">{{ opportunity.agency }}</span>
+                  </td>
+                  <td>
+                    <span class="source-pill">{{ item.source_label }}</span>
+                    <div class="opportunity-lookup-identifiers">
+                      {% if opportunity.solicitation_number %}
+                        <span>Opportunity #: <code>{{ opportunity.solicitation_number }}</code></span>
+                      {% endif %}
+                      <span>Source ID: <code>{{ opportunity.source_record_id }}</code></span>
+                      {% if opportunity.sam_notice_id and opportunity.sam_notice_id != opportunity.source_record_id %}
+                        <span>SAM Notice ID: <code>{{ opportunity.sam_notice_id }}</code></span>
+                      {% endif %}
+                      {% if opportunity.govwin_staging_id and opportunity.govwin_staging_id != opportunity.source_record_id %}
+                        <span>GovWin Staging ID: <code>{{ opportunity.govwin_staging_id }}</code></span>
+                      {% endif %}
+                    </div>
+                  </td>
+                  <td>
+                    <span class="opportunity-type-pill opportunity-type-pill--{{ item.stage_slug }}">{{ item.stage }}</span>
+                  </td>
+                  <td>
+                    <span class="opportunity-lookup-state">{{ item.workflow_state }}</span>
+                  </td>
+                  <td>
+                    <div class="opportunity-lookup-supporting">
+                      <span><strong>User:</strong> {{ item.user_relationship }}</span>
+                      <span><strong>CRM:</strong> {{ item.crm_state }}</span>
+                    </div>
+                  </td>
+                  <td>{{ item.last_updated.strftime("%b %d, %Y %I:%M %p") if item.last_updated else "—" }}</td>
+                  <td>
+                    <a href="/opportunity/{{ opportunity.id }}{{ lookup_org_q }}" class="admin-row-arrow" aria-label="Open {{ opportunity.title }}">›</a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if total_pages > 1 %}
+          <div class="queue-pagination" aria-label="Opportunity lookup pagination">
+            <a
+              class="btn btn-outline-secondary {{ 'disabled' if page <= 1 else '' }}"
+              href="/admin/opportunity-lookup?{{ pagination_query }}{% if lookup_org_id %}&org_id={{ lookup_org_id }}{% endif %}&page={{ page - 1 }}"
+              {% if page <= 1 %}aria-disabled="true" tabindex="-1"{% endif %}
+            >← Previous</a>
+            <span class="queue-pagination-position">Page {{ page }} of {{ total_pages }}</span>
+            <a
+              class="btn btn-outline-secondary {{ 'disabled' if page >= total_pages else '' }}"
+              href="/admin/opportunity-lookup?{{ pagination_query }}{% if lookup_org_id %}&org_id={{ lookup_org_id }}{% endif %}&page={{ page + 1 }}"
+              {% if page >= total_pages %}aria-disabled="true" tabindex="-1"{% endif %}
+            >Next →</a>
+          </div>
+        {% endif %}
+      </section>
+    {% elif q %}
+      <div class="empty-state">
+        <h2>No opportunity found</h2>
+        <p>BidLens does not have an opportunity matching “{{ q }}” in this workspace.</p>
+      </div>
+    {% else %}
+      <div class="empty-state opportunity-lookup-empty">
+        <h2>Does BidLens know about this opportunity?</h2>
+        <p>Search by a title, agency, solicitation number, or source identifier to find it anywhere in the workflow.</p>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

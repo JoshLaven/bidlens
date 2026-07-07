@@ -21,12 +21,15 @@
     <nav>
         <div class="container nav-shell">
             <div class="nav-brand">
-              <a href="/{{ nav_org_q }}" class="logo">BidLens</a>
-              <span class="nav-tagline">Opportunity Feed</span>
+              <a href="/home{{ nav_org_q }}" class="logo">BidLens</a>
+              <span class="nav-tagline">Opportunity Intelligence</span>
             </div>
             <div class="nav-links">
                 {% if user %}
                     <div class="nav-workspace" aria-label="Primary workspaces">
+                      {% if user.current_role == 'admin' %}
+                        <a href="/home{{ nav_org_q }}" class="{{ 'active' if active_page == 'home' else '' }}">Home</a>
+                      {% endif %}
                       <a href="/{{ nav_org_q }}" class="{{ 'active' if active_page == 'feed' else '' }}">Feed</a>
                       <a href="/my-shortlist{{ nav_org_q }}" class="{{ 'active' if active_page == 'my_shortlist' else '' }}">My Shortlist</a>
                       <a href="/triage{{ nav_org_q }}" class="{{ 'active' if active_page == 'triage' else '' }}">Triage (<span data-triage-nav-count>{{ user.triage_unreviewed_count|default(0) }}</span>)</a>

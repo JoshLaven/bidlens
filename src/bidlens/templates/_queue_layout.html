@@ -10,7 +10,7 @@
   </div>
 {% endmacro %}
 
-{% macro queue_search(route, input_id, q, sort, direction, current_tab=none, org_id=none, lane_id=none, stages_value=none) %}
+{% macro queue_search(route, input_id, q, sort, direction, current_tab=none, org_id=none, lane_id=none, stages_value=none, sources_value=none) %}
   <form method="GET" action="{{ route }}" class="queue-primary-search" role="search">
     {% if current_tab %}
       <input type="hidden" name="tab" value="{{ current_tab }}">
@@ -19,6 +19,9 @@
     <input type="hidden" name="direction" value="{{ direction }}">
     {% if stages_value is not none %}
       <input type="hidden" name="stages" value="{{ stages_value }}">
+    {% endif %}
+    {% if sources_value is not none %}
+      <input type="hidden" name="sources" value="{{ sources_value }}">
     {% endif %}
     {% if lane_id %}
       <input type="hidden" name="lane_id" value="{{ lane_id }}">
@@ -31,12 +34,12 @@
     <input id="{{ input_id }}" type="search" name="q" value="{{ q }}" placeholder="Search by title, agency, keyword, NAICS, or solicitation number">
     <button type="submit" class="btn btn-primary">Search</button>
     {% if q %}
-      <a href="{{ route }}?sort={{ sort }}&direction={{ direction }}{% if current_tab %}&tab={{ current_tab }}{% endif %}{% if lane_id %}&lane_id={{ lane_id }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}{% if stages_value is not none %}&stages={{ stages_value }}{% endif %}" class="btn btn-outline-secondary">Clear</a>
+      <a href="{{ route }}?sort={{ sort }}&direction={{ direction }}{% if current_tab %}&tab={{ current_tab }}{% endif %}{% if lane_id %}&lane_id={{ lane_id }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}{% if stages_value is not none %}&stages={{ stages_value }}{% endif %}{% if sources_value is not none %}&sources={{ sources_value }}{% endif %}" class="btn btn-outline-secondary">Clear</a>
     {% endif %}
   </form>
 {% endmacro %}
 
-{% macro stage_filter_chips(route, selected_stages, stages_value, sort, direction, q, org_id=none, lane_id=none) %}
+{% macro stage_filter_chips(route, selected_stages, stages_value, sort, direction, q, org_id=none, lane_id=none, sources_value=none) %}
   <form method="GET" action="{{ route }}" class="stage-filter" data-stage-filter-form>
     <input type="hidden" name="stages" value="{{ stages_value }}" data-stage-filter-value>
     <input type="hidden" name="sort" value="{{ sort }}">
@@ -44,6 +47,7 @@
     <input type="hidden" name="q" value="{{ q }}">
     {% if lane_id %}<input type="hidden" name="lane_id" value="{{ lane_id }}">{% endif %}
     {% if org_id %}<input type="hidden" name="org_id" value="{{ org_id }}">{% endif %}
+    {% if sources_value is not none %}<input type="hidden" name="sources" value="{{ sources_value }}">{% endif %}
     <span class="stage-filter-label">Stage</span>
     <div class="stage-filter-chips" aria-label="Filter opportunities by procurement stage">
       {% for stage in ['Forecast', 'RFI', 'RFP'] %}
@@ -78,8 +82,55 @@
   </script>
 {% endmacro %}
 
-{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none) %}
+{% macro source_filter_chips(route, source_options, selected_sources, sources_value, stages_value, sort, direction, q, org_id=none, lane_id=none) %}
+  <form method="GET" action="{{ route }}" class="stage-filter source-filter" data-source-filter-form>
+    <input type="hidden" name="sources" value="{{ sources_value }}" data-source-filter-value>
+    <input type="hidden" name="stages" value="{{ stages_value }}">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="direction" value="{{ direction }}">
+    <input type="hidden" name="q" value="{{ q }}">
+    {% if lane_id %}<input type="hidden" name="lane_id" value="{{ lane_id }}">{% endif %}
+    {% if org_id %}<input type="hidden" name="org_id" value="{{ org_id }}">{% endif %}
+    <span class="stage-filter-label">Source</span>
+    <div class="stage-filter-chips" aria-label="Filter opportunities by source">
+      {% for source in source_options %}
+        <button
+          type="button"
+          class="stage-filter-chip source-filter-chip{% if source.value in selected_sources %} is-selected{% endif %}"
+          data-source-filter-chip="{{ source.value }}"
+          aria-pressed="{{ 'true' if source.value in selected_sources else 'false' }}"
+        >
+          <span class="stage-filter-check" aria-hidden="true">✓</span>
+          {{ source.label }}
+        </button>
+      {% endfor %}
+    </div>
+  </form>
+  <script>
+    (() => {
+      const form = document.currentScript.previousElementSibling;
+      if (!form?.matches('[data-source-filter-form]')) return;
+      form.querySelectorAll('[data-source-filter-chip]').forEach((chip) => {
+        chip.addEventListener('click', () => {
+          const selected = chip.getAttribute('aria-pressed') !== 'true';
+          chip.setAttribute('aria-pressed', selected ? 'true' : 'false');
+          chip.classList.toggle('is-selected', selected);
+          form.querySelector('[data-source-filter-value]').value = Array.from(
+            form.querySelectorAll('[data-source-filter-chip][aria-pressed="true"]')
+          ).map((item) => item.dataset.sourceFilterChip).join(',');
+          form.requestSubmit();
+        });
+      });
+    })();
+  </script>
+{% endmacro %}
+
+{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none) %}
   <div class="queue-toolbar" aria-label="Queue organization controls">
+    {% if selected_stages is not none %}
+      {{ stage_filter_chips(route, selected_stages, stages_value, sort, direction, q, org_id, lane_id, sources_value) }}
+    {% endif %}
+
     {% if current_tab %}
       <div class="tabs queue-toolbar-tabs">
         <a href="{{ route }}?tab=solicitations&sort={{ sort }}&direction={{ direction }}{% if lane_id %}&lane_id={{ lane_id }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">RFPs / Forecasts</a>
@@ -99,6 +150,7 @@
         <input type="hidden" name="org_id" value="{{ org_id }}">
       {% endif %}
       {% if stages_value is not none %}<input type="hidden" name="stages" value="{{ stages_value }}">{% endif %}
+      {% if sources_value is not none %}<input type="hidden" name="sources" value="{{ sources_value }}">{% endif %}
       <label for="{{ id_prefix }}-sort">Sort by</label>
       <select id="{{ id_prefix }}-sort" name="sort" onchange="this.form.submit()">
         <option value="imported" {{ 'selected' if sort == 'imported' else '' }}>Imported</option>
@@ -133,11 +185,11 @@
   </div>
 {% endmacro %}
 
-{% macro queue_pagination(route, page, total_pages, result_count, page_size, sort, direction, q=none, current_tab=none, org_id=none, lane_id=none, stages_value=none) %}
+{% macro queue_pagination(route, page, total_pages, result_count, page_size, sort, direction, q=none, current_tab=none, org_id=none, lane_id=none, stages_value=none, sources_value=none) %}
   {% if total_pages > 1 %}
     {% set first_item = ((page - 1) * page_size) + 1 %}
     {% set last_item = [page * page_size, result_count]|min %}
-    {% set preserved_params = '&sort=' ~ sort ~ '&direction=' ~ direction ~ ('&q=' ~ (q|urlencode) if q else '') ~ ('&tab=' ~ current_tab if current_tab else '') ~ ('&lane_id=' ~ lane_id if lane_id else '') ~ ('&org_id=' ~ org_id if org_id else '') ~ ('&stages=' ~ stages_value if stages_value is not none else '') %}
+    {% set preserved_params = '&sort=' ~ sort ~ '&direction=' ~ direction ~ ('&q=' ~ (q|urlencode) if q else '') ~ ('&tab=' ~ current_tab if current_tab else '') ~ ('&lane_id=' ~ lane_id if lane_id else '') ~ ('&org_id=' ~ org_id if org_id else '') ~ ('&stages=' ~ stages_value if stages_value is not none else '') ~ ('&sources=' ~ sources_value if sources_value is not none else '') %}
     <nav class="queue-pagination" aria-label="Opportunity pages">
       <span>Showing {{ first_item }}–{{ last_item }} of {{ result_count }}</span>
       <div class="queue-pagination-actions">

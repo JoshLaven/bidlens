@@ -39,7 +39,10 @@ def record_source_activity(
     run.organization_id = organization_id
     run.user_id = user_id
     run.filename = filename or run.filename
-    run.finished_at = now
+    result_status = str(result.get("status") or "").strip()
+    if result_status:
+        run.status = result_status
+    run.finished_at = None if result_status == "paused_rate_limit" else now
     run.processed_count = int(processed_count if processed_count is not None else result.get("processed", 0) or 0)
     run.created_count = int(created_count if created_count is not None else result.get("created", 0) or 0)
     run.updated_count = int(updated_count if updated_count is not None else result.get("updated", 0) or 0)

@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Integrations - BidLens{% endblock %}
+{% block content %}
+{% set govwin_connected = profile and profile.govwin_connection_status == 'connected' %}
+<div class="page-header integrations-page-header">
+  <h1>Integrations</h1>
+  <p class="page-subtitle">Connect the systems that supply opportunities to BidLens and the destinations that receive selected pursuits.</p>
+</div>
+
+<section class="integration-section" aria-labelledby="integration-sources-heading">
+  <div class="integration-section-heading">
+    <div>
+      <span class="integration-direction">Into BidLens</span>
+      <h2 id="integration-sources-heading">Sources</h2>
+    </div>
+    <p>Sources bring external opportunities into the review and qualification workflow.</p>
+  </div>
+
+  <div class="integration-grid">
+    <article class="integration-card">
+      <div class="integration-card-heading">
+        <div>
+          <div class="integration-card-title">
+            <h3>GovWin</h3>
+            <span class="integration-coming-soon">Coming Soon</span>
+          </div>
+          <p>Prepare customer-specific GovWin Web Services credentials and validate the future saved-search sync flow.</p>
+        </div>
+        <span class="integration-status {{ 'is-connected' if govwin_connected else '' }}">
+          {{ 'Connected' if govwin_connected else 'Not Connected' }}
+        </span>
+      </div>
+      <dl class="integration-meta">
+        {% if profile and profile.govwin_last_sync_at %}
+          <div><dt>Last Sync</dt><dd>{{ profile.govwin_last_sync_at.strftime('%b %d, %Y %I:%M %p') }}</dd></div>
+        {% endif %}
+        {% if profile and profile.govwin_last_sync_status %}
+          <div><dt>Sync Status</dt><dd>{{ profile.govwin_last_sync_status|title }}</dd></div>
+        {% endif %}
+      </dl>
+      <div class="integration-card-actions">
+        <a href="/integrations/govwin{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary">Configure</a>
+      </div>
+    </article>
+
+    <article class="integration-card">
+      <div class="integration-card-heading">
+        <div>
+          <div class="integration-card-title"><h3>SAM.gov</h3></div>
+          <p>Pull federal contract notices into BidLens for qualification and review.</p>
+        </div>
+        <span class="integration-status {{ 'is-connected' if sam_connected else '' }}">
+          {{ 'Connected' if sam_connected else 'Not Connected' }}
+        </span>
+      </div>
+      <dl class="integration-meta">
+        {% if sam_run %}
+          <div><dt>Last Sync</dt><dd>{{ sam_run.started_at.strftime('%b %d, %Y %I:%M %p') }}</dd></div>
+          <div><dt>Sync Status</dt><dd>{{ sam_sync_status }}</dd></div>
+        {% endif %}
+      </dl>
+      <div class="integration-card-actions">
+        <a href="/imports/govwin{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary">Configure</a>
+      </div>
+    </article>
+
+    <article class="integration-card">
+      <div class="integration-card-heading">
+        <div>
+          <div class="integration-card-title"><h3>Grants.gov</h3></div>
+          <p>Pull federal funding opportunities into BidLens for qualification and review.</p>
+        </div>
+        <span class="integration-status {{ 'is-connected' if grants_connected else '' }}">
+          {{ 'Connected' if grants_connected else 'Not Connected' }}
+        </span>
+      </div>
+      <dl class="integration-meta">
+        {% if grants_run %}
+          <div><dt>Last Sync</dt><dd>{{ grants_run.started_at.strftime('%b %d, %Y %I:%M %p') }}</dd></div>
+          <div><dt>Sync Status</dt><dd>{{ grants_sync_status }}</dd></div>
+        {% endif %}
+      </dl>
+      <div class="integration-card-actions">
+        <a href="/imports/govwin{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary">Configure</a>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section class="integration-section" aria-labelledby="integration-destinations-heading">
+  <div class="integration-section-heading">
+    <div>
+      <span class="integration-direction">Out of BidLens</span>
+      <h2 id="integration-destinations-heading">Destinations</h2>
+    </div>
+    <p>Destinations receive opportunities after users decide they are worth pursuing.</p>
+  </div>
+
+  <div class="integration-grid integration-grid--destinations">
+    <article class="integration-card" id="salesforce">
+      <div class="integration-card-heading">
+        <div>
+          <div class="integration-card-title"><h3>Salesforce</h3></div>
+          <p>Authorize BidLens to find, update, and create Salesforce Opportunities using the existing CRM workflow.</p>
+        </div>
+        <span class="integration-status {{ 'is-connected' if salesforce_connected else '' }}">
+          {{ 'Connected' if salesforce_connected else 'Not Connected' }}
+        </span>
+      </div>
+      <div class="integration-card-actions">
+        <a href="/api/salesforce/oauth/start" class="btn btn-sm btn-outline-secondary">Configure</a>
+        <a href="/api/salesforce/opportunity-create-requirements" class="btn btn-sm btn-outline-secondary">Inspect Opportunity Requirements</a>
+      </div>
+    </article>
+  </div>
+</section>
+{% endblock %}

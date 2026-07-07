@@ -16,6 +16,8 @@ from ..models import (
 EVENT_IMPORTED = "opportunity_imported"
 EVENT_SOURCE_UPDATED = "source_updated"
 EVENT_SALESFORCE_SYNCHRONIZED = "salesforce_synchronized"
+EVENT_GRANTS_SYNOPSIS_VERSION = "grants_synopsis_version"
+EVENT_GRANTS_FORECAST_VERSION = "grants_forecast_version"
 
 
 def record_history_event(

@@ -11,8 +11,10 @@ from bidlens.routes.opportunities import (
     FEED_PAGE_SIZE,
     _apply_feed_ordering,
     _apply_stage_filter,
+    _apply_triage_source_filter,
     _feed_query,
     _my_shortlist_query,
+    _normalize_triage_source_filters,
     _pagination_values,
 )
 
@@ -134,6 +136,41 @@ class QueuePaginationTests(unittest.TestCase):
             {opp.id for opp, _watched in filtered},
             {forecast.id, rfi.id},
         )
+
+    def test_triage_source_filter_normalizes_sources_and_combines_with_stage(self):
+        sam_rfi = self._opportunity("sam", "sam-rfi", datetime(2026, 6, 1))
+        sam_rfi.opportunity_type = "Sources Sought"
+        govwin_rfi = self._opportunity(
+            "govwin_export",
+            "govwin-rfi",
+            datetime(2026, 6, 2),
+        )
+        govwin_rfi.opportunity_type = "RFI"
+        govwin_rfi.source_stage = "Pre-RFP"
+        grant_rfp = self._opportunity(
+            "grants_gov",
+            "grant-rfp",
+            datetime(2026, 6, 3),
+        )
+        self.db.add_all([sam_rfi, govwin_rfi, grant_rfp])
+        self.db.commit()
+
+        base = self.db.query(Opportunity)
+        filtered = _apply_stage_filter(
+            _apply_triage_source_filter(base, "govwin"),
+            "RFI",
+        ).all()
+
+        self.assertEqual(
+            [opportunity.source_record_id for opportunity in filtered],
+            ["govwin-rfi"],
+        )
+        self.assertEqual(
+            _normalize_triage_source_filters("sam.gov,grants_gov,govwin_api"),
+            ("sam", "grants", "govwin"),
+        )
+        self.assertEqual(_apply_triage_source_filter(base, "").count(), 0)
+        self.assertEqual(_apply_triage_source_filter(base, None).count(), 3)
 
 
 if __name__ == "__main__":

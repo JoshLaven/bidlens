@@ -22,6 +22,7 @@
               <th>Timestamp</th>
               <th>Source</th>
               <th>Filename / Run Type</th>
+              <th>Status</th>
               <th>User</th>
               <th>Processed</th>
               <th>Created</th>
@@ -37,6 +38,16 @@
                   <td>{{ (run.finished_at or run.started_at).strftime("%b %d, %Y %I:%M %p") if (run.finished_at or run.started_at) else "—" }}</td>
                   <td>{{ run.source }}</td>
                   <td>{{ run.filename or "—" }}</td>
+                  <td>
+                    {% if run.status == "paused_rate_limit" %}
+                      <span class="ingestion-result ingestion-result--skipped">Paused</span>
+                      {% if run.retry_after_at %}
+                        <div class="muted">Retry after {{ run.retry_after_at.strftime("%b %d, %Y %I:%M %p") }}</div>
+                      {% endif %}
+                    {% else %}
+                      {{ (run.status or "completed")|replace("_", " ")|title }}
+                    {% endif %}
+                  </td>
                   <td>{{ item.user_email or "—" }}</td>
                   <td>{{ run.processed_count or 0 }}</td>
                   <td>{{ run.created_count or 0 }}</td>

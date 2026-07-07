@@ -24,6 +24,7 @@ def run_sam_ingest():
                     organization_id=config.organization_id,
                     saved_search_name=config.name,
                     run_type="Scheduled",
+                    source_config_id=config.id,
                     **ingest_kwargs(config),
                 )
                 print(f"[SAM INGEST] org={config.organization_id} done:", results)
@@ -39,8 +40,8 @@ def start_scheduler():
     print("[SCHEDULER] start_scheduler() called")
     sched = BackgroundScheduler(timezone="UTC")
 
-    # 2x per day example: 13:00 and 01:00 UTC
-    sched.add_job(run_sam_ingest, CronTrigger(hour="1,13", minute=0))
+    # Temporarily run once daily while SAM quota usage is being characterized.
+    sched.add_job(run_sam_ingest, CronTrigger(hour=1, minute=0))
 
     sched.start()
     return sched

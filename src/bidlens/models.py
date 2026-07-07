@@ -231,9 +231,13 @@ class IngestionRun(Base):
     source = Column(String, nullable=False, default="sam.gov")
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    source_config_id = Column(Integer, ForeignKey("sam_source_configs.id"), nullable=True, index=True)
     filename = Column(String, nullable=True)
     started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     finished_at = Column(DateTime, nullable=True)
+    status = Column(String, nullable=False, default="completed", server_default="completed", index=True)
+    retry_after_at = Column(DateTime(timezone=True), nullable=True)
+    checkpoint_json = Column(JSON, nullable=True)
 
     processed_count = Column(Integer, nullable=False, default=0, server_default="0")
     created_count = Column(Integer, nullable=False, default=0, server_default="0")
@@ -311,6 +315,7 @@ class Organization(Base):
     # Billing / entitlement
     plan = Column(String, default="free", nullable=False)  # free, pro, etc.
     is_active = Column(Boolean, default=True, nullable=False)
+    is_live = Column(Boolean, default=False, nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 

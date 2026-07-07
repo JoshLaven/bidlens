@@ -1088,15 +1088,7 @@ def salesforce_opportunity_create_requirements(request: Request, db: Session = D
                 "selected_intake_source": None,
                 "error": "Salesforce is not authorized yet. Visit /api/salesforce/oauth/start first.",
             }
-        intake_source_values = service.opportunity_picklist_values("Intake_Source_c__c")
-        return {
-            "auth_available": True,
-            "required_fields": service.required_createable_opportunity_fields(),
-            "valid_stage_names": service.stage_name_values(),
-            "intake_source_values": intake_source_values,
-            "selected_intake_source": _select_intake_source_value(intake_source_values),
-            "error": None,
-        }
+        return service.inspect_opportunity_requirements()
     except SalesforceConfigError as exc:
         return {
             "auth_available": False,

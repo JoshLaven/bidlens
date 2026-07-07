@@ -80,7 +80,7 @@ async def login(request: Request, email: str = Form(...), db: Session = Depends(
         db.commit()
 
     
-    response = RedirectResponse(url="/", status_code=303)
+    response = RedirectResponse(url="/home", status_code=303)
     create_session(response, user.id)
     return response
 

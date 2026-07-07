@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from .database import engine, Base
-from .routes import admin, auth, opportunities, api, settings, company_profile, pursuit_lanes, imports, grants, integrations
+from .routes import admin, auth, opportunities, api, settings, company_profile, pursuit_lanes, imports, grants, integrations, home
 from . import models
 from .routes import sam
 from .scheduler import start_scheduler
@@ -18,6 +18,7 @@ app = FastAPI(title="BidLens")
 app.add_middleware(ClientRedirectMiddleware)
 app.mount("/static", StaticFiles(directory="src/bidlens/static"), name="static")
 app.include_router(auth.router)
+app.include_router(home.router)
 app.include_router(admin.router)
 app.include_router(opportunities.router)
 app.include_router(api.router)

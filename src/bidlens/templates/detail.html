@@ -549,6 +549,11 @@
     <section class="detail-section detail-tab-panel" id="detail-panel-history"
              role="tabpanel" aria-labelledby="detail-tab-history" data-detail-panel="history" hidden>
       <div class="accordion-body detail-history-panel">
+        {% if opportunity.source in ['grants_gov', 'grants.gov'] and opportunity.source_url %}
+          <div class="opportunity-history-source-link">
+            <a href="{{ opportunity.source_url }}" target="_blank" rel="noreferrer">View on Grants.gov &#8599;</a>
+          </div>
+        {% endif %}
         {% if history_events %}
           {% set history_group = namespace(day='') %}
           <div class="opportunity-history-timeline">
@@ -561,6 +566,35 @@
                 <span class="opportunity-history-marker" aria-hidden="true"></span>
                 <div>
                   <div class="opportunity-history-title">{{ event.timeline_title }}</div>
+                  {% if event.is_grants_version %}
+                    <div class="opportunity-history-version">{{ event.timeline_version_name }}</div>
+                    {% if event.timeline_updated_label %}
+                      <div class="opportunity-history-updated">Updated {{ event.timeline_updated_label }}</div>
+                    {% endif %}
+                    {% if event.timeline_description %}
+                      <div class="opportunity-history-detail">
+                        <span class="opportunity-history-detail-label">Modification</span>
+                        <div class="opportunity-history-description">{{ event.timeline_description }}</div>
+                      </div>
+                    {% endif %}
+                    {% if event.timeline_modified_fields %}
+                      <div class="opportunity-history-detail">
+                        <span class="opportunity-history-detail-label">Modified fields</span>
+                        <div class="opportunity-history-field-list">{{ event.timeline_modified_fields | join(', ') }}</div>
+                      </div>
+                    {% endif %}
+                    {% if event.timeline_source_revision is not none or event.timeline_version_type %}
+                      <div class="opportunity-history-source-meta">
+                        {% if event.timeline_version_type %}Type: {{ event.timeline_version_type }}{% endif %}
+                        {% if event.timeline_source_revision is not none %}
+                          {% if event.timeline_version_type %}<span aria-hidden="true">·</span>{% endif %}
+                          Source revision: {{ event.timeline_source_revision }}
+                        {% endif %}
+                      </div>
+                    {% endif %}
+                  {% elif event.timeline_description %}
+                    <div class="opportunity-history-description">{{ event.timeline_description }}</div>
+                  {% endif %}
                   <time class="opportunity-history-time" datetime="{{ event.occurred_at.isoformat() }}">{{ event.time_label }}</time>
                 </div>
               </article>

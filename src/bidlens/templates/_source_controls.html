@@ -86,6 +86,11 @@ async function runSourcePull(buttonId, endpoint, labels) {
       return;
     }
 
+    if (payload.status === 'paused_rate_limit') {
+      renderSourcePullResult(payload, 'warning', 'SAM pull paused.');
+      return;
+    }
+
     renderSourcePullResult(payload, payload.errors ? 'warning' : 'success', labels.success);
     showToast(payload.message || labels.success, payload.errors ? 'error' : 'success');
     window.setTimeout(() => window.location.reload(), 900);

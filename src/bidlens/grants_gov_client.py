@@ -62,13 +62,21 @@ def _json_or_error(response: requests.Response) -> dict[str, Any]:
         ) from exc
 
 
-def search_recent_opportunities(*, days_back: int = 14, rows: int = 25) -> dict[str, Any]:
+def search_recent_opportunities(
+    *,
+    days_back: int = 1,
+    rows: int = 25,
+    start_record_num: int = 0,
+) -> dict[str, Any]:
     # Grants.gov's public Search2 endpoint does not require authentication.
     # Keep GRANTS_GOV_API_KEY configured for future endpoints, but do not send
     # it here because the search API rejects the old API-Gateway-style path.
-    date_range = str(days_back) if days_back in {3, 7, 14, 21, 30, 60, 90} else ""
+    # Search2 interprets dateRange as a Posted Date window in days. Its live
+    # production endpoint accepts "1" even though the returned facet options
+    # begin at seven days.
+    date_range = str(days_back) if days_back in {1, 3, 7, 14, 21, 30, 60, 90} else ""
     payload = {
-        "startRecordNum": 0,
+        "startRecordNum": max(0, int(start_record_num)),
         "rows": rows,
         "keyword": "",
         "oppNum": "",
@@ -80,7 +88,12 @@ def search_recent_opportunities(*, days_back: int = 14, rows: int = 25) -> dict[
         "dateRange": date_range,
     }
     response = _post_search(payload)
-    logger.info("Grants.gov search rows=%s days_back=%s", rows, days_back)
+    logger.info(
+        "Grants.gov search rows=%s days_back=%s start_record_num=%s",
+        rows,
+        days_back,
+        start_record_num,
+    )
     return _json_or_error(response)
 
 

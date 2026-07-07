@@ -1,7 +1,10 @@
 import datetime as dt
+import hashlib
+import json
 import logging
 import math
 import threading
+from email.utils import parsedate_to_datetime
 from typing import Any, Dict, Optional, Set
 
 from sqlalchemy.orm import Session
@@ -28,6 +31,10 @@ ALLOWED_TYPES = {
     "Presolicitation",
 }
 
+EXCLUDED_DISCOVERY_TYPES = {
+    "award notice",
+}
+
 NOTICE_TYPE_CODES = {
     "Presolicitation": "p",
     "Sources Sought": "r",
@@ -35,6 +42,19 @@ NOTICE_TYPE_CODES = {
     "Solicitation": "o",
     "Combined Synopsis/Solicitation": "k",
 }
+
+
+def _record_notice_type(record: dict[str, Any]) -> str:
+    return str(
+        record.get("type")
+        or record.get("noticeType")
+        or record.get("opportunityType")
+        or ""
+    ).strip()
+
+
+def _is_excluded_discovery_type(record: dict[str, Any]) -> bool:
+    return _record_notice_type(record).casefold() in EXCLUDED_DISCOVERY_TYPES
 
 
 def parse_allowed_types(s: str | None) -> set[str]:
@@ -45,6 +65,29 @@ def parse_allowed_types(s: str | None) -> set[str]:
 
 def sam_ingest_in_progress() -> bool:
     return _INGEST_LOCK.locked()
+
+
+def _sam_config_signature(**values: Any) -> str:
+    encoded = json.dumps(values, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _retry_after_at(value: str | None, seconds: float | None) -> dt.datetime | None:
+    if value:
+        for fmt in ("%Y-%b-%d %H:%M:%S%z UTC", "%Y-%b-%d %H:%M:%S %Z"):
+            try:
+                parsed = dt.datetime.strptime(value, fmt)
+                return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.timezone.utc)
+            except ValueError:
+                continue
+        try:
+            parsed = parsedate_to_datetime(value)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.timezone.utc)
+        except (TypeError, ValueError, IndexError, OverflowError):
+            pass
+    if seconds is not None:
+        return dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=max(0, seconds))
+    return None
 
 
 def ingest_sam(
@@ -65,6 +108,7 @@ def ingest_sam(
     max_records: int | None = None,
     saved_search_name: str | None = None,
     run_type: str | None = None,
+    source_config_id: int | None = None,
 ):
     allowed_types = allowed_types or set()
     keywords = keywords or set()
@@ -76,15 +120,108 @@ def ingest_sam(
         raise RuntimeError("A SAM pull is already in progress")
 
     try:
-        run = IngestionRun(source="sam.gov")
-        db.add(run)
-        db.commit()
-        db.refresh(run)
+        agency_scopes = sorted(agencies) if agencies else [None]
+        search_scopes = [
+            (naics, agency_scope)
+            for naics in naics_list
+            for agency_scope in agency_scopes
+        ]
+        signature = _sam_config_signature(
+            naics=naics_list,
+            days_back=days_back,
+            allowed_types=sorted(allowed_types),
+            keywords=sorted(keywords),
+            agencies=sorted(agencies),
+            set_asides=sorted(set_asides),
+            due_days_from=due_days_from,
+            due_days_to=due_days_to,
+            active_only=active_only,
+            max_records=max_records,
+        )
+        run = None
+        checkpoint: dict[str, Any] = {}
+        if source_config_id is not None:
+            run = (
+                db.query(IngestionRun)
+                .filter(
+                    IngestionRun.source == "sam.gov",
+                    IngestionRun.organization_id == organization_id,
+                    IngestionRun.source_config_id == source_config_id,
+                    IngestionRun.status == "paused_rate_limit",
+                )
+                .order_by(IngestionRun.started_at.desc(), IngestionRun.id.desc())
+                .first()
+            )
+            checkpoint = dict(run.checkpoint_json or {}) if run else {}
+            if run and checkpoint.get("config_signature") != signature:
+                run.status = "superseded"
+                run.finished_at = dt.datetime.utcnow()
+                run.checkpoint_json = None
+                run.retry_after_at = None
+                db.commit()
+                run = None
+                checkpoint = {}
 
-        inserted = updated = unchanged = skipped = filtered = errors = 0
-        pages_pulled = 0
-        records_seen = 0
-        search_requests_made = 0
+        if run is None:
+            today = dt.date.today()
+            run = IngestionRun(
+                source="sam.gov",
+                organization_id=organization_id,
+                source_config_id=source_config_id,
+                status="running",
+            )
+            db.add(run)
+            db.commit()
+            db.refresh(run)
+            checkpoint = {
+                "config_signature": signature,
+                "scope_index": 0,
+                "offset": 0,
+                "scope_pulled": 0,
+                "scope_max_records": None,
+                "posted_from": (today - dt.timedelta(days=days_back)).isoformat(),
+                "posted_to": today.isoformat(),
+            }
+        else:
+            retry_at = run.retry_after_at
+            if retry_at is not None:
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=dt.timezone.utc)
+                if retry_at > dt.datetime.now(dt.timezone.utc):
+                    return {
+                        "status": "paused_rate_limit",
+                        "run_id": run.id,
+                        "inserted": run.created_count or 0,
+                        "updated": run.updated_count or 0,
+                        "unchanged": run.unchanged_count or 0,
+                        "skipped": run.skipped_count or 0,
+                        "filtered": run.filtered_count or 0,
+                        "errors": run.error_count or 0,
+                        "pages_pulled": int(checkpoint.get("pages_pulled", 0)),
+                        "records_seen": run.processed_count or 0,
+                        "search_requests_made": int(checkpoint.get("search_requests_made", 0)),
+                        "results": [],
+                        "stopped_due_to_rate_limit": True,
+                        "retry_after": retry_at.isoformat(),
+                        "retry_after_seconds": (retry_at - dt.datetime.now(dt.timezone.utc)).total_seconds(),
+                        "max_records": max_records,
+                        "saved_search_name": saved_search_name,
+                        "run_type": run_type or ("Manual" if manual_pull else "Scheduled"),
+                        "message": "Paused — SAM quota exceeded.",
+                    }
+            run.status = "running"
+            run.retry_after_at = None
+            db.commit()
+
+        inserted = run.created_count or 0
+        updated = run.updated_count or 0
+        unchanged = run.unchanged_count or 0
+        skipped = run.skipped_count or 0
+        filtered = run.filtered_count or 0
+        errors = run.error_count or 0
+        pages_pulled = int(checkpoint.get("pages_pulled", 0))
+        records_seen = run.processed_count or 0
+        search_requests_made = int(checkpoint.get("search_requests_made", 0))
         results: list[dict[str, Any]] = []
         record_details: list[dict[str, Any]] = []
         stopped_due_to_rate_limit = False
@@ -99,17 +236,14 @@ def ingest_sam(
             sorted(allowed_types) if allowed_types else "default",
         )
 
-        agency_scopes = sorted(agencies) if agencies else [None]
-        search_scopes = [
-            (naics, agency_scope)
-            for naics in naics_list
-            for agency_scope in agency_scopes
-        ]
-        for index, (naics, agency_scope) in enumerate(search_scopes):
+        start_scope_index = int(checkpoint.get("scope_index", 0))
+        for index in range(start_scope_index, len(search_scopes)):
+            naics, agency_scope = search_scopes[index]
             if max_records is not None and records_seen >= max_records:
                 break
-            per_naics_max = None
-            if max_records is not None:
+            resuming_scope = index == start_scope_index and int(checkpoint.get("offset", 0)) > 0
+            per_naics_max = checkpoint.get("scope_max_records") if resuming_scope else None
+            if per_naics_max is None and max_records is not None:
                 remaining_records = max_records - records_seen
                 remaining_scope_count = max(1, len(search_scopes) - index)
                 per_naics_max = max(1, math.ceil(remaining_records / remaining_scope_count))
@@ -132,6 +266,10 @@ def ingest_sam(
                     active_only=active_only,
                     max_records=per_naics_max,
                     organization_name=agency_scope,
+                    start_offset=int(checkpoint.get("offset", 0)) if resuming_scope else 0,
+                    initial_pulled=int(checkpoint.get("scope_pulled", 0)) if resuming_scope else 0,
+                    posted_from_override=dt.date.fromisoformat(checkpoint["posted_from"]),
+                    posted_to_override=dt.date.fromisoformat(checkpoint["posted_to"]),
                 )
 
                 inserted += int(result.get("inserted", 0))
@@ -146,6 +284,38 @@ def ingest_sam(
                 record_details.extend(result.pop("_record_details", []))
 
                 results.append(result)
+                if result.get("paused_rate_limit"):
+                    stopped_due_to_rate_limit = True
+                    rate_limit_retry_after_seconds = result.get("retry_after_seconds")
+                    rate_limit_retry_after = result.get("retry_after")
+                    retry_at = _retry_after_at(
+                        rate_limit_retry_after,
+                        rate_limit_retry_after_seconds,
+                    )
+                    checkpoint.update({
+                        "scope_index": index,
+                        "current_naics": naics,
+                        "current_agency": agency_scope,
+                        "offset": int(result.get("next_offset", 0)),
+                        "scope_pulled": int(result.get("scope_pulled", 0)),
+                        "scope_max_records": per_naics_max,
+                        "pages_pulled": pages_pulled,
+                        "search_requests_made": search_requests_made,
+                    })
+                    run.status = "paused_rate_limit"
+                    run.retry_after_at = retry_at
+                    run.checkpoint_json = checkpoint
+                    break
+                checkpoint.update({
+                    "scope_index": index + 1,
+                    "current_naics": None,
+                    "current_agency": None,
+                    "offset": 0,
+                    "scope_pulled": 0,
+                    "scope_max_records": None,
+                    "pages_pulled": pages_pulled,
+                    "search_requests_made": search_requests_made,
+                })
                 logger.info(
                     "Completed SAM NAICS naics=%s pages_pulled=%s records_seen=%s search_requests=%s inserted=%s updated=%s skipped=%s filtered=%s errors=%s pulled=%s",
                     naics,
@@ -187,63 +357,43 @@ def ingest_sam(
                 results.append(naics_result)
                 logger.exception("SAM NAICS failed naics=%s error=%s", naics, repr(e))
 
-                if isinstance(e, SamRateLimitError):
-                    stopped_due_to_rate_limit = True
-                    rate_limit_retry_after_seconds = retry_after_seconds
-                    rate_limit_retry_after = retry_after
-                    remaining_scopes = search_scopes[index + 1:]
-                    for remaining_naics_code, remaining_agency in remaining_scopes:
-                        results.append({
-                            "naics": remaining_naics_code,
-                            "agency": remaining_agency,
-                            "error": "Skipped because SAM.gov rate limited the manual pull.",
-                            "error_type": "rate_limited_skipped",
-                            "retry_after_seconds": retry_after_seconds,
-                            "retry_after": retry_after,
-                            "inserted": 0,
-                            "updated": 0,
-                            "skipped": 0,
-                            "filtered": 0,
-                            "errors": 0,
-                            "pulled": 0,
-                            "pages_pulled": 0,
-                            "records_seen": 0,
-                            "search_requests_made": 0,
-                        })
-                    logger.warning(
-                        "Stopping SAM ingest after rate limit run_id=%s naics=%s remaining_naics=%s manual_pull=%s retry_after=%s retry_after_seconds=%s",
-                        run.id,
-                        naics,
-                        remaining_scopes,
-                        manual_pull,
-                        retry_after,
-                        retry_after_seconds,
-                    )
-                    break
-
-        run.inserted_count = inserted + updated
+        run.processed_count = records_seen
+        run.created_count = inserted
+        run.updated_count = updated
         run.unchanged_count = unchanged
         run.skipped_count = skipped
         run.filtered_count = filtered
         run.error_count = errors
-        run.finished_at = dt.datetime.utcnow()
+        run.inserted_count = inserted + updated
         run.notes = (
             f"inserted={inserted} updated={updated} skipped={skipped} "
             f"filtered={filtered} errors={errors} pages={pages_pulled} "
             f"records_seen={records_seen} search_requests={search_requests_made}"
         )
 
-        db.commit()
-
-        if stopped_due_to_rate_limit and inserted == 0 and updated == 0 and skipped == 0 and filtered == 0:
-            status = "rate_limited"
+        if stopped_due_to_rate_limit:
+            status = "paused_rate_limit"
+            run.finished_at = None
+            run.status = status
+            run.notes = f"status={status} {run.notes}"
         elif errors == 0:
             status = "success"
+            run.finished_at = dt.datetime.utcnow()
+            run.status = status
+            run.checkpoint_json = None
+            run.retry_after_at = None
         elif inserted == 0 and updated == 0 and skipped == 0 and filtered == 0:
             status = "failed"
+            run.finished_at = dt.datetime.utcnow()
+            run.status = status
+            run.checkpoint_json = None
         else:
             status = "partial_success"
-        run.notes = f"status={status} {run.notes}"
+            run.finished_at = dt.datetime.utcnow()
+            run.status = status
+            run.checkpoint_json = None
+        if not stopped_due_to_rate_limit:
+            run.notes = f"status={status} {run.notes}"
         db.commit()
         logger.info(
             "Finished SAM ingest run_id=%s status=%s pages=%s records_seen=%s search_requests=%s inserted=%s updated=%s skipped=%s filtered=%s errors=%s",
@@ -334,7 +484,7 @@ def normalize_sam_record(rec: Dict[str, Any], allowed_types: Set[str]) -> Option
     title = rec.get("title") or rec.get("solicitationTitle") or rec.get("fullTitle")
     agency = rec.get("department") or rec.get("organizationName") or rec.get("fullParentPathName")
 
-    opportunity_type = rec.get("type") or rec.get("noticeType") or rec.get("opportunityType")
+    opportunity_type = _record_notice_type(rec)
 
     # Type filter: if allowed_types provided, enforce it; otherwise fall back to ALLOWED_TYPES
     if allowed_types:
@@ -571,6 +721,10 @@ def pull_sam_into_db(
     active_only: bool = False,
     max_records: int | None = None,
     organization_name: str | None = None,
+    start_offset: int = 0,
+    initial_pulled: int = 0,
+    posted_from_override: dt.date | None = None,
+    posted_to_override: dt.date | None = None,
 ) -> Dict[str, Any]:
     allowed_types = allowed_types or set()
     keywords = keywords or set()
@@ -578,8 +732,8 @@ def pull_sam_into_db(
     set_asides = set_asides or set()
 
     today = dt.date.today()
-    posted_from = today - dt.timedelta(days=days_back)
-    posted_to = today
+    posted_from = posted_from_override or today - dt.timedelta(days=days_back)
+    posted_to = posted_to_override or today
     due_date_from = (
         today + dt.timedelta(days=due_days_from)
         if due_days_from is not None
@@ -590,7 +744,7 @@ def pull_sam_into_db(
         if due_days_to is not None
         else today + dt.timedelta(days=365) if due_days_from is not None else None
     )
-    offset = 0
+    offset = start_offset
 
     inserted = 0
     updated = 0
@@ -598,7 +752,8 @@ def pull_sam_into_db(
     skipped = 0
     filtered = 0
     errors = 0
-    pulled = 0
+    pulled = initial_pulled
+    records_seen = 0
     pages_pulled = 0
     search_requests_made = 0
     description_enrichments = 0
@@ -611,6 +766,7 @@ def pull_sam_into_db(
             limit,
             max_records - pulled if max_records is not None else limit,
         )
+        search_requests_made += 1
         try:
             payload = search_opportunities(
                 naics=naics,
@@ -619,16 +775,46 @@ def pull_sam_into_db(
                 response_deadline_from=due_date_from,
                 response_deadline_to=due_date_to,
                 organization_name=organization_name,
-                procurement_types=[
+                procurement_types=sorted({
                     NOTICE_TYPE_CODES[notice_type]
-                    for notice_type in sorted(allowed_types)
+                    for notice_type in (allowed_types or ALLOWED_TYPES)
                     if notice_type in NOTICE_TYPE_CODES
-                ],
+                }),
                 limit=request_limit,
                 offset=offset,
                 allow_rate_limit_wait=allow_rate_limit_wait,
             )
-            search_requests_made += 1
+        except SamRateLimitError as e:
+            logger.warning(
+                "SAM pull paused by quota naics=%s offset=%s retry_after=%s",
+                naics,
+                offset,
+                e.retry_after,
+            )
+            return {
+                "naics": naics,
+                "inserted": inserted,
+                "updated": updated,
+                "unchanged": unchanged,
+                "skipped": skipped,
+                "filtered": filtered,
+                "errors": errors,
+                "ingestion_run_id": ingestion_run_id,
+                "pulled": pulled,
+                "pages_pulled": pages_pulled,
+                "records_seen": records_seen,
+                "search_requests_made": search_requests_made,
+                "description_enrichments": description_enrichments,
+                "enrich_descriptions": enrich_descriptions,
+                "paused_rate_limit": True,
+                "error_type": "rate_limited",
+                "error": str(e),
+                "retry_after_seconds": e.retry_after_seconds,
+                "retry_after": e.retry_after,
+                "next_offset": offset,
+                "scope_pulled": pulled,
+                "_record_details": record_details,
+            }
         except Exception as e:
             logger.exception("SAM page fetch failed naics=%s offset=%s error=%s", naics, offset, repr(e))
             raise
@@ -637,6 +823,7 @@ def pull_sam_into_db(
         if max_records is not None:
             records = records[: max_records - pulled]
         pulled += len(records)
+        records_seen += len(records)
         pages_pulled += 1
         logger.info(
             "Fetched SAM page naics=%s offset=%s records=%s",
@@ -649,6 +836,17 @@ def pull_sam_into_db(
 
         for rec in records:
             try:
+                if _is_excluded_discovery_type(rec):
+                    filtered += 1
+                    record_details.append(build_invalid_detail(
+                        source="sam.gov",
+                        source_record_id=str(
+                            rec.get("noticeId") or rec.get("noticeID") or rec.get("id") or ""
+                        ) or None,
+                        title=rec.get("title") or rec.get("solicitationTitle"),
+                        reason="Award Notice excluded from V1 discovery imports",
+                    ))
+                    continue
                 if not _record_matches_source_criteria(
                     rec,
                     keywords=keywords,
@@ -770,6 +968,18 @@ def pull_sam_into_db(
                 repr(e),
             )
 
+        total_records = payload.get("totalRecords")
+        try:
+            total_records = int(total_records) if total_records is not None else None
+        except (TypeError, ValueError):
+            total_records = None
+        if total_records is not None and pulled >= total_records:
+            break
+
+        # SAM's current documentation describes offset as a page index, while the
+        # existing integration has historically used a record offset. Keep the
+        # established arithmetic until it can be verified against a non-rate-limited
+        # live response; totalRecords still removes the trailing empty-page probe.
         offset += request_limit
 
     return {
@@ -783,10 +993,13 @@ def pull_sam_into_db(
         "ingestion_run_id": ingestion_run_id,
         "pulled": pulled,
         "pages_pulled": pages_pulled,
-        "records_seen": pulled,
+        "records_seen": records_seen,
         "search_requests_made": search_requests_made,
         "description_enrichments": description_enrichments,
         "enrich_descriptions": enrich_descriptions,
+        "paused_rate_limit": False,
+        "next_offset": offset,
+        "scope_pulled": pulled,
         "_record_details": record_details,
     }
 

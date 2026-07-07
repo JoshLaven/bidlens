@@ -56,6 +56,12 @@ DATE_TYPE_POSTED = "posted"
 DATE_TYPES = {DATE_TYPE_IMPORTED, DATE_TYPE_DUE, DATE_TYPE_POSTED}
 FEED_PAGE_SIZE = 50
 TRIAGE_PAGE_SIZE = 100
+TRIAGE_SOURCE_FILTERS = ("sam", "grants", "govwin")
+TRIAGE_SOURCE_OPTIONS = (
+    {"value": "sam", "label": "SAM.gov"},
+    {"value": "grants", "label": "Grants.gov"},
+    {"value": "govwin", "label": "GovWin"},
+)
 BRIEF_SECTION_DEFS = [
     ("executive_summary", "Executive Summary"),
     ("key_dates", "Key Dates"),
@@ -208,12 +214,66 @@ def _history_source_label(source: str | None) -> str:
     }.get(str(source or "").strip().lower(), str(source or "source"))
 
 
+def _history_field_label(value: object) -> str:
+    text = str(value or "").strip().replace("_", " ")
+    if not text:
+        return ""
+    field_labels = {
+        "cfdas": "Assistance Listings",
+        "alns": "Assistance Listings",
+        "synopsisDesc": "Synopsis Description",
+        "forecastDesc": "Forecast Description",
+        "applicantEligibilityDesc": "Applicant Eligibility",
+        "agencyContactDesc": "Agency Contact",
+        "fundingDescLinkUrl": "Funding Description Link",
+        "fundingDescLinkDesc": "Funding Description Link Label",
+    }
+    if text in field_labels:
+        return field_labels[text]
+    words: list[str] = []
+    current = ""
+    for character in text:
+        if character.isupper() and current and not current[-1].isupper():
+            words.append(current)
+            current = character
+        else:
+            current += character
+    if current:
+        words.append(current)
+    return " ".join(words).strip().title()
+
+
+def _grants_updated_date_label(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for timezone_suffix in (" EDT", " EST", " UTC", " GMT"):
+        if text.endswith(timezone_suffix):
+            text = text[: -len(timezone_suffix)]
+            break
+    for date_format in (
+        "%b %d, %Y %I:%M:%S %p",
+        "%Y-%m-%d-%H-%M-%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d",
+    ):
+        try:
+            parsed = datetime.strptime(text, date_format)
+            return f"{parsed.strftime('%b')} {parsed.day}, {parsed.year}"
+        except ValueError:
+            continue
+    return str(value)
+
+
 def _prepare_history_events(events: list[OpportunityHistoryEvent]) -> list[OpportunityHistoryEvent]:
     today = date.today()
     titles = {
         "opportunity_imported": "Opportunity imported from {source}",
         "source_updated": "Opportunity updated from {source}",
         "salesforce_synchronized": "Synchronized to Salesforce",
+        "grants_synopsis_version": "Grants.gov version update",
+        "grants_forecast_version": "Grants.gov version update",
     }
     for event in events:
         event_date = event.occurred_at.date()
@@ -225,7 +285,43 @@ def _prepare_history_events(events: list[OpportunityHistoryEvent]) -> list[Oppor
             event.day_label = f"{event.occurred_at.strftime('%B')} {event_date.day}"
         event.time_label = event.occurred_at.strftime("%I:%M %p").lstrip("0")
         template = titles.get(event.event_type, event.event_type.replace("_", " ").title())
-        event.timeline_title = template.format(source=_history_source_label(event.source))
+        event_data = event.event_data if isinstance(event.event_data, dict) else {}
+        event.timeline_title = template.format(
+            source=_history_source_label(event.source),
+            version_name=event_data.get("version_name") or "version",
+        )
+        event.timeline_description = event_data.get("modification_description")
+        event.is_grants_version = event.event_type in {
+            "grants_synopsis_version",
+            "grants_forecast_version",
+        }
+        if event.is_grants_version:
+            event.timeline_version_name = (
+                event_data.get("version_name")
+                or _history_field_label(event_data.get("history_type"))
+                or "Version"
+            )
+            event.timeline_updated_label = _grants_updated_date_label(
+                event_data.get("updated_date")
+            )
+            field_labels: list[str] = []
+            for field in event_data.get("modified_fields") or []:
+                if field in {
+                    "revision",
+                    "version",
+                    "modComments",
+                    "createTimeStamp",
+                    "sendEmail",
+                }:
+                    continue
+                field_label = _history_field_label(field)
+                if field_label and field_label not in field_labels:
+                    field_labels.append(field_label)
+            event.timeline_modified_fields = field_labels
+            event.timeline_source_revision = event_data.get("source_revision")
+            event.timeline_version_type = _history_field_label(
+                event_data.get("history_type")
+            )
     return events
 
 
@@ -294,6 +390,49 @@ def _apply_stage_filter(query, stages=None):
         "RFP": and_(~is_forecast, ~is_rfi),
     }
     return query.filter(or_(*(stage_conditions[stage] for stage in selected)))
+
+
+def _normalize_triage_source_filters(sources=None) -> tuple[str, ...]:
+    if sources is None:
+        return TRIAGE_SOURCE_FILTERS
+    if isinstance(sources, str):
+        raw_values = sources.split(",") if sources else []
+    else:
+        raw_values = sources
+    aliases = {
+        "sam.gov": "sam",
+        "grants.gov": "grants",
+        "grants_gov": "grants",
+        "govwin_export": "govwin",
+        "govwin_api": "govwin",
+    }
+    normalized = {
+        aliases.get(
+            str(value or "").strip().casefold(),
+            str(value or "").strip().casefold(),
+        )
+        for value in raw_values
+        if str(value or "").strip()
+    }
+    if "all" in normalized:
+        return TRIAGE_SOURCE_FILTERS
+    return tuple(source for source in TRIAGE_SOURCE_FILTERS if source in normalized)
+
+
+def _apply_triage_source_filter(query, sources=None):
+    selected = _normalize_triage_source_filters(sources)
+    if selected == TRIAGE_SOURCE_FILTERS:
+        return query
+    if not selected:
+        return query.filter(Opportunity.id.is_(None))
+
+    normalized_source = func.lower(func.coalesce(Opportunity.source, ""))
+    conditions = {
+        "sam": normalized_source.in_(("sam", "sam.gov")),
+        "grants": normalized_source.in_(("grants_gov", "grants.gov")),
+        "govwin": normalized_source.in_(("govwin_export", "govwin_api")),
+    }
+    return query.filter(or_(*(conditions[source] for source in selected)))
 
 
 def _exclude_inactive_govwin_stages(query):
@@ -1277,6 +1416,7 @@ async def triage_queue(
     date_filter: str = "",
     q: str = "",
     stages: str | None = None,
+    sources: str | None = None,
     stage: str | None = None,
     page: int = 1,
     db: Session = Depends(get_db),
@@ -1307,8 +1447,10 @@ async def triage_queue(
     selected_stages = _normalize_stage_filters(
         stages if stages is not None else ([stage] if stage and stage != "All" else None)
     )
+    selected_sources = _normalize_triage_source_filters(sources)
     query = _apply_feed_search(query, search_term=q)
     query = _apply_stage_filter(query, selected_stages)
+    query = _apply_triage_source_filter(query, selected_sources)
     query = _apply_feed_ordering(query, sort=selected_sort, direction=selected_direction)
     result_count = query.count()
     current_page, total_pages, offset = _pagination_values(
@@ -1329,6 +1471,9 @@ async def triage_queue(
         "q": q,
         "selected_stages": selected_stages,
         "stages_value": ",".join(selected_stages),
+        "source_options": TRIAGE_SOURCE_OPTIONS,
+        "selected_sources": selected_sources,
+        "sources_value": ",".join(selected_sources),
         "result_count": result_count,
         "page": current_page,
         "page_size": TRIAGE_PAGE_SIZE,

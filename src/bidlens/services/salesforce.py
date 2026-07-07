@@ -163,6 +163,15 @@ class SalesforceService:
     def is_authorized(self) -> bool:
         return bool(_TOKEN_CACHE.get("access_token") or self._refresh_access_token())
 
+    @property
+    def has_stored_authorization(self) -> bool:
+        """Report local OAuth state without making a network request."""
+        return bool(_TOKEN_CACHE.get("access_token") or _TOKEN_CACHE.get("refresh_token"))
+
+    @property
+    def connected_instance_url(self) -> str | None:
+        return _TOKEN_CACHE.get("instance_url") or self.instance_url or None
+
     def describe_opportunity(self) -> dict[str, Any]:
         response = requests.get(
             self._api_url("sobjects/Opportunity/describe"),
@@ -180,8 +189,14 @@ class SalesforceService:
         return response.json()
 
     def required_createable_opportunity_fields(self) -> list[dict[str, Any]]:
+        return self._required_createable_fields(
+            self.describe_opportunity().get("fields") or []
+        )
+
+    @staticmethod
+    def _required_createable_fields(fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
         required_fields = []
-        for field in self.describe_opportunity().get("fields") or []:
+        for field in fields:
             if (
                 field.get("createable") is True
                 and field.get("nillable") is False
@@ -200,7 +215,17 @@ class SalesforceService:
         return self.opportunity_picklist_values("StageName")
 
     def opportunity_picklist_values(self, field_name: str) -> list[str]:
-        for field in self.describe_opportunity().get("fields") or []:
+        return self._picklist_values(
+            self.describe_opportunity().get("fields") or [],
+            field_name,
+        )
+
+    @staticmethod
+    def _picklist_values(
+        fields: list[dict[str, Any]],
+        field_name: str,
+    ) -> list[str]:
+        for field in fields:
             if field.get("name") == field_name:
                 return [
                     value.get("value")
@@ -208,6 +233,63 @@ class SalesforceService:
                     if value.get("active") is True and value.get("value")
                 ]
         return []
+
+    def inspect_opportunity_requirements(self) -> dict[str, Any]:
+        """Reuse Opportunity metadata validation with a single describe request."""
+        fields = self.describe_opportunity().get("fields") or []
+        field_by_name = {
+            field.get("name"): field
+            for field in fields
+            if field.get("name")
+        }
+        required_fields = self._required_createable_fields(fields)
+        valid_stage_names = self._picklist_values(fields, "StageName")
+        intake_source_values = self._picklist_values(fields, "Intake_Source_c__c")
+        selected_intake_source = (
+            "BidLens"
+            if "BidLens" in intake_source_values
+            else intake_source_values[0] if intake_source_values else None
+        )
+        provided_fields = {
+            "Name",
+            "StageName",
+            "CloseDate",
+            "External_Source_ID_c__c",
+            "Intake_Status__c",
+            "Intake_Source_c__c",
+            "Description",
+        }
+        missing_required_fields = [
+            field
+            for field in required_fields
+            if field.get("name") and field["name"] not in provided_fields
+        ]
+        mapped_field_names = (
+            "StageName",
+            "CloseDate",
+            "External_Source_ID_c__c",
+            "Intake_Status__c",
+            "Intake_Source_c__c",
+        )
+        unavailable_mapped_fields = [
+            field_name
+            for field_name in mapped_field_names
+            if field_name not in field_by_name
+            or field_by_name[field_name].get("createable") is not True
+        ]
+        return {
+            "auth_available": True,
+            "required_fields": required_fields,
+            "valid_stage_names": valid_stage_names,
+            "intake_source_values": intake_source_values,
+            "selected_intake_source": selected_intake_source,
+            "missing_required_fields": missing_required_fields,
+            "unavailable_mapped_fields": unavailable_mapped_fields,
+            "default_stage_valid": "Prospecting" in valid_stage_names,
+            "required_fields_verified": not missing_required_fields,
+            "field_mappings_valid": not unavailable_mapped_fields,
+            "error": None,
+        }
 
     @staticmethod
     def _escape_soql_literal(value: str) -> str:

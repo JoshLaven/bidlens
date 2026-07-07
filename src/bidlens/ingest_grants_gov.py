@@ -9,9 +9,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .grants_gov_client import GrantsGovApiError, fetch_opportunity_detail, search_recent_opportunities
-from .models import Opportunity
+from .models import Opportunity, OpportunityHistoryEvent
 from .services.ingestion_details import build_error_detail, build_invalid_detail, build_upsert_detail
-from .services.opportunity_history import record_imported_history
+from .services.opportunity_history import (
+    EVENT_GRANTS_FORECAST_VERSION,
+    EVENT_GRANTS_SYNOPSIS_VERSION,
+    record_history_event,
+    record_imported_history,
+)
 from .services.opportunity_monitor import apply_source_update
 from .services.qualification import new_opportunity_qualification_status
 from .services.pursuit_lanes import refresh_opportunity_lane_matches
@@ -144,6 +149,171 @@ def _merge_detail_payload(record: dict[str, Any], detail_payload: dict[str, Any]
     return merged
 
 
+def _parse_grants_history_datetime(value: Any) -> dt.datetime | None:
+    text = _clean(value)
+    if not text:
+        return None
+    for timezone_suffix in (" EDT", " EST", " UTC", " GMT"):
+        if text.endswith(timezone_suffix):
+            text = text[: -len(timezone_suffix)]
+            break
+    for fmt in (
+        "%b %d, %Y %I:%M:%S %p",
+        "%Y-%m-%d-%H-%M-%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d",
+    ):
+        try:
+            return dt.datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    try:
+        parsed = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(dt.timezone.utc).replace(tzinfo=None)
+        return parsed
+    except ValueError:
+        return None
+
+
+def _grants_version_history_entries(raw_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    history = raw_payload.get("opportunityHistoryDetails")
+    historical_versions = history if isinstance(history, list) else []
+    candidates = [*historical_versions, raw_payload]
+    entries: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        for history_type, event_type, label in (
+            ("synopsis", EVENT_GRANTS_SYNOPSIS_VERSION, "Synopsis"),
+            ("forecast", EVENT_GRANTS_FORECAST_VERSION, "Forecast"),
+        ):
+            version_payload = candidate.get(history_type)
+            if not isinstance(version_payload, dict):
+                continue
+            version = version_payload.get("version")
+            if version in (None, ""):
+                continue
+            updated_date = (
+                version_payload.get("lastUpdatedDate")
+                or version_payload.get("actionDate")
+                or version_payload.get("createTimeStamp")
+                or version_payload.get("postingDate")
+            )
+            version_key = f"{history_type}:{version}:{updated_date or ''}"
+            if version_key in seen_keys:
+                continue
+            seen_keys.add(version_key)
+            modification_description = _clean(
+                version_payload.get("modComments")
+                or version_payload.get("modificationComments")
+                or candidate.get("modComments")
+            )
+            modified_fields = candidate.get(f"{history_type}ModifiedFields")
+            if not isinstance(modified_fields, list):
+                modified_fields = []
+            entries.append({
+                "event_type": event_type,
+                "occurred_at": _parse_grants_history_datetime(updated_date),
+                "event_data": {
+                    "source_version_key": version_key,
+                    "history_type": history_type,
+                    "version": version,
+                    "version_name": f"{label} {version}",
+                    "updated_date": str(updated_date) if updated_date else None,
+                    "modification_description": modification_description,
+                    "modified_fields": modified_fields,
+                    "source_revision": candidate.get("revision"),
+                },
+            })
+
+    return entries
+
+
+def sync_grants_gov_version_history(
+    db: Session,
+    opportunity: Opportunity,
+    raw_payload: dict[str, Any] | None,
+    *,
+    notify_interested: bool,
+) -> int:
+    if opportunity.source != SOURCE or not isinstance(raw_payload, dict):
+        return 0
+
+    existing_keys = {
+        event_data.get("source_version_key")
+        for (event_data,) in (
+            db.query(OpportunityHistoryEvent.event_data)
+            .filter(
+                OpportunityHistoryEvent.organization_id == opportunity.organization_id,
+                OpportunityHistoryEvent.opportunity_id == opportunity.id,
+                OpportunityHistoryEvent.event_type.in_(
+                    (EVENT_GRANTS_SYNOPSIS_VERSION, EVENT_GRANTS_FORECAST_VERSION)
+                ),
+            )
+            .all()
+        )
+        if isinstance(event_data, dict)
+    }
+    entries = _grants_version_history_entries(raw_payload)
+    latest_key = None
+    if entries:
+        latest_entry = max(
+            entries,
+            key=lambda entry: entry["occurred_at"] or dt.datetime.min,
+        )
+        latest_key = latest_entry["event_data"]["source_version_key"]
+
+    created = 0
+    for entry in entries:
+        event_data = entry["event_data"]
+        if event_data["source_version_key"] in existing_keys:
+            continue
+        record_history_event(
+            db,
+            opportunity=opportunity,
+            event_type=entry["event_type"],
+            source=SOURCE,
+            event_data=event_data,
+            occurred_at=entry["occurred_at"],
+            notify_interested=(
+                notify_interested
+                and event_data["source_version_key"] == latest_key
+            ),
+        )
+        existing_keys.add(event_data["source_version_key"])
+        created += 1
+    return created
+
+
+def backfill_stored_grants_gov_version_history(
+    db: Session,
+    *,
+    organization_id: int,
+) -> int:
+    """Map version data already stored in raw payloads without another API request."""
+    opportunities = (
+        db.query(Opportunity)
+        .filter(
+            Opportunity.organization_id == organization_id,
+            Opportunity.source == SOURCE,
+        )
+        .all()
+    )
+    return sum(
+        sync_grants_gov_version_history(
+            db,
+            opportunity,
+            opportunity.raw_source_payload,
+            notify_interested=False,
+        )
+        for opportunity in opportunities
+    )
+
+
 def normalize_grants_gov_record(record: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
     source_record_id = _clean(
         _first_value(record, "id", "opportunityId", "opportunityID", "opportunity_id", "oppId", "opp_id")
@@ -258,6 +428,12 @@ def upsert_grants_gov_opportunity(
                 db.add(opportunity)
                 db.flush()
                 record_imported_history(db, opportunity)
+                sync_grants_gov_version_history(
+                    db,
+                    opportunity,
+                    data.get("raw_source_payload"),
+                    notify_interested=False,
+                )
                 refresh_opportunity_lane_matches(db, organization_id, opportunity)
                 if audit is not None:
                     audit.update({
@@ -273,6 +449,15 @@ def upsert_grants_gov_opportunity(
             return "skipped"
 
     monitor_result = apply_source_update(db, existing, data)
+    version_events_created = sync_grants_gov_version_history(
+        db,
+        existing,
+        data.get("raw_source_payload"),
+        notify_interested=True,
+    )
+    if version_events_created and not monitor_result.changed:
+        existing.raw_source_payload = data.get("raw_source_payload")
+        db.flush()
     if audit is not None:
         audit.update({
             "matched_opportunity_id": existing.id,
@@ -282,7 +467,7 @@ def upsert_grants_gov_opportunity(
             "salesforce_error": monitor_result.salesforce_error,
             "update_event_id": monitor_result.update_event_id,
         })
-    if monitor_result.changed:
+    if monitor_result.changed or version_events_created:
         refresh_opportunity_lane_matches(db, organization_id, existing)
         return "updated"
     return "unchanged"
@@ -322,13 +507,62 @@ def enrich_grants_gov_opportunity_detail(db: Session, opportunity: Opportunity) 
     return monitor_result.changed
 
 
-def ingest_grants_gov(db: Session, *, organization_id: int, days_back: int = 14, rows: int = 25) -> dict[str, Any]:
-    payload = search_recent_opportunities(days_back=days_back, rows=rows)
-    records = _extract_records(payload)
+def _search_hit_count(payload: Any) -> int | None:
+    if not isinstance(payload, dict):
+        return None
+    data = payload.get("data")
+    candidates = (
+        data.get("hitCount") if isinstance(data, dict) else None,
+        payload.get("hitCount"),
+        payload.get("totalRecords"),
+    )
+    for value in candidates:
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _fetch_daily_search_results(*, days_back: int, rows: int) -> tuple[list[dict[str, Any]], int]:
+    page_size = max(1, int(rows))
+    start_record_num = 0
+    records: list[dict[str, Any]] = []
+    pages_pulled = 0
+
+    while True:
+        payload = search_recent_opportunities(
+            days_back=days_back,
+            rows=page_size,
+            start_record_num=start_record_num,
+        )
+        pages_pulled += 1
+        page_records = _extract_records(payload)
+        records.extend(page_records)
+
+        next_start = start_record_num + len(page_records)
+        hit_count = _search_hit_count(payload)
+        if not page_records:
+            break
+        if hit_count is not None and next_start >= hit_count:
+            break
+        if hit_count is None and len(page_records) < page_size:
+            break
+        if next_start <= start_record_num:
+            break
+        start_record_num = next_start
+
+    return records, pages_pulled
+
+
+def ingest_grants_gov(db: Session, *, organization_id: int, days_back: int = 1, rows: int = 25) -> dict[str, Any]:
+    records, pages_pulled = _fetch_daily_search_results(days_back=days_back, rows=rows)
     result = {
         "status": "success",
         "organization_id": organization_id,
         "received": len(records),
+        "pages_pulled": pages_pulled,
+        "date_range_days": days_back,
         "created": 0,
         "updated": 0,
         "unchanged": 0,
@@ -399,6 +633,10 @@ def ingest_grants_gov(db: Session, *, organization_id: int, days_back: int = 14,
                 error=exc,
             ))
             logger.exception("Grants.gov record failed source_record_id=%s", normalized.get("source_record_id"))
+    result["history_events_backfilled"] = backfill_stored_grants_gov_version_history(
+        db,
+        organization_id=organization_id,
+    )
     db.commit()
     result["message"] = (
         f"Grants.gov pull completed: {result['received']} received, {result['created']} created, "

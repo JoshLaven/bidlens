@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi import HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from ..auth import attach_request_user_context, get_current_user
@@ -17,6 +18,7 @@ from ..models import (
     OrganizationMembership,
     SamSourceConfig,
     User,
+    Vote,
 )
 from ..services.ingestion_runs import record_source_activity
 from ..services.market_activity import (
@@ -141,6 +143,37 @@ def _source_label(source: str | None) -> str:
     return labels.get(source or "", source or "Source")
 
 
+def _opportunity_lookup_workflow_state(opportunity: Opportunity) -> str:
+    """Return the organization decision state, independent of users and CRM."""
+    if opportunity.decision_state == "ARCHIVED":
+        return "Archived"
+    if opportunity.qualification_status == "rejected":
+        return "Rejected"
+    if opportunity.qualification_status == "qualified":
+        return "Qualified"
+    # Pending Review is not a terminal decision, so an overdue opportunity
+    # becomes Expired until the organization explicitly qualifies or rejects it.
+    if opportunity.response_deadline and opportunity.response_deadline < date.today():
+        return "Expired"
+    return "Pending Review"
+
+
+def _opportunity_lookup_user_relationship(current_user_vote: str | None) -> str:
+    if current_user_vote == "PASS":
+        return "Passed"
+    if current_user_vote == "PURSUE":
+        return "Interested"
+    return "No action"
+
+
+def _opportunity_lookup_crm_state(opportunity: Opportunity) -> str:
+    if opportunity.salesforce_opportunity_id:
+        return "Salesforce linked"
+    if opportunity.crm_pushed:
+        return "Pushed"
+    return "Not pushed"
+
+
 def _account_type_label(account_type: str | None) -> str:
     labels = {
         "Federal": "Federal",
@@ -167,10 +200,19 @@ def _default_market_start(today: date) -> date:
 
 
 def _activity_status(run: IngestionRun) -> str:
+    if run.status == "paused_rate_limit":
+        return "Paused"
     return "Error" if (run.error_count or 0) else "Success"
 
 
 def _activity_summary(run: IngestionRun) -> str:
+    if run.status == "paused_rate_limit":
+        retry = (
+            f" · retry after {run.retry_after_at.strftime('%b %d, %Y %I:%M %p')}"
+            if run.retry_after_at
+            else ""
+        )
+        return f"SAM quota exceeded; progress saved{retry}"
     parts = []
     if run.created_count:
         parts.append(f"created {run.created_count}")
@@ -506,6 +548,122 @@ async def import_history_detail_page(
         "details": details,
         "update_events": update_events,
         "source_label": _source_label,
+        "active_page": "imports",
+        "sidebar": get_sidebar(db, user),
+    })
+
+
+@router.get("/admin/opportunity-lookup")
+async def opportunity_lookup_page(
+    request: Request,
+    q: str = "",
+    page: int = 1,
+    db: Session = Depends(get_db),
+):
+    user = require_admin(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    org_id = _user_org_id(user)
+    search_term = q.strip()[:200]
+    page = max(1, page)
+    page_size = 50
+    total_results = 0
+    total_pages = 1
+    result_items: list[dict] = []
+
+    if search_term:
+        pattern = f"%{search_term}%"
+        search_query = (
+            db.query(Opportunity)
+            .filter(Opportunity.organization_id == org_id)
+            .filter(or_(
+                Opportunity.title.ilike(pattern),
+                Opportunity.agency.ilike(pattern),
+                Opportunity.solicitation_number.ilike(pattern),
+                Opportunity.source_record_id.ilike(pattern),
+                Opportunity.sam_notice_id.ilike(pattern),
+                Opportunity.govwin_staging_id.ilike(pattern),
+            ))
+        )
+        total_results = search_query.count()
+        total_pages = max(1, (total_results + page_size - 1) // page_size)
+        page = min(page, total_pages)
+        normalized_term = search_term.casefold()
+        exact_match_rank = case(
+            (
+                or_(
+                    func.lower(Opportunity.source_record_id) == normalized_term,
+                    func.lower(Opportunity.solicitation_number) == normalized_term,
+                    func.lower(Opportunity.sam_notice_id) == normalized_term,
+                    func.lower(Opportunity.govwin_staging_id) == normalized_term,
+                ),
+                0,
+            ),
+            (func.lower(Opportunity.title) == normalized_term, 1),
+            else_=2,
+        )
+        opportunities = (
+            search_query
+            .order_by(
+                exact_match_rank.asc(),
+                Opportunity.upserted_at.desc(),
+                Opportunity.updated_at.desc(),
+                Opportunity.id.desc(),
+            )
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        opportunity_ids = [opportunity.id for opportunity in opportunities]
+        current_user_votes = {
+            opp_id: vote
+            for opp_id, vote in (
+                db.query(Vote.opp_id, Vote.vote)
+                .filter(
+                    Vote.org_id == org_id,
+                    Vote.user_id == user.id,
+                    Vote.opp_id.in_(opportunity_ids),
+                )
+                .all()
+                if opportunity_ids
+                else []
+            )
+        }
+        for opportunity in opportunities:
+            stage = normalize_display_stage(
+                source=opportunity.source,
+                opportunity_type=opportunity.opportunity_type,
+                source_stage=opportunity.source_stage,
+            )
+            result_items.append({
+                "opportunity": opportunity,
+                "source_label": _source_label(opportunity.source),
+                "stage": stage,
+                "stage_slug": stage.casefold(),
+                "workflow_state": _opportunity_lookup_workflow_state(opportunity),
+                "user_relationship": _opportunity_lookup_user_relationship(
+                    current_user_votes.get(opportunity.id),
+                ),
+                "crm_state": _opportunity_lookup_crm_state(opportunity),
+                "last_updated": (
+                    opportunity.upserted_at
+                    or opportunity.updated_at
+                    or opportunity.last_seen_at
+                    or opportunity.created_at
+                ),
+            })
+
+    pagination_query = urlencode({"q": search_term})
+    return templates.TemplateResponse("opportunity_lookup.html", {
+        "request": request,
+        "user": user,
+        "q": search_term,
+        "results": result_items,
+        "total_results": total_results,
+        "page": page,
+        "total_pages": total_pages,
+        "pagination_query": pagination_query,
         "active_page": "imports",
         "sidebar": get_sidebar(db, user),
     })

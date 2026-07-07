@@ -175,6 +175,7 @@ def pull_now(
             enrich_descriptions=False,
             saved_search_name=config.name,
             run_type="Manual",
+            source_config_id=config.id,
             **ingest_kwargs(config),
         )
     except RuntimeError as exc:
@@ -222,6 +223,12 @@ def pull_now(
     result["failed_naics"] = _failed_naics(rate_limited_results or sam_unavailable_results)
     result["organization_id"] = org_id
 
+    if result.get("status") == "paused_rate_limit":
+        retry_hint = f" Retry after: {retry_after_display}." if retry_after_display else ""
+        result["message"] = f"Paused — SAM quota exceeded.{retry_hint}"
+        headers = {"Retry-After": retry_after_header} if retry_after_header else {}
+        _record_sam_source_activity(db, org_id=org_id, user_id=user.id, result=result)
+        return JSONResponse(status_code=200, content=result, headers=headers)
     if sam_unavailable_results:
         if result.get("status") == "failed":
             result["message"] = "SAM.gov is temporarily unavailable. Try again later."

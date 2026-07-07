@@ -8,15 +8,22 @@ from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
 from bidlens.database import Base
-from bidlens.ingest_sam import ingest_sam, pull_sam_into_db
+from bidlens.ingest_sam import (
+    ALLOWED_TYPES,
+    ingest_sam,
+    normalize_sam_record,
+    pull_sam_into_db,
+)
 from bidlens.models import (
     IngestionRun,
+    Opportunity,
     Organization,
     OrganizationMembership,
     SamSourceConfig,
     User,
 )
 from bidlens.routes import imports, sam
+from bidlens.sam_client import SamRateLimitError
 from bidlens.services.sam_source_config import (
     SamConfigValidationError,
     ingest_kwargs,
@@ -180,6 +187,132 @@ class SamSourceConfigurationTests(unittest.TestCase):
         self.assertEqual(first_call["organization_name"], "HHS")
         self.assertEqual(first_call["procurement_types"], ["o"])
 
+    @patch("bidlens.ingest_sam.search_opportunities")
+    def test_default_request_excludes_awards_and_fallback_reason_is_specific(
+        self,
+        search_opportunities,
+    ):
+        today = dt.date.today()
+
+        def record(record_id, notice_type):
+            return {
+                "noticeId": record_id,
+                "title": f"{notice_type} opportunity",
+                "department": "HHS",
+                "type": notice_type,
+                "postedDate": today.isoformat(),
+                "responseDeadLine": (today + dt.timedelta(days=30)).isoformat(),
+                "uiLink": f"https://sam.gov/opp/{record_id}",
+                "naicsCode": "541611",
+                "active": "Yes",
+            }
+
+        search_opportunities.side_effect = [
+            {
+                "opportunitiesData": [
+                    record("award-1", "Award Notice"),
+                    record("solicitation-1", "Solicitation"),
+                ]
+            },
+            {"opportunitiesData": []},
+        ]
+
+        result = pull_sam_into_db(
+            self.db,
+            organization_id=self.org.id,
+            naics="541611",
+            allowed_types=set(),
+            max_records=10,
+            limit=10,
+        )
+
+        first_call = search_opportunities.call_args_list[0].kwargs
+        self.assertEqual(
+            first_call["procurement_types"],
+            ["k", "o", "p", "r", "s"],
+        )
+        self.assertEqual(result["inserted"], 1)
+        self.assertEqual(result["filtered"], 1)
+        self.assertEqual(
+            result["_record_details"][0]["reason"],
+            "Award Notice excluded from V1 discovery imports",
+        )
+        self.assertEqual(
+            self.db.query(Opportunity).filter(
+                Opportunity.source_record_id == "award-1"
+            ).count(),
+            0,
+        )
+
+    @patch("bidlens.ingest_sam.search_opportunities")
+    def test_total_records_avoids_trailing_empty_page_probe(self, search_opportunities):
+        today = dt.date.today()
+        search_opportunities.return_value = {
+            "totalRecords": 1,
+            "opportunitiesData": [{
+                "noticeId": "single-page",
+                "title": "Single page opportunity",
+                "department": "HHS",
+                "type": "Solicitation",
+                "postedDate": today.isoformat(),
+                "responseDeadLine": (today + dt.timedelta(days=30)).isoformat(),
+                "uiLink": "https://sam.gov/opp/single-page",
+            }],
+        }
+
+        result = pull_sam_into_db(
+            self.db,
+            organization_id=self.org.id,
+            naics="541611",
+            limit=100,
+        )
+
+        self.assertEqual(result["records_seen"], 1)
+        self.assertEqual(result["search_requests_made"], 1)
+        self.assertEqual(search_opportunities.call_count, 1)
+
+    @patch("bidlens.ingest_sam.search_opportunities")
+    def test_rate_limit_returns_paused_checkpoint_without_counting_error(
+        self,
+        search_opportunities,
+    ):
+        search_opportunities.side_effect = SamRateLimitError(
+            "quota exceeded",
+            retry_after_seconds=3600,
+            retry_after="Sun, 05 Jul 2026 23:00:00 GMT",
+        )
+
+        result = pull_sam_into_db(
+            self.db,
+            organization_id=self.org.id,
+            naics="541611",
+            start_offset=100,
+            initial_pulled=100,
+        )
+
+        self.assertTrue(result["paused_rate_limit"])
+        self.assertEqual(result["next_offset"], 100)
+        self.assertEqual(result["scope_pulled"], 100)
+        self.assertEqual(result["errors"], 0)
+        self.assertEqual(result["search_requests_made"], 1)
+
+    def test_supported_discovery_notice_types_still_normalize(self):
+        today = dt.date.today()
+        for notice_type in ALLOWED_TYPES:
+            with self.subTest(notice_type=notice_type):
+                record = {
+                    "noticeId": f"notice-{notice_type}",
+                    "title": f"{notice_type} opportunity",
+                    "department": "HHS",
+                    "type": notice_type,
+                    "postedDate": today.isoformat(),
+                    "responseDeadLine": (today + dt.timedelta(days=30)).isoformat(),
+                    "uiLink": f"https://sam.gov/opp/{notice_type}",
+                }
+                normalized = normalize_sam_record(record, set())
+                self.assertIsNotNone(normalized)
+                self.assertEqual(normalized["opportunity_type"], notice_type)
+
     @patch("bidlens.ingest_sam.pull_sam_into_db")
     def test_max_records_is_shared_across_configured_naics(self, pull):
         def result(_db, **kwargs):
@@ -208,6 +341,78 @@ class SamSourceConfigurationTests(unittest.TestCase):
 
         self.assertEqual(output["records_seen"], 5)
         self.assertEqual([call.kwargs["max_records"] for call in pull.call_args_list], [3, 2])
+
+    @patch("bidlens.ingest_sam.pull_sam_into_db")
+    def test_paused_saved_search_resumes_same_run_and_keeps_totals(self, pull):
+        config = self._config(naics_codes=["541611"], agencies=[])
+        pull.return_value = {
+            "inserted": 1,
+            "updated": 0,
+            "unchanged": 0,
+            "skipped": 0,
+            "filtered": 0,
+            "errors": 0,
+            "pages_pulled": 1,
+            "records_seen": 1,
+            "search_requests_made": 2,
+            "pulled": 1,
+            "paused_rate_limit": True,
+            "next_offset": 100,
+            "scope_pulled": 1,
+            "retry_after_seconds": 3600,
+            "retry_after": None,
+            "_record_details": [],
+        }
+        first = ingest_sam(
+            self.db,
+            organization_id=self.org.id,
+            naics_list=["541611"],
+            source_config_id=config.id,
+            max_records=5,
+            manual_pull=True,
+        )
+
+        self.assertEqual(first["status"], "paused_rate_limit")
+        run = self.db.get(IngestionRun, first["run_id"])
+        self.assertEqual(run.status, "paused_rate_limit")
+        self.assertEqual(run.checkpoint_json["offset"], 100)
+        self.assertEqual(run.error_count, 0)
+
+        run.retry_after_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=1)
+        self.db.commit()
+        pull.return_value = {
+            "inserted": 1,
+            "updated": 0,
+            "unchanged": 0,
+            "skipped": 0,
+            "filtered": 0,
+            "errors": 0,
+            "pages_pulled": 1,
+            "records_seen": 1,
+            "search_requests_made": 1,
+            "pulled": 2,
+            "paused_rate_limit": False,
+            "next_offset": 200,
+            "scope_pulled": 2,
+            "_record_details": [],
+        }
+        second = ingest_sam(
+            self.db,
+            organization_id=self.org.id,
+            naics_list=["541611"],
+            source_config_id=config.id,
+            max_records=5,
+            manual_pull=True,
+        )
+
+        self.assertEqual(second["run_id"], first["run_id"])
+        self.assertEqual(second["status"], "success")
+        self.assertEqual(second["inserted"], 2)
+        self.assertEqual(pull.call_args.kwargs["start_offset"], 100)
+        self.assertEqual(pull.call_args.kwargs["initial_pulled"], 1)
+        self.db.refresh(run)
+        self.assertIsNone(run.checkpoint_json)
+        self.assertIsNotNone(run.finished_at)
 
     def test_config_save_is_scoped_to_current_workspace(self):
         request = self._request(query_string=f"org_id={self.org.id}".encode())
@@ -278,6 +483,7 @@ class SamSourceConfigurationTests(unittest.TestCase):
         self.assertEqual(kwargs["max_records"], 50)
         self.assertEqual(kwargs["saved_search_name"], "Federal health")
         self.assertEqual(kwargs["run_type"], "Manual")
+        self.assertEqual(kwargs["source_config_id"], config.id)
 
     def test_multiple_named_searches_are_workspace_scoped(self):
         first = self._config(name="Federal health")

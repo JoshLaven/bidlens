@@ -1,14 +1,16 @@
 {% extends "base.html" %}
 {% from "_opp_card.html" import opp_card %}
-{% from "_queue_layout.html" import queue_heading, queue_search, stage_filter_chips, queue_toolbar, queue_count, queue_pagination %}
+{% from "_queue_layout.html" import queue_heading, queue_search, source_filter_chips, queue_toolbar, queue_count, queue_pagination %}
 {% block title %}Triage - BidLens{% endblock %}
 {% block content %}
 {% set org_id_param = request.query_params.get('org_id') %}
 
 {{ queue_heading('Triage', 'Review newly ingested opportunities before they enter the qualified Feed.') }}
-{{ queue_search('/triage', 'triage-search-input', q, sort, direction, none, org_id_param, none, stages_value) }}
-{{ stage_filter_chips('/triage', selected_stages, stages_value, sort, direction, q, org_id_param) }}
-{{ queue_toolbar('/triage', 'triage', sort, direction, q, none, org_id_param, none, none, stages_value) }}
+{{ queue_search('/triage', 'triage-search-input', q, sort, direction, none, org_id_param, none, stages_value, sources_value) }}
+{{ queue_toolbar('/triage', 'triage', sort, direction, q, none, org_id_param, none, none, stages_value, sources_value, selected_stages) }}
+<div class="triage-source-filter-row">
+  {{ source_filter_chips('/triage', source_options, selected_sources, sources_value, stages_value, sort, direction, q, org_id_param) }}
+</div>
 
 {% if triage_enabled and user.current_role == 'admin' %}
   {% include "_source_controls.html" %}
@@ -64,7 +66,7 @@
   <h2>No opportunities waiting for triage</h2>
   <p>New imports will appear here before they enter the Feed.</p>
 </div>
-{{ queue_pagination('/triage', page, total_pages, result_count, page_size, sort, direction, q, none, org_id_param, none, stages_value) }}
+{{ queue_pagination('/triage', page, total_pages, result_count, page_size, sort, direction, q, none, org_id_param, none, stages_value, sources_value) }}
 {% endblock %}
 
 {% block scripts %}
