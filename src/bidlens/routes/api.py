@@ -640,6 +640,43 @@ def _duplicate_warning_payload(matches: list[CompanyProfile]) -> dict[str, Any]:
     return {"duplicate_warning": warning, "possible_duplicates": possible_duplicates}
 
 
+def _active_company_profile(db: Session, org_id: int) -> CompanyProfile | None:
+    return (
+        db.query(CompanyProfile)
+        .filter(
+            CompanyProfile.org_id == org_id,
+            CompanyProfile.archived_at.is_(None),
+        )
+        .order_by(CompanyProfile.updated_at.desc(), CompanyProfile.id.desc())
+        .first()
+    )
+
+
+def _archive_duplicate_active_company_profiles(
+    db: Session,
+    *,
+    org_id: int,
+    keep_profile_id: int,
+) -> int:
+    profiles = (
+        db.query(CompanyProfile)
+        .filter(
+            CompanyProfile.org_id == org_id,
+            CompanyProfile.archived_at.is_(None),
+        )
+        .order_by(CompanyProfile.updated_at.desc(), CompanyProfile.id.desc())
+        .all()
+    )
+    archived_count = 0
+    now = datetime.utcnow()
+    for profile in profiles:
+        if profile.id == keep_profile_id:
+            continue
+        profile.archived_at = now
+        archived_count += 1
+    return archived_count
+
+
 def _org_id_from_text(value: str | None, *, source: str, db: Session) -> int | None:
     if not value:
         return None
@@ -688,41 +725,52 @@ def api_save_company_profile(
     if not isinstance(payload.profile, dict):
         raise HTTPException(status_code=400, detail="profile must be a JSON object")
 
-    company_name = _clean_optional_text(payload.company_name) or _profile_text(payload.profile, ["company_name", "name", "legal_name"])
     website_url = _clean_optional_text(payload.website_url) or _profile_text(payload.profile, ["website_url", "website", "url"])
     cage_code = _clean_optional_text(payload.cage_code) or _profile_text(payload.profile, ["cage_code", "cage"])
     duns = _clean_optional_text(payload.duns) or _profile_text(payload.profile, ["duns", "duns_number"])
     uei = _clean_optional_text(payload.uei) or _profile_text(payload.profile, ["uei", "uei_sam"])
 
     org_id = _caller_org_id(caller, request, db)
+    organization = db.query(Organization).filter(Organization.id == org_id).first()
     logger.info("Company profile save resolved organization_id=%s automation=%s", org_id, isinstance(caller, dict) and caller.get("automation") is True)
+    profile = _active_company_profile(db, org_id)
+    created = profile is None
+    if profile is None:
+        profile = CompanyProfile(org_id=org_id, profile_json={"profile_type": "organization_identity"})
+        db.add(profile)
+        db.flush()
+
     duplicate_matches = _company_profile_duplicate_matches(
         db,
         org_id=org_id,
-        company_name=company_name,
+        company_name=organization.name if organization else None,
         cage_code=cage_code,
         duns=duns,
         uei=uei,
+        exclude_id=profile.id,
     )
 
-    profile = CompanyProfile(
+    profile.company_name = organization.name if organization else profile.company_name
+    profile.website_url = website_url
+    profile.cage_code = cage_code
+    profile.duns = duns
+    profile.uei = uei
+    profile.profile_json = {"profile_type": "organization_identity"}
+    archived_duplicates = _archive_duplicate_active_company_profiles(
+        db,
         org_id=org_id,
-        company_name=company_name,
-        website_url=website_url,
-        cage_code=cage_code,
-        duns=duns,
-        uei=uei,
-        profile_json=payload.profile,
+        keep_profile_id=profile.id,
     )
     db.add(profile)
     db.commit()
     db.refresh(profile)
 
     return {
-        "status": "saved",
+        "status": "created" if created else "updated",
         "id": profile.id,
         "company_name": profile.company_name,
         "organization_id": org_id,
+        "archived_duplicate_profiles": archived_duplicates,
         **_duplicate_warning_payload(duplicate_matches),
     }
 

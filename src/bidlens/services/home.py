@@ -34,7 +34,7 @@ SOURCE_LABELS = {
 }
 SETUP_EVENT_TITLES = {
     "organization_created": "Organization created",
-    "company_profile_configured": "Organization profile configured",
+    "company_profile_configured": "Organization identity completed",
     "opportunity_sources_connected": "Opportunity sources connected",
     "first_successful_import": "First successful import",
     "users_invited": "Users invited",
@@ -84,6 +84,18 @@ def _configured_source_labels(
 
     if profile and profile.govwin_credentials_encrypted:
         labels.add("GovWin")
+
+    grants_enabled = (
+        db.query(Event.id)
+        .filter(
+            Event.org_id == organization_id,
+            Event.event_type == "opportunity_source_enabled",
+            Event.payload["source"].as_string() == "grants.gov",
+        )
+        .first()
+    )
+    if grants_enabled:
+        labels.add("Grants.gov")
 
     # A successful import is durable evidence that a manual/public source is in
     # use even when that connector has no organization-level configuration row.
@@ -290,36 +302,36 @@ def get_home_context(
     if active_profile is None:
         recommendations.append(_recommendation(
             key="company-profile",
-            title="Tell BidLens about your organization",
+            title="Complete Organization Identity",
             label="Required",
-            description="Helps BidLens understand your capabilities, markets, and strategic focus.",
-            cta_label="Company Profile",
+            description="Confirm the website and federal identifiers BidLens cannot reliably infer.",
+            cta_label="Organization Identity",
             cta_url=_workspace_url("/company-profile", organization_id),
             priority=10,
         ))
     else:
         completed.append(_completed_item(
             key="company-profile",
-            title="Organization profile configured",
+            title="Organization identity completed",
             completed_at=active_profile.updated_at,
         ))
 
     if not source_labels:
         recommendations.append(_recommendation(
             key="opportunity-source",
-            title="Enable at least one opportunity source",
+            title="Enable Opportunity Discovery",
             label="Required",
-            description="Allows BidLens to receive opportunities for your organization.",
-            cta_label="Opportunity Sources",
-            cta_url=_workspace_url("/integrations", organization_id),
+            description="Tell BidLens where to discover opportunities for this workspace.",
+            cta_label="Opportunity Discovery",
+            cta_url=_workspace_url("/connect-sources", organization_id),
             priority=20,
         ))
     else:
         completed.append(_completed_item(
             key="opportunity-source",
-            title="Opportunity sources connected",
+            title="Opportunity Discovery enabled",
             completed_at=last_import_at,
-            description="Opportunity intake is configured.",
+            description="BidLens has at least one source to monitor for opportunities.",
         ))
 
     if member_count <= 1:
@@ -328,7 +340,7 @@ def get_home_context(
             title="Invite your team",
             label="Recommended",
             description="Allow teammates to review and qualify opportunities together.",
-            cta_label="User Administration",
+            cta_label="Workspace Members",
             cta_url=_workspace_url(f"/admin/organizations/{organization_id}/users", organization_id),
             priority=30,
         ))
@@ -341,18 +353,18 @@ def get_home_context(
 
     if not salesforce_connected:
         recommendations.append(_recommendation(
-            key="salesforce",
-            title="Connect your CRM",
+            key="business-systems",
+            title="Connect Business Systems",
             label="Optional",
-            description="Allows BidLens to create and update opportunities in your CRM.",
-            cta_label="Salesforce Configuration",
-            cta_url=_workspace_url("/integrations", organization_id, fragment="salesforce"),
+            description="Send BidLens opportunities, decisions, and updates to the systems your team already uses.",
+            cta_label="Outbound Integrations",
+            cta_url=_workspace_url("/outbound-integrations", organization_id),
             priority=40,
         ))
     else:
         completed.append(_completed_item(
-            key="salesforce",
-            title="CRM connected",
+            key="business-systems",
+            title="Business systems connected",
         ))
 
     if lane_count == 0:

@@ -18,14 +18,37 @@
 <body>
     {% set nav_org_id = request.query_params.get('org_id') if request is defined else none %}
     {% set nav_org_q = '?org_id=' ~ nav_org_id if nav_org_id and nav_org_id.isdigit() else '' %}
+    {% set platform_mode = user and active_page == 'platform' and user.is_platform_admin is defined and user.is_platform_admin %}
+    {% set workspace_is_live = user and user.current_organization_is_live is defined and user.current_organization_is_live %}
     <nav>
         <div class="container nav-shell">
             <div class="nav-brand">
-              <a href="/home{{ nav_org_q }}" class="logo">BidLens</a>
-              <span class="nav-tagline">Opportunity Intelligence</span>
+              <a href="{{ '/platform' if platform_mode else '/home' ~ nav_org_q }}" class="logo">BidLens</a>
+              <span class="nav-tagline">{{ 'Platform' if platform_mode else 'Opportunity Intelligence' }}</span>
             </div>
             <div class="nav-links">
                 {% if user %}
+                  {% if platform_mode %}
+                    <div class="nav-workspace" aria-label="Platform">
+                      <a href="/platform" class="active">Platform</a>
+                    </div>
+                    <div class="nav-utility">
+                      <details class="user-menu">
+                        <summary class="user-menu-trigger">
+                          <span class="user-menu-name">{{ user.name or user.email }}</span>
+                          <span class="user-menu-org">BidLens Platform</span>
+                        </summary>
+                        <div class="user-menu-panel">
+                          <div class="user-menu-header">
+                            <strong>{{ user.name or user.email }}</strong>
+                            <span>BidLens Platform</span>
+                          </div>
+                          <a href="/platform" class="active">Platform</a>
+                          <a href="/logout">Logout</a>
+                        </div>
+                      </details>
+                    </div>
+                  {% else %}
                     <div class="nav-workspace" aria-label="Primary workspaces">
                       {% if user.current_role == 'admin' %}
                         <a href="/home{{ nav_org_q }}" class="{{ 'active' if active_page == 'home' else '' }}">Home</a>
@@ -34,7 +57,7 @@
                       <a href="/my-shortlist{{ nav_org_q }}" class="{{ 'active' if active_page == 'my_shortlist' else '' }}">My Shortlist</a>
                       <a href="/triage{{ nav_org_q }}" class="{{ 'active' if active_page == 'triage' else '' }}">Triage (<span data-triage-nav-count>{{ user.triage_unreviewed_count|default(0) }}</span>)</a>
                       <a href="/archive{{ nav_org_q }}" class="{{ 'active' if active_page == 'archive' else '' }}">Archive</a>
-                      {% if user.current_role == 'admin' %}
+                      {% if user.current_role == 'admin' and workspace_is_live %}
                         <a href="/integrations{{ nav_org_q }}" class="{{ 'active' if active_page == 'integrations' else '' }}">Integrations</a>
                       {% endif %}
                     </div>
@@ -50,14 +73,18 @@
                             <span>{{ user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else user.organization.name if user.organization else 'Workspace' }}</span>
                           </div>
                           <a href="/my-settings{{ nav_org_q }}" class="{{ 'active' if active_page == 'my_settings' else '' }}">My Settings</a>
-                          <a href="/company-profile{{ nav_org_q }}" class="{{ 'active' if active_page == 'company_profile' else '' }}">Company Profile</a>
-                          {% if user.current_role == 'admin' %}
+                          {% if user.is_platform_admin is defined and user.is_platform_admin %}
+                            <a href="/platform" class="{{ 'active' if active_page == 'platform' else '' }}">Platform</a>
+                          {% endif %}
+                          <a href="/company-profile{{ nav_org_q }}" class="{{ 'active' if active_page == 'company_profile' else '' }}">Organization Identity</a>
+                          {% if user.current_role == 'admin' and workspace_is_live %}
                             <a href="/administration{{ nav_org_q }}" class="{{ 'active' if active_page == 'administration' else '' }}">Administration</a>
                           {% endif %}
                           <a href="/logout">Logout</a>
                         </div>
                       </details>
                     </div>
+                  {% endif %}
                 {% else %}
                     <a href="/login">Login</a>
                 {% endif %}

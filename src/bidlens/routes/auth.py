@@ -4,7 +4,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import User
-from ..auth import create_session, clear_session
+from ..auth import create_session, clear_session, is_platform_admin_email
 from ..models import Organization
 from ..tenancy import (
     email_domain,
@@ -18,6 +18,23 @@ from ..tenancy import (
 
 router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
+
+
+def _get_or_create_platform_org(db: Session) -> Organization:
+    org = db.query(Organization).filter(Organization.slug == "bidlens-platform").first()
+    if org:
+        return org
+    org = Organization(
+        name="BidLens Platform",
+        slug="bidlens-platform",
+        email_domain=None,
+        plan="platform",
+        is_active=True,
+        is_live=True,
+    )
+    db.add(org)
+    db.flush()
+    return org
 
 @router.get("/login")
 async def login_page(request: Request):
@@ -37,6 +54,21 @@ async def login(request: Request, email: str = Form(...), db: Session = Depends(
     email = normalize_email(email)
     domain = email_domain(email)
     user = db.query(User).filter(User.email == email).first()
+
+    if is_platform_admin_email(email):
+        org = _get_or_create_platform_org(db)
+        if not user:
+            user = User(email=email, organization_id=org.id)
+            db.add(user)
+            db.flush()
+        else:
+            user.organization_id = org.id
+        ensure_membership(db, organization_id=org.id, user_id=user.id, role="admin")
+        db.commit()
+        db.refresh(user)
+        response = RedirectResponse(url="/platform", status_code=303)
+        create_session(response, user.id)
+        return response
 
     if not user:
         org = organization_for_email_domain(db, email)

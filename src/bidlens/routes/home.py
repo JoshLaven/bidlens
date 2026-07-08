@@ -3,7 +3,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from ..auth import attach_request_user_context, get_current_user
+from ..auth import attach_request_user_context, get_current_user, is_platform_admin_email
 from ..database import get_db
 from ..models import Event, Organization
 from ..services.home import get_home_context
@@ -18,6 +18,8 @@ async def home_page(request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
+    if is_platform_admin_email(user.email):
+        return RedirectResponse(url="/platform", status_code=303)
 
     attach_request_user_context(request, db, user)
     if getattr(user, "current_role", "member") != "admin":

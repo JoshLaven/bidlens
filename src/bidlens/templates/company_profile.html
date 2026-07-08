@@ -1,356 +1,130 @@
 {% extends "base.html" %}
-{% block title %}Company Profile - BidLens{% endblock %}
+{% block title %}Organization Identity - BidLens{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <h1>Company Profiles</h1>
-  <p class="page-subtitle">
-    Organization records for structured company capability, identifiers, source data, and fit signals.
-  </p>
-</div>
-
-<section class="card company-profile-generate">
-  <div class="company-profile-section-header">
+<div class="company-profile-shell">
+  <header class="company-profile-hero">
     <div>
-      <h2>Generate New Company Profile</h2>
-      <p class="company-profile-preview-hint">Trigger the configured n8n workflow to research, generate, and save a new company profile.</p>
+      <span class="company-profile-eyebrow">Organization identity</span>
+      <h1>Who is this organization?</h1>
+      <p>
+        Keep the canonical identity record for this organization. BidLens can learn
+        capabilities and patterns over time; this page only captures facts it cannot reliably infer.
+      </p>
     </div>
-  </div>
+    {% if profile %}
+      <div class="company-profile-status-card">
+        <span>Last updated</span>
+        <strong>{{ profile.updated_at.strftime("%b %d, %Y") if profile.updated_at else "Today" }}</strong>
+      </div>
+    {% endif %}
+  </header>
 
-  {% if generation_message %}
-    <div class="alert alert-success">{{ generation_message }}</div>
+  {% if saved %}
+    <div class="alert alert-success">Organization Identity saved.</div>
   {% endif %}
-  {% if generation_error %}
-    <div class="alert alert-error">{{ generation_error }}</div>
+  {% if duplicate_cleanup_count %}
+    <div class="alert alert-warning">
+      Archived {{ duplicate_cleanup_count }} duplicate active profile{{ '' if duplicate_cleanup_count == 1 else 's' }} for this organization.
+    </div>
   {% endif %}
-  {% if duplicate_warning %}
-    <div class="alert alert-warning">{{ duplicate_warning }}</div>
-  {% endif %}
 
-  <form method="POST" action="/company-profile/generate" class="company-profile-generate-form" id="company-profile-generate-form">
-    <div class="company-profile-generate-grid">
-      <div class="form-group">
-        <label for="generate_company_name">Company Name</label>
-        <input id="generate_company_name" name="company_name" type="text" value="{{ generation_form.company_name or '' }}" placeholder="Acme Federal LLC">
-      </div>
-      <div class="form-group">
-        <label for="generate_website_url">Website URL</label>
-        <input id="generate_website_url" name="website_url" type="url" value="{{ generation_form.website_url or '' }}" placeholder="https://example.com">
-      </div>
-      <div class="form-group">
-        <label for="generate_cage_code">CAGE Code</label>
-        <input id="generate_cage_code" name="cage_code" type="text" value="{{ generation_form.cage_code or '' }}" placeholder="1ABCD">
-      </div>
-      <div class="form-group">
-        <label for="generate_duns">DUNS</label>
-        <input id="generate_duns" name="duns" type="text" value="{{ generation_form.duns or '' }}" placeholder="123456789">
-      </div>
-      <div class="form-group">
-        <label for="generate_uei">UEI</label>
-        <input id="generate_uei" name="uei" type="text" value="{{ generation_form.uei or '' }}" placeholder="ABCDEF123456">
-      </div>
-    </div>
-    <button type="submit" class="btn btn-primary" id="company-profile-generate-button">Generate Company Profile</button>
-  </form>
-</section>
-
-{% if saved_profile %}
-  <section class="card company-profile-record-header">
-    <div>
-      <p class="company-profile-record-label">Company Record</p>
-      <h2>{{ saved_profile.display.company_name }}</h2>
-      {% if saved_profile.display.website_url %}
-        <a href="{{ saved_profile.display.website_url }}" target="_blank" rel="noreferrer" class="company-profile-record-link">
-          {{ saved_profile.display.website_url }}
-        </a>
-      {% endif %}
-    </div>
-    <div class="company-profile-record-actions">
-      <button type="button" class="btn btn-secondary" disabled>Refresh Profile - Coming Soon</button>
-    </div>
-    <dl class="company-profile-record-meta">
-      <div>
-        <dt>Confidence</dt>
-        <dd>
-          <span class="company-profile-confidence company-profile-confidence--{{ saved_profile.display.confidence }}">
-            {{ saved_profile.display.confidence|title }}
-          </span>
-        </dd>
-      </div>
-      <div>
-        <dt>DUNS</dt>
-        <dd>{{ saved_profile.display.duns or "Not available" }}</dd>
-      </div>
-      <div>
-        <dt>UEI</dt>
-        <dd>{{ saved_profile.display.uei or "Not available" }}</dd>
-      </div>
-      <div>
-        <dt>CAGE</dt>
-        <dd>{{ saved_profile.display.cage_code or "Not available" }}</dd>
-      </div>
-      <div>
-        <dt>Last Updated</dt>
-        <dd>{{ saved_profile.display.updated_date }}</dd>
-      </div>
-    </dl>
-  </section>
-{% elif not can_save_profile %}
-  <section class="card company-profile-record-empty">
-    <h2>Company Record</h2>
-    <p class="company-profile-empty">No saved company profile selected yet.</p>
-  </section>
-{% endif %}
-
-<section class="card company-profile-saved">
-  <div class="company-profile-section-header">
-    <div>
-      <h2>Saved Company Profiles</h2>
-      <p class="company-profile-preview-hint">Organization records available to load into the profile view.</p>
-    </div>
-    <form method="GET" action="/company-profile" class="company-profile-archive-toggle">
-      {% if request.query_params.get('org_id') %}
-        <input type="hidden" name="org_id" value="{{ request.query_params.get('org_id') }}">
-      {% endif %}
-      <label>
-        <input
-          type="checkbox"
-          name="include_archived"
-          value="1"
-          {% if include_archived %}checked{% endif %}
-          onchange="this.form.submit()"
-        >
-        <span>Include archived</span>
-      </label>
-    </form>
-  </div>
-
-  {% if saved_profiles %}
-    <div class="company-profile-saved-list">
-      {% for profile in saved_profiles %}
-        <div class="company-profile-saved-row {{ 'is-active' if saved_profile and saved_profile.id == profile.id else '' }} {{ 'is-archived' if profile.display.archived else '' }}">
-          <div>
-            <a href="/company-profile/{{ profile.id }}{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="company-profile-saved-name">
-              {{ profile.display.company_name }}
-            </a>
-            <div class="company-profile-saved-meta">
-              {% if profile.display.duns %}<span>DUNS {{ profile.display.duns }}</span>{% endif %}
-              {% if profile.display.uei %}<span>UEI {{ profile.display.uei }}</span>{% endif %}
-              {% if profile.display.cage_code %}<span>CAGE {{ profile.display.cage_code }}</span>{% endif %}
-              {% if profile.display.archived %}<span>Archived {{ profile.display.archived_date }}</span>{% endif %}
-              {% if not profile.display.duns and not profile.display.uei and not profile.display.cage_code %}
-                <span>No DUNS/UEI/CAGE on file</span>
-              {% endif %}
-            </div>
-          </div>
-          <div class="company-profile-saved-details">
-            <span class="company-profile-confidence company-profile-confidence--{{ profile.display.confidence }}">
-              {{ profile.display.confidence|title }}
-            </span>
-            <span>{{ profile.display.updated_date }}</span>
-            <a href="/company-profile/{{ profile.id }}{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="btn btn-sm btn-outline-secondary">View</a>
-            {% if not profile.display.archived %}
-              <button
-                type="button"
-                class="btn btn-sm btn-outline-secondary"
-                data-company-profile-archive="{{ profile.id }}"
-              >
-                Archive
-              </button>
-            {% endif %}
-          </div>
+  <form method="POST" action="/company-profile" class="company-profile-form">
+    <section class="company-profile-card-simple company-profile-card-simple--anchor">
+      <div class="company-profile-section-heading">
+        <div>
+          <span>Identity</span>
+          <h2>Organization</h2>
         </div>
-      {% endfor %}
-    </div>
-  {% else %}
-    <p class="company-profile-empty">No saved profiles yet.</p>
-  {% endif %}
-</section>
-
-<details class="card company-profile-preview company-profile-preview--debug" {% if can_save_profile and not saved_profile or preview_error %}open{% endif %}>
-  <summary>Developer Tools</summary>
-    <div class="company-profile-section-header">
-      <div>
-        <h2>Preview Profile JSON</h2>
-        <p class="company-profile-preview-hint">
-          Paste a company profile JSON object with these keys: {{ schema_keys|join(", ") }}.
-        </p>
+        <p>This organization was created when your BidLens workspace was provisioned.</p>
       </div>
-    </div>
 
-    {% if preview_error %}
-      <div class="alert alert-error">{{ preview_error }}</div>
-    {% endif %}
+      <div class="company-profile-org-anchor">
+        <span>Organization</span>
+        <strong>{{ profile_form.organization_name }}</strong>
+      </div>
+    </section>
 
-    <form method="POST" action="/company-profile" class="company-profile-preview-form">
+    <section class="company-profile-card-simple">
+      <div class="company-profile-section-heading">
+        <div class="form-group">
+          <span>Editable information</span>
+          <h2>Website</h2>
+        </div>
+        <p>Optional public website for this organization.</p>
+      </div>
+
       <div class="form-group">
-        <label for="profile_json">Company profile JSON</label>
-        <textarea id="profile_json" name="profile_json" rows="10" placeholder='{"company_summary":["Describe the company..."],"core_capabilities":["Capability"],"target_markets":["Market"],"past_award_patterns":["Pattern"],"agencies_served":["Agency"],"naics_seen":["541611"],"fit_strengths":["Strength"],"fit_limitations":["Limitation"],"evidence_summary":["Evidence"],"confidence":"medium"}'>{{ profile_json }}</textarea>
+        <label for="website_url">Website</label>
+        <input
+          id="website_url"
+          name="website_url"
+          type="url"
+          value="{{ profile_form.website_url }}"
+          placeholder="https://example.com"
+        >
       </div>
-      <button type="submit" class="btn btn-primary">Preview</button>
-    </form>
+    </section>
 
-    {% if can_save_profile %}
-      <form method="POST" action="/company-profile/save" class="company-profile-save-form">
-        <textarea name="profile_json" hidden>{{ parsed_profile_json }}</textarea>
-        <button type="submit" class="btn btn-success">Save Profile</button>
-        {% if saved_profile %}
-          <span class="company-profile-saved-note">Loaded saved profile #{{ saved_profile.id }}</span>
-        {% endif %}
-      </form>
-    {% endif %}
-</details>
+    <section class="company-profile-card-simple">
+      <div class="company-profile-section-heading">
+        <div>
+          <span>Recommended for federal work</span>
+          <h2>Federal Identifiers</h2>
+        </div>
+        <p>Optional, but recommended for organizations pursuing federal opportunities.</p>
+      </div>
+      <div class="company-profile-form-grid company-profile-form-grid--three">
+        <div class="form-group">
+          <label for="uei">UEI</label>
+          <input
+            id="uei"
+            name="uei"
+            type="text"
+            value="{{ profile_form.uei }}"
+            placeholder="ABCDEFGHIJKL"
+          >
+        </div>
+        <div class="form-group">
+          <label for="cage_code">CAGE</label>
+          <input
+            id="cage_code"
+            name="cage_code"
+            type="text"
+            value="{{ profile_form.cage_code }}"
+            placeholder="1ABCD"
+          >
+        </div>
+        <div class="form-group">
+          <label for="duns">DUNS</label>
+          <input
+            id="duns"
+            name="duns"
+            type="text"
+            value="{{ profile_form.duns }}"
+            placeholder="123456789"
+          >
+        </div>
+      </div>
+    </section>
 
-{% if saved_profile or can_save_profile %}
-<section class="company-profile-record-body">
-  {% if saved_profile %}
-    <div class="company-profile-section-title">
-      <h2>Profile Signals</h2>
+    <section class="company-profile-card-simple company-profile-card-simple--muted">
+      <div class="company-profile-section-heading">
+        <div>
+          <span>Future enhancement</span>
+          <h2>Recent Work</h2>
+        </div>
+        <p>Coming soon: five most recent federal awards from USASpending.</p>
+      </div>
+      <p class="company-profile-placeholder">
+        Coming Soon. Recent Work will be read-only organizational context, not something edited or configured here.
+      </p>
+    </section>
+
+    <div class="company-profile-actions">
+      <button type="submit" class="btn btn-primary">Save Organization Identity</button>
+      <a href="/home{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-outline-secondary">Back to Home</a>
     </div>
-  {% endif %}
-<div class="company-profile-grid">
-  <section class="card company-profile-card company-profile-card--wide">
-    <div class="company-profile-section-header">
-      <h2>Company Overview</h2>
-      <span class="company-profile-confidence company-profile-confidence--{{ profile_sections.confidence }}">
-        Confidence: {{ profile_sections.confidence|title }}
-      </span>
-    </div>
-    <ul class="company-profile-list">
-      {% for item in profile_sections.company_summary %}
-        <li>{{ item }}</li>
-      {% else %}
-        <li>No company summary provided.</li>
-      {% endfor %}
-    </ul>
-  </section>
-
-  <section class="card company-profile-card">
-    <h2>Core Capabilities</h2>
-    <ul class="company-profile-list">
-      {% for item in profile_sections.core_capabilities %}
-        <li>{{ item }}</li>
-      {% else %}
-        <li>No core capabilities provided.</li>
-      {% endfor %}
-    </ul>
-  </section>
-
-  <section class="card company-profile-card">
-    <h2>Target Markets</h2>
-    <ul class="company-profile-list">
-      {% for item in profile_sections.target_markets %}
-        <li>{{ item }}</li>
-      {% else %}
-        <li>No target markets provided.</li>
-      {% endfor %}
-    </ul>
-  </section>
-
-  <section class="card company-profile-card">
-    <h2>Past Award Patterns</h2>
-    <ul class="company-profile-list">
-      {% for item in profile_sections.past_award_patterns %}
-        <li>{{ item }}</li>
-      {% else %}
-        <li>No past award patterns provided.</li>
-      {% endfor %}
-    </ul>
-  </section>
-
-  <section class="card company-profile-card">
-    <h2>Agencies Served</h2>
-    <ul class="company-profile-list">
-      {% for item in profile_sections.agencies_served %}
-        <li>{{ item }}</li>
-      {% else %}
-        <li>No agencies served provided.</li>
-      {% endfor %}
-    </ul>
-  </section>
-
-  <section class="card company-profile-card">
-    <h2>NAICS Seen</h2>
-    <ul class="company-profile-list">
-      {% for item in profile_sections.naics_seen %}
-        <li>{{ item }}</li>
-      {% else %}
-        <li>No NAICS codes provided.</li>
-      {% endfor %}
-    </ul>
-  </section>
-
-  <section class="card company-profile-card">
-    <h2>Fit Strengths</h2>
-    <ul class="company-profile-list">
-      {% for item in profile_sections.fit_strengths %}
-        <li>{{ item }}</li>
-      {% else %}
-        <li>No fit strengths provided.</li>
-      {% endfor %}
-    </ul>
-  </section>
-
-  <section class="card company-profile-card">
-    <h2>Fit Limitations</h2>
-    <ul class="company-profile-list">
-      {% for item in profile_sections.fit_limitations %}
-        <li>{{ item }}</li>
-      {% else %}
-        <li>No fit limitations provided.</li>
-      {% endfor %}
-    </ul>
-  </section>
-
-  <section class="card company-profile-card company-profile-card--wide">
-    <h2>Evidence Summary</h2>
-    <ul class="company-profile-list">
-      {% for item in profile_sections.evidence_summary %}
-        <li>{{ item }}</li>
-      {% else %}
-        <li>No evidence summary provided.</li>
-      {% endfor %}
-    </ul>
-  </section>
+  </form>
 </div>
-</section>
-{% endif %}
-{% endblock %}
-
-{% block scripts %}
-<script>
-  document.getElementById('company-profile-generate-form')?.addEventListener('submit', () => {
-    const button = document.getElementById('company-profile-generate-button');
-    if (!button) return;
-    button.disabled = true;
-    button.textContent = 'Generating...';
-  });
-
-  document.querySelectorAll('[data-company-profile-archive]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const profileId = button.dataset.companyProfileArchive;
-      if (!profileId) return;
-      const confirmed = window.confirm('Archive this company profile? It will be hidden from the saved profile list by default.');
-      if (!confirmed) return;
-
-      button.disabled = true;
-      try {
-        const response = await fetch(`/api/company-profiles/${profileId}/archive${window.location.search}`, {
-          method: 'POST',
-          headers: {'Accept': 'application/json'},
-        });
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({}));
-          window.alert(payload.detail || 'Unable to archive profile.');
-          button.disabled = false;
-          return;
-        }
-        window.location.reload();
-      } catch (error) {
-        window.alert('Unable to archive profile.');
-        button.disabled = false;
-      }
-    });
-  });
-</script>
 {% endblock %}

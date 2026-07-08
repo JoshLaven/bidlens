@@ -1,3 +1,5 @@
+import os
+
 from itsdangerous import URLSafeSerializer
 from fastapi import Depends, Request, Response
 from sqlalchemy.orm import Session
@@ -5,10 +7,25 @@ from sqlalchemy.orm import Session
 from .database import get_db
 from .config import SECRET_KEY, SESSION_COOKIE_NAME
 from .models import Opportunity, OrganizationMembership, User
-from .tenancy import current_organization, ensure_email_domain_membership
+from .tenancy import current_organization, ensure_email_domain_membership, normalize_email
 from .services.qualification import triage_enabled_for_org
 
 serializer = URLSafeSerializer(SECRET_KEY)
+
+
+def platform_admin_emails() -> set[str]:
+    raw_values = [
+        os.getenv("PLATFORM_OWNER_EMAIL"),
+        os.getenv("PLATFORM_ADMIN_EMAILS", "joshuatlaven@gmail.com"),
+    ]
+    emails: set[str] = set()
+    for raw in raw_values:
+        emails.update(normalize_email(item) for item in str(raw or "").split(",") if normalize_email(item))
+    return emails
+
+
+def is_platform_admin_email(email: str | None) -> bool:
+    return normalize_email(email) in platform_admin_emails()
 
 
 def attach_request_user_context(request: Request, db: Session, user: User) -> User:
@@ -30,9 +47,11 @@ def attach_request_user_context(request: Request, db: Session, user: User) -> Us
     )
     setattr(user, "current_organization_id", org.id)
     setattr(user, "current_organization_name", org.name)
+    setattr(user, "current_organization_is_live", bool(getattr(org, "is_live", False)))
     setattr(user, "current_role", membership.role if membership else "member")
     setattr(user, "triage_enabled", triage_enabled_for_org(db, org.id))
     setattr(user, "triage_unreviewed_count", triage_unreviewed_count)
+    setattr(user, "is_platform_admin", is_platform_admin_email(user.email))
     return user
 
 def create_session(response: Response, user_id: int):

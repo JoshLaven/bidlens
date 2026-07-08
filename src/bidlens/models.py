@@ -322,6 +322,61 @@ class Organization(Base):
     users = relationship("User", back_populates="organization")
     memberships = relationship("OrganizationMembership", back_populates="organization", cascade="all, delete-orphan")
     pursuit_lanes = relationship("PursuitLane", back_populates="organization", cascade="all, delete-orphan")
+    workspace = relationship("Workspace", back_populates="organization", uselist=False, cascade="all, delete-orphan")
+
+
+class Plan(Base):
+    __tablename__ = "plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String, unique=True, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    included_user_count = Column(Integer, nullable=False, default=5, server_default="5")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    workspaces = relationship("Workspace", back_populates="plan")
+
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+    __table_args__ = (UniqueConstraint("organization_id", name="uq_workspace_organization"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=True, index=True)
+    name = Column(String, nullable=False)
+    slug = Column(String, unique=True, nullable=False, index=True)
+    status = Column(String, nullable=False, default="provisioned", server_default="provisioned", index=True)
+    operational_contact_name = Column(String, nullable=True)
+    operational_contact_email = Column(String, nullable=True)
+    billing_contact_name = Column(String, nullable=True)
+    billing_contact_email = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    organization = relationship("Organization", back_populates="workspace")
+    plan = relationship("Plan", back_populates="workspaces")
+    invitations = relationship("WorkspaceInvitation", back_populates="workspace", cascade="all, delete-orphan")
+
+
+class WorkspaceInvitation(Base):
+    __tablename__ = "workspace_invitations"
+    __table_args__ = (UniqueConstraint("token", name="uq_workspace_invitation_token"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    email = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=True)
+    role = Column(String, nullable=False, default="admin", server_default="admin")
+    token = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=False, default="pending", server_default="pending", index=True)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    accepted_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    organization = relationship("Organization")
+    workspace = relationship("Workspace", back_populates="invitations")
 
 
 class PursuitLane(Base):

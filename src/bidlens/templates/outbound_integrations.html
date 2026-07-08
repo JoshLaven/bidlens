@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Outbound Integrations - BidLens{% endblock %}
+
+{% block content %}
+{% set org_id = request.query_params.get('org_id') %}
+{% set org_q = '?org_id=' ~ org_id if org_id else '' %}
+
+<div class="setup-connect-shell">
+  <header class="setup-connect-hero">
+    <div>
+      <span class="setup-connect-eyebrow">Organization Setup</span>
+      <h1>Outbound Integrations</h1>
+      <p>
+        Connect BidLens to the systems your organization already uses. These integrations
+        are optional; BidLens works without them.
+      </p>
+    </div>
+    <a href="/home{{ org_q }}" class="btn btn-outline-secondary">Back to Organization Setup</a>
+  </header>
+
+  <section class="setup-discovery-card" aria-labelledby="outbound-heading">
+    <div class="setup-connect-section-heading">
+      <div>
+        <span>Business systems</span>
+        <h2 id="outbound-heading">Where should BidLens send information?</h2>
+      </div>
+      <p>
+        Outbound integrations send reviewed opportunities, decisions, and activity to the tools
+        your organization already uses.
+      </p>
+    </div>
+
+    <div class="setup-discovery-lists">
+      <section aria-labelledby="crm-integrations-heading">
+        <h3 id="crm-integrations-heading">CRM</h3>
+        <div class="setup-source-list">
+          <div class="setup-source-list-row">
+            <div>
+              <strong>Salesforce</strong>
+              <span>{{ 'Connected' if salesforce_connected else 'Create and update CRM opportunities from BidLens decisions.' }}</span>
+              {% if salesforce_instance_url %}
+                <span><a href="{{ salesforce_instance_url }}" target="_blank" rel="noreferrer">{{ salesforce_instance_url }}</a></span>
+              {% endif %}
+            </div>
+            <a href="/api/salesforce/oauth/start{% if org_id %}?org_id={{ org_id }}{% endif %}" class="btn btn-sm btn-primary">
+              {{ 'Manage' if salesforce_connected else 'Connect' }}
+            </a>
+          </div>
+          <div class="setup-source-list-row">
+            <div>
+              <strong>HubSpot</strong>
+              <span>Send BidLens activity to HubSpot. Coming soon.</span>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Coming Soon</button>
+          </div>
+          <div class="setup-source-list-row">
+            <div>
+              <strong>Microsoft Dynamics</strong>
+              <span>Send BidLens activity to Dynamics. Coming soon.</span>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Coming Soon</button>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="communication-integrations-heading">
+        <h3 id="communication-integrations-heading">Communication</h3>
+        <div class="setup-source-list">
+          <div class="setup-source-list-row">
+            <div>
+              <strong>Slack</strong>
+              <span>Share decisions and alerts in Slack. Coming soon.</span>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Coming Soon</button>
+          </div>
+          <div class="setup-source-list-row">
+            <div>
+              <strong>Microsoft Teams</strong>
+              <span>Share decisions and alerts in Teams. Coming soon.</span>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Coming Soon</button>
+          </div>
+          <div class="setup-source-list-row">
+            <div>
+              <strong>Outlook</strong>
+              <span>Send notifications and workflow updates through Outlook. Coming soon.</span>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Coming Soon</button>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="analytics-integrations-heading">
+        <h3 id="analytics-integrations-heading">Analytics</h3>
+        <div class="setup-source-list">
+          <div class="setup-source-list-row">
+            <div>
+              <strong>Power BI</strong>
+              <span>Analyze BidLens decisions and pipeline activity in Power BI. Coming soon.</span>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Coming Soon</button>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="automation-integrations-heading">
+        <h3 id="automation-integrations-heading">Automation</h3>
+        <div class="setup-source-list">
+          <div class="setup-source-list-row">
+            <div>
+              <strong>Webhooks</strong>
+              <span>Trigger downstream workflows from BidLens events. Coming soon.</span>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Coming Soon</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </section>
+</div>
+{% endblock %}

@@ -10,9 +10,36 @@ redirect client-side.
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import HTMLResponse
 
+from .auth import is_platform_admin_email, serializer
+from .config import SESSION_COOKIE_NAME
+from .database import SessionLocal
+from .models import User
+
+
+PLATFORM_ALLOWED_PATH_PREFIXES = (
+    "/platform",
+    "/invite",
+    "/login",
+    "/logout",
+    "/health",
+    "/static",
+    "/favicon.ico",
+)
+
+
+def _client_redirect(location: str) -> HTMLResponse:
+    html = (
+        f'<html><head><meta http-equiv="refresh" content="0;url={location}">'
+        f'</head><body>Redirecting...</body></html>'
+    )
+    return HTMLResponse(content=html, status_code=200)
+
 
 class ClientRedirectMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
+        if _platform_owner_should_return_to_platform(request):
+            return _client_redirect("/platform")
+
         response = await call_next(request)
 
         if response.status_code in (301, 302, 303, 307, 308):
@@ -26,11 +53,7 @@ class ClientRedirectMiddleware(BaseHTTPMiddleware):
                     if k.lower() == b"set-cookie"
                 ]
 
-            html = (
-                f'<html><head><meta http-equiv="refresh" content="0;url={location}">'
-                f'</head><body>Redirecting...</body></html>'
-            )
-            new_response = HTMLResponse(content=html, status_code=200)
+            new_response = _client_redirect(location)
 
             for cookie in cookies:
                 val = cookie if isinstance(cookie, str) else cookie.decode()
@@ -39,3 +62,29 @@ class ClientRedirectMiddleware(BaseHTTPMiddleware):
             return new_response
 
         return response
+
+
+def _platform_owner_should_return_to_platform(request) -> bool:
+    path = request.url.path
+    if any(path == prefix or path.startswith(f"{prefix}/") for prefix in PLATFORM_ALLOWED_PATH_PREFIXES):
+        return False
+
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if not token:
+        return False
+
+    try:
+        data = serializer.loads(token)
+        user_id = data.get("user_id")
+    except Exception:
+        return False
+
+    if not user_id:
+        return False
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        return bool(user and is_platform_admin_email(user.email))
+    finally:
+        db.close()

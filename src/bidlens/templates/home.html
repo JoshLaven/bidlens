@@ -64,7 +64,7 @@
       {% if home.recommendations %}
         <div class="home-next-steps">
           {% for step in home.recommendations %}
-            <article class="home-next-step">
+            <article class="home-next-step {{ 'home-next-step--current' if loop.first else '' }}">
               <div class="home-next-step-marker" aria-hidden="true">{{ loop.index }}</div>
               <div class="home-next-step-copy">
                 <div class="home-next-step-title">

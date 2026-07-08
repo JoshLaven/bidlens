@@ -97,10 +97,12 @@ class HomeContextTests(unittest.TestCase):
 
         self.assertEqual(
             list(steps),
-            ["company-profile", "opportunity-source", "invite-team", "salesforce", "pursuit-lanes"],
+            ["company-profile", "opportunity-source", "invite-team", "business-systems", "pursuit-lanes"],
         )
         self.assertEqual(steps["company-profile"]["label"], "Required")
-        self.assertEqual(steps["salesforce"]["label"], "Optional")
+        self.assertEqual(steps["business-systems"]["label"], "Optional")
+        self.assertEqual(steps["opportunity-source"]["cta_url"], f"/connect-sources?org_id={self.org.id}")
+        self.assertEqual(steps["business-systems"]["cta_url"], f"/outbound-integrations?org_id={self.org.id}")
         self.assertNotIn("first-import", steps)
         self.assertNotIn("first-review", steps)
         self.assertFalse(context["workspace_summary"]["required_setup_complete"])
@@ -109,8 +111,9 @@ class HomeContextTests(unittest.TestCase):
         self.assertIsNone(context["operational_home_context"])
         self.assertEqual(context["workspace_summary"]["headline"], "Welcome to BidLens.")
         self.assertIn("Organization created", [item["title"] for item in context["completed"]])
-        self.assertEqual(steps["company-profile"]["title"], "Tell BidLens about your organization")
-        self.assertEqual(steps["opportunity-source"]["title"], "Enable at least one opportunity source")
+        self.assertEqual(steps["company-profile"]["title"], "Complete Organization Identity")
+        self.assertEqual(steps["opportunity-source"]["title"], "Enable Opportunity Discovery")
+        self.assertEqual(steps["business-systems"]["title"], "Connect Business Systems")
 
     def test_configured_source_without_opportunities_completes_required_setup(self):
         self._profile()
@@ -125,7 +128,7 @@ class HomeContextTests(unittest.TestCase):
         self.assertTrue(context["workspace_summary"]["required_setup_complete"])
         self.assertTrue(context["can_go_live"])
         self.assertIsNone(context["operational_home_context"])
-        self.assertIn("Opportunity sources connected", [item["title"] for item in context["completed"]])
+        self.assertIn("Opportunity Discovery enabled", [item["title"] for item in context["completed"]])
 
     def test_required_completion_makes_pre_live_workspace_ready_to_go_live(self):
         self._profile()
@@ -224,7 +227,7 @@ class HomeContextTests(unittest.TestCase):
         disconnected = self._context(salesforce_connected=False)
         connected = self._context(salesforce_connected=True)
 
-        self.assertEqual([step["key"] for step in disconnected["next_steps"]], ["salesforce"])
+        self.assertEqual([step["key"] for step in disconnected["next_steps"]], ["business-systems"])
         self.assertTrue(disconnected["workspace_summary"]["required_setup_complete"])
         self.assertEqual(connected["next_steps"], [])
         self.assertTrue(connected["operational_snapshot"]["salesforce_connected"])
@@ -272,6 +275,24 @@ class HomeContextTests(unittest.TestCase):
         self.assertIn("company-profile", step_keys)
         self.assertIn("opportunity-source", step_keys)
         self.assertEqual(context["operational_snapshot"]["sources_enabled"], 0)
+
+    def test_grants_enabled_event_counts_as_opportunity_discovery(self):
+        self._profile()
+        self.db.add(Event(
+            org_id=self.org.id,
+            user_id=self.admin.id,
+            opp_id=None,
+            event_type="opportunity_source_enabled",
+            payload={"source": "grants.gov"},
+        ))
+        self.db.commit()
+
+        context = self._context()
+        step_keys = {item["key"] for item in context["next_steps"]}
+
+        self.assertNotIn("opportunity-source", step_keys)
+        self.assertTrue(context["workspace_summary"]["required_setup_complete"])
+        self.assertEqual(context["operational_snapshot"]["sources_enabled"], 1)
 
 
 if __name__ == "__main__":

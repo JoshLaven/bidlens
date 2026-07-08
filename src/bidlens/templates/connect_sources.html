@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Opportunity Discovery - BidLens{% endblock %}
+
+{% block content %}
+{% set org_id = request.query_params.get('org_id') %}
+{% set org_q = '?org_id=' ~ org_id if org_id else '' %}
+
+<div class="setup-connect-shell">
+  <header class="setup-connect-hero">
+    <div>
+      <span class="setup-connect-eyebrow">Organization Setup</span>
+      <h1>Opportunity Discovery</h1>
+      <p>
+        Configure one or more sources for BidLens to monitor. The goal is simple:
+        enable BidLens to discover opportunities for this workspace.
+      </p>
+    </div>
+    <a href="/home{{ org_q }}" class="btn btn-outline-secondary">Back to Organization Setup</a>
+  </header>
+
+  {% if saved_source == "sam" %}
+    <div class="alert alert-success">SAM.gov connected. BidLens can now monitor that source for opportunities.</div>
+  {% elif saved_source == "grants" %}
+    <div class="alert alert-success">Grants.gov enabled. BidLens will use the default discovery configuration.</div>
+  {% endif %}
+
+  <section class="setup-discovery-card" aria-labelledby="discovery-heading">
+    <div class="setup-connect-section-heading">
+      <div>
+        <span>Discovery capability</span>
+        <h2 id="discovery-heading">BidLens discovers opportunities.</h2>
+      </div>
+      <p>
+        Inbound sources are implementation details behind the discovery engine.
+        Add the sources that matter now; more can be enabled later.
+      </p>
+    </div>
+
+    <div class="setup-discovery-lists">
+      <section aria-labelledby="connected-sources-heading">
+        <h3 id="connected-sources-heading">Connected Sources</h3>
+        <div class="setup-source-list">
+          {% if sources.sam.connected %}
+            <div class="setup-source-list-row">
+              <div>
+                <strong>✓ SAM.gov</strong>
+                <span>{{ sources.sam.description }}</span>
+              </div>
+              <a href="/connect-sources/sam{{ org_q }}" class="btn btn-sm btn-outline-secondary">Manage</a>
+            </div>
+          {% endif %}
+          {% if sources.grants.connected %}
+            <div class="setup-source-list-row">
+              <div>
+                <strong>✓ Grants.gov</strong>
+                <span>{{ sources.grants.description }}</span>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Manage</button>
+            </div>
+          {% endif %}
+          {% if sources.govwin.connected %}
+            <div class="setup-source-list-row">
+              <div>
+                <strong>✓ GovWin</strong>
+                <span>{{ sources.govwin.description }}</span>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Manage</button>
+            </div>
+          {% endif %}
+          {% if not sources.sam.connected and not sources.grants.connected and not sources.govwin.connected %}
+            <div class="setup-discovery-empty">
+              No sources connected yet. Add a source below to enable Opportunity Discovery.
+            </div>
+          {% endif %}
+        </div>
+      </section>
+
+      <section aria-labelledby="available-sources-heading">
+        <h3 id="available-sources-heading">Available Sources</h3>
+        <div class="setup-source-list">
+          {% if not sources.sam.connected %}
+            <div class="setup-source-list-row">
+              <div>
+                <strong>SAM.gov</strong>
+                <span>Federal contract notices and solicitations. Requires saved-search criteria.</span>
+              </div>
+              <a href="/connect-sources/sam{{ org_q }}" class="btn btn-sm btn-primary">Configure</a>
+            </div>
+          {% endif %}
+
+          {% if not sources.grants.connected %}
+            <div class="setup-source-list-row">
+              <div>
+                <strong>Grants.gov</strong>
+                <span>Federal grant opportunities. Uses BidLens defaults; no setup wizard needed.</span>
+              </div>
+              <form method="POST" action="/connect-sources/grants/enable{{ org_q }}">
+                <button type="submit" class="btn btn-sm btn-primary">Enable</button>
+              </form>
+            </div>
+          {% endif %}
+
+          {% if not sources.govwin.connected %}
+            <div class="setup-source-list-row">
+              <div>
+                <strong>GovWin</strong>
+                <span>Commercial opportunity intelligence. Guided discovery setup is coming soon.</span>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Coming Soon</button>
+            </div>
+          {% endif %}
+
+          {% if sources.sam.connected and sources.grants.connected and sources.govwin.connected %}
+            <div class="setup-discovery-empty">All available sources are connected.</div>
+          {% endif %}
+        </div>
+      </section>
+    </div>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}Platform - BidLens{% endblock %}
+
+{% block content %}
+<div class="platform-shell">
+  <header class="platform-hero">
+    <div>
+      <span class="platform-eyebrow">Internal Platform</span>
+      <h1>Provision customer workspaces.</h1>
+      <p>
+        Create the customer organization, workspace, owner, plan association, and invitation in one motion.
+      </p>
+    </div>
+  </header>
+
+  {% if provisioned %}
+    <section class="platform-result" aria-labelledby="platform-result-heading">
+      <div>
+        <span class="platform-eyebrow">Workspace provisioned</span>
+        <h2 id="platform-result-heading">{{ provisioned.organization.name }}</h2>
+        <p>
+          Development invitation generated for
+          <strong>{{ provisioned.owner.email }}</strong>.
+          Use this link to simulate the Workspace Owner accepting the invitation.
+        </p>
+        <dl class="platform-invite-summary">
+          <div>
+            <dt>Organization</dt>
+            <dd>{{ provisioned.organization.name }}</dd>
+          </div>
+          <div>
+            <dt>Workspace Owner</dt>
+            <dd>{{ provisioned.owner.email }}</dd>
+          </div>
+          <div>
+            <dt>Invitation Status</dt>
+            <dd>{{ provisioned.invitation.status|title }}</dd>
+          </div>
+          <div>
+            <dt>Development Invite Link</dt>
+            <dd>
+              <a href="{{ provisioned.invitation_url }}">{{ provisioned.invitation_url }}</a>
+            </dd>
+          </div>
+        </dl>
+      </div>
+      <a class="btn btn-primary" href="{{ provisioned.invitation_url }}">Accept as Workspace Owner</a>
+    </section>
+  {% endif %}
+
+  {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+  {% endif %}
+
+  <section class="platform-card" aria-labelledby="platform-create-heading">
+    <div class="platform-section-heading">
+      <div>
+        <span>Create Organization</span>
+        <h2 id="platform-create-heading">Provision Workspace</h2>
+      </div>
+      <p>Josh provides the few details only BidLens can know at provisioning time.</p>
+    </div>
+
+    <form method="post" action="/platform/organizations" class="platform-form" data-platform-provision-form>
+      <div class="platform-form-section">
+        <h3>Organization</h3>
+        <div class="form-group">
+          <label for="organization_name">Organization Name</label>
+          <input
+            id="organization_name"
+            name="organization_name"
+            type="text"
+            value="{{ form.organization_name or '' }}"
+            placeholder="ABC Services Inc."
+            required
+          >
+        </div>
+      </div>
+
+      <div class="platform-form-section">
+        <h3>Workspace Owner</h3>
+        <div class="platform-form-grid">
+          <div class="form-group">
+            <label for="owner_name">Name</label>
+            <input id="owner_name" name="owner_name" type="text" value="{{ form.owner_name or '' }}" required>
+          </div>
+          <div class="form-group">
+            <label for="owner_email">Email</label>
+            <input id="owner_email" name="owner_email" type="email" value="{{ form.owner_email or '' }}" required>
+          </div>
+        </div>
+        <label class="platform-checkbox">
+          <input
+            type="checkbox"
+            name="operational_contact_is_owner"
+            value="1"
+            data-operational-owner-checkbox
+            {% if form.operational_contact_is_owner is not defined or form.operational_contact_is_owner %}checked{% endif %}
+          >
+          <span>Operational Contact is the Workspace Owner</span>
+        </label>
+      </div>
+
+      <div class="platform-contact-details" data-operational-contact-details>
+        <div class="platform-form-section">
+          <h3>Operational Contact</h3>
+          <div class="platform-form-grid">
+            <div class="form-group">
+              <label for="operational_contact_name">Name</label>
+              <input id="operational_contact_name" name="operational_contact_name" type="text" value="{{ form.operational_contact_name or '' }}">
+            </div>
+            <div class="form-group">
+              <label for="operational_contact_email">Email</label>
+              <input id="operational_contact_email" name="operational_contact_email" type="email" value="{{ form.operational_contact_email or '' }}">
+            </div>
+          </div>
+        </div>
+
+        <div class="platform-form-section">
+          <h3>Billing Contact</h3>
+          <div class="platform-form-grid">
+            <div class="form-group">
+              <label for="billing_contact_name">Name</label>
+              <input id="billing_contact_name" name="billing_contact_name" type="text" value="{{ form.billing_contact_name or '' }}">
+            </div>
+            <div class="form-group">
+              <label for="billing_contact_email">Email</label>
+              <input id="billing_contact_email" name="billing_contact_email" type="email" value="{{ form.billing_contact_email or '' }}">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="platform-form-section">
+        <h3>Subscription</h3>
+        <div class="platform-plan-card">
+          <div>
+            <strong>Professional</strong>
+            <span>{{ plans.professional.included_user_count }} included users · billing not implemented</span>
+          </div>
+          <input type="hidden" name="plan_code" value="professional">
+        </div>
+      </div>
+
+      <div class="platform-actions">
+        <button type="submit" class="btn btn-primary">Provision Workspace</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="platform-card" aria-labelledby="platform-orgs-heading">
+    <div class="platform-section-heading">
+      <div>
+        <span>View Organizations</span>
+        <h2 id="platform-orgs-heading">Customer Organizations</h2>
+      </div>
+      <p>The current customer organizations and their provisioned workspaces.</p>
+    </div>
+
+    <div class="platform-org-list">
+      {% for row in organizations %}
+        <article class="platform-org-row">
+          <div>
+            <h3>{{ row.organization.name }}</h3>
+            <p>
+              {% if row.workspace %}
+                Workspace: {{ row.workspace.name }}
+              {% else %}
+                No workspace yet
+              {% endif %}
+            </p>
+          </div>
+          <div class="platform-org-meta">
+            <span>{{ row.plan.name if row.plan else row.organization.plan|title }}</span>
+            <span>{{ 'Live' if row.organization.is_live else 'Setup' }}</span>
+            <span>{{ row.pending_invitations }} pending invitation{{ '' if row.pending_invitations == 1 else 's' }}</span>
+          </div>
+        </article>
+      {% else %}
+        <div class="platform-empty">No customer organizations have been provisioned yet.</div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function initializePlatformForm() {
+    const checkbox = document.querySelector('[data-operational-owner-checkbox]');
+    const details = document.querySelector('[data-operational-contact-details]');
+    if (!checkbox || !details) return;
+
+    function syncVisibility() {
+      details.hidden = checkbox.checked;
+    }
+
+    checkbox.addEventListener('change', syncVisibility);
+    syncVisibility();
+  })();
+</script>
+{% endblock %}

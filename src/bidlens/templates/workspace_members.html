@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% block title %}Workspace Members - BidLens{% endblock %}
+
+{% block content %}
+{% set org_q = '?org_id=' ~ organization.id %}
+{% set users_path = '/admin/organizations/' ~ organization.id ~ '/users' ~ org_q %}
+
+<div class="workspace-members-shell">
+  <header class="workspace-members-hero">
+    <div>
+      <span class="workspace-members-eyebrow">Workspace Membership</span>
+      <h1>Workspace Members</h1>
+      <p>Manage the people who can access this workspace.</p>
+    </div>
+    <a href="/home{{ org_q }}" class="btn btn-outline-secondary">Back to Organization Setup</a>
+  </header>
+
+  {% if page_message %}
+    <div class="alert alert-success">{{ page_message }}</div>
+  {% endif %}
+  {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+  {% endif %}
+
+  <section class="workspace-members-card" aria-labelledby="quick-invite-heading">
+    <div class="workspace-members-section-heading">
+      <div>
+        <span>Section 1</span>
+        <h2 id="quick-invite-heading">Quick Invite</h2>
+      </div>
+      <p>Create invitation links your team can send manually through Outlook, Teams, Slack, or another channel.</p>
+    </div>
+
+    <form method="POST" action="/admin/organizations/{{ organization.id }}/invitations{{ org_q }}" class="workspace-invite-form" data-quick-invite-form>
+      <div class="workspace-invite-rows" data-invite-rows>
+        <div class="workspace-invite-row">
+          <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" name="emails" placeholder="name@company.com" required>
+          </div>
+          <div class="form-group">
+            <label>Name <span class="muted">(optional)</span></label>
+            <input type="text" name="names" placeholder="Jane Smith">
+          </div>
+          <div class="form-group">
+            <label>Role</label>
+            <select name="roles">
+              <option value="member">Workspace Member</option>
+              <option value="admin">Workspace Admin</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="workspace-members-actions">
+        <button type="button" class="btn btn-outline-secondary" data-add-invite-row>+ Add Another</button>
+        <button type="submit" class="btn btn-primary">Create Invitation</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="workspace-members-card" aria-labelledby="pending-invitations-heading">
+    <div class="workspace-members-section-heading">
+      <div>
+        <span>Section 2</span>
+        <h2 id="pending-invitations-heading">Pending Invitations</h2>
+      </div>
+      <p>Outstanding invitations that have been created but not yet accepted.</p>
+    </div>
+
+    <div class="workspace-members-table-wrap">
+      <table class="workspace-members-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in pending_invitations %}
+            {% set invitation = row.invitation %}
+            <tr>
+              <td>{{ invitation.name or '—' }}</td>
+              <td>{{ invitation.email }}</td>
+              <td>{{ row.role_label }}</td>
+              <td><span class="workspace-status-pill">{{ invitation.status|title }}</span></td>
+              <td>{{ invitation.created_at.strftime('%b %d, %Y') if invitation.created_at else '—' }}</td>
+              <td>
+                <div class="workspace-table-actions">
+                  <button type="button" class="btn btn-sm btn-outline-secondary" data-copy-invite-link="{{ row.invite_url }}">Copy Invite Link</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Resend · Coming Soon</button>
+                  <form method="POST" action="/admin/organizations/{{ organization.id }}/invitations/{{ invitation.id }}/delete{{ org_q }}" onsubmit="return confirm('Delete this pending invitation?');">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete Invitation</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="6" class="workspace-members-empty">No pending invitations.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="workspace-members-card" aria-labelledby="bulk-invite-heading">
+    <div class="workspace-members-section-heading">
+      <div>
+        <span>Section 3</span>
+        <h2 id="bulk-invite-heading">Bulk Invite</h2>
+      </div>
+      <p>Upload a CSV with <code>email,name,role</code>. Excel upload is intentionally not supported.</p>
+    </div>
+
+    <div class="workspace-bulk-grid">
+      <div class="workspace-csv-example">
+        <strong>CSV Template</strong>
+        <pre>email,name,role
+john@company.com,John Smith,member
+jane@company.com,Jane Smith,admin</pre>
+        <a href="/admin/organizations/{{ organization.id }}/invitations/template.csv{{ org_q }}" class="btn btn-sm btn-outline-secondary">Download CSV Template</a>
+      </div>
+      <form method="POST" action="/admin/organizations/{{ organization.id }}/invitations/bulk{{ org_q }}" enctype="multipart/form-data" class="workspace-bulk-upload">
+        <div class="form-group">
+          <label for="csv_file">Upload CSV</label>
+          <input id="csv_file" type="file" name="csv_file" accept=".csv,text/csv" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Create Invitations from CSV</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="workspace-members-card" aria-labelledby="active-members-heading">
+    <div class="workspace-members-section-heading">
+      <div>
+        <span>Section 4</span>
+        <h2 id="active-members-heading">Active Members</h2>
+      </div>
+      <p>People who currently have access to this workspace.</p>
+    </div>
+
+    <div class="workspace-members-table-wrap">
+      <table class="workspace-members-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Joined</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in members %}
+            <tr>
+              <td>{{ row.member.name or '—' }}</td>
+              <td>{{ row.member.email }}</td>
+              <td>{{ row.role_label }}</td>
+              <td>{{ row.membership.created_at.strftime('%b %d, %Y') if row.membership.created_at else '—' }}</td>
+              <td>
+                <div class="workspace-table-actions">
+                  <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Change Role · Coming Soon</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Remove Member · Coming Soon</button>
+                </div>
+              </td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="5" class="workspace-members-empty">No active members yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function initializeWorkspaceMembers() {
+  const rows = document.querySelector('[data-invite-rows]');
+  const addButton = document.querySelector('[data-add-invite-row]');
+  if (rows && addButton) {
+    addButton.addEventListener('click', () => {
+      const first = rows.querySelector('.workspace-invite-row');
+      if (!first) return;
+      const clone = first.cloneNode(true);
+      clone.querySelectorAll('input').forEach((input) => {
+        input.value = '';
+        input.required = input.name === 'emails';
+      });
+      clone.querySelectorAll('select').forEach((select) => {
+        select.value = 'member';
+      });
+      rows.appendChild(clone);
+    });
+  }
+
+  document.querySelectorAll('[data-copy-invite-link]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const link = button.getAttribute('data-copy-invite-link');
+      try {
+        await navigator.clipboard.writeText(link);
+        button.textContent = 'Copied';
+        window.setTimeout(() => { button.textContent = 'Copy Invite Link'; }, 1600);
+      } catch (_error) {
+        window.prompt('Copy invitation link', link);
+      }
+    });
+  });
+})();
+</script>
+{% endblock %}

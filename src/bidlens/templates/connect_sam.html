@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Connect SAM.gov - BidLens{% endblock %}
+
+{% block content %}
+{% set org_id = request.query_params.get('org_id') %}
+{% set org_q = '?org_id=' ~ org_id if org_id else '' %}
+
+<div class="setup-connect-shell">
+  <header class="setup-connect-hero">
+    <div>
+      <span class="setup-connect-eyebrow">Inbound Source</span>
+      <h1>Connect SAM.gov</h1>
+      <p>
+        Configure the saved search BidLens should use to discover federal contract
+        opportunities for this workspace.
+      </p>
+    </div>
+    <a href="/connect-sources{{ org_q }}" class="btn btn-outline-secondary">Back to Sources</a>
+  </header>
+
+  <form method="POST" action="/connect-sources/sam{{ org_q }}" class="setup-flow-form">
+    <section class="setup-flow-step">
+      <div class="setup-flow-step-number">1</div>
+      <div class="setup-flow-step-body">
+        <div class="setup-flow-step-heading">
+          <span>API Key</span>
+          <h2>SAM.gov access</h2>
+          <p>BidLens uses the platform SAM.gov API key configured for this environment.</p>
+        </div>
+        <div class="setup-flow-readonly">
+          <strong>API Key</strong>
+          <span>Managed by BidLens</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="setup-flow-step">
+      <div class="setup-flow-step-number">2</div>
+      <div class="setup-flow-step-body">
+        <div class="setup-flow-step-heading">
+          <span>Saved Searches</span>
+          <h2>Name this source</h2>
+          <p>This is the label your team will see when reviewing source configuration later.</p>
+        </div>
+        <div class="form-group">
+          <label for="search_name">Saved Search Name</label>
+          <input id="search_name" name="search_name" type="text" value="{{ form.search_name or 'Primary SAM.gov Search' }}" required>
+          {% if errors.search_name %}<small class="form-error">{{ errors.search_name }}</small>{% endif %}
+        </div>
+      </div>
+    </section>
+
+    <section class="setup-flow-step">
+      <div class="setup-flow-step-number">3</div>
+      <div class="setup-flow-step-body">
+        <div class="setup-flow-step-heading">
+          <span>NAICS Codes</span>
+          <h2>Focus discovery</h2>
+          <p>Enter one or more NAICS codes that describe the markets this organization wants to monitor.</p>
+        </div>
+        <div class="form-group">
+          <label for="naics_codes">NAICS Codes</label>
+          <textarea id="naics_codes" name="naics_codes" rows="4" placeholder="541611&#10;541990" required>{{ form.naics_codes or '' }}</textarea>
+          {% if errors.naics_codes %}<small class="form-error">{{ errors.naics_codes }}</small>{% endif %}
+        </div>
+        <div class="form-group">
+          <label for="keywords">Keywords <span class="muted">(optional)</span></label>
+          <textarea id="keywords" name="keywords" rows="3" placeholder="analytics&#10;program management">{{ form.keywords or '' }}</textarea>
+        </div>
+      </div>
+    </section>
+
+    <section class="setup-flow-step">
+      <div class="setup-flow-step-number">4</div>
+      <div class="setup-flow-step-body">
+        <div class="setup-flow-step-heading">
+          <span>Notice Types</span>
+          <h2>Choose what should enter BidLens</h2>
+          <p>Select the SAM.gov notice types your team wants to review.</p>
+        </div>
+        <div class="setup-notice-grid">
+          {% for notice_type in notice_types %}
+            <label class="setup-notice-option">
+              <input
+                type="checkbox"
+                name="notice_types"
+                value="{{ notice_type }}"
+                {% if notice_type in (form.notice_types or []) %}checked{% endif %}
+              >
+              <span>{{ notice_type }}</span>
+            </label>
+          {% endfor %}
+        </div>
+        {% if errors.notice_types %}<small class="form-error">{{ errors.notice_types }}</small>{% endif %}
+      </div>
+    </section>
+
+    <section class="setup-flow-step">
+      <div class="setup-flow-step-number">✓</div>
+      <div class="setup-flow-step-body">
+        <div class="setup-flow-step-heading">
+          <span>Done</span>
+          <h2>Save SAM.gov source</h2>
+          <p>After saving, SAM.gov will appear as connected and you’ll return to Connect Opportunity Sources.</p>
+        </div>
+        <div class="setup-flow-grid">
+          <div class="form-group">
+            <label for="posted_days_back">Posted Date Window</label>
+            <input id="posted_days_back" name="posted_days_back" type="number" min="1" max="365" value="{{ form.posted_days_back or 30 }}" required>
+            {% if errors.posted_days_back %}<small class="form-error">{{ errors.posted_days_back }}</small>{% endif %}
+          </div>
+          <div class="form-group">
+            <label for="max_records">Max Records</label>
+            <input id="max_records" name="max_records" type="number" min="1" max="1000" value="{{ form.max_records or 100 }}" required>
+            {% if errors.max_records %}<small class="form-error">{{ errors.max_records }}</small>{% endif %}
+          </div>
+        </div>
+        <div class="setup-flow-actions">
+          <button type="submit" class="btn btn-primary">{{ 'Save SAM.gov Source' if config else 'Connect SAM.gov' }}</button>
+          <a href="/connect-sources{{ org_q }}" class="btn btn-outline-secondary">Cancel</a>
+        </div>
+      </div>
+    </section>
+  </form>
+</div>
+{% endblock %}
