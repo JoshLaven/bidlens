@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from bidlens.database import Base
-from bidlens.models import Organization, OrganizationMembership, User, WorkspaceInvitation
+from bidlens.models import Organization, OrganizationMembership, User, Workspace, WorkspaceInvitation
 from bidlens.routes.admin import (
     bulk_create_organization_invitations,
     create_organization_invitations,
@@ -131,12 +131,37 @@ class WorkspaceMembersTests(unittest.TestCase):
         body = response.body.decode()
 
         self.assertIn("Workspace Members", body)
-        self.assertIn("Quick Invite", body)
+        self.assertIn("Invite Team Members", body)
         self.assertIn("Pending Invitations", body)
-        self.assertIn("Bulk Invite", body)
+        self.assertIn("Invite from CSV", body)
         self.assertIn("Active Members", body)
         self.assertIn("pending@example.com", body)
         self.assertIn("/invite/", body)
+
+    def test_members_page_auto_creates_contact_invitations(self):
+        workspace = Workspace(
+            organization_id=self.org.id,
+            name="Members Workspace",
+            slug="members-workspace",
+            operational_contact_name="Ops Lead",
+            operational_contact_email="ops@example.com",
+            billing_contact_name="Billing Contact",
+            billing_contact_email="billing@example.com",
+        )
+        self.db.add(workspace)
+        self.db.commit()
+        request = self._request()
+
+        with patch("bidlens.routes.admin._current_org_or_404", return_value=(self.admin, self.org)):
+            response = list_organization_users(self.org.id, request, db=self.db)
+
+        body = response.body.decode()
+        invites = self.db.query(WorkspaceInvitation).order_by(WorkspaceInvitation.email.asc()).all()
+
+        self.assertIn("ops@example.com", body)
+        self.assertIn("billing@example.com", body)
+        self.assertEqual([invite.email for invite in invites], ["billing@example.com", "ops@example.com"])
+        self.assertEqual([invite.role for invite in invites], ["member", "admin"])
 
     def test_json_user_list_still_available_for_api_clients(self):
         request = self._request(accept="application/json")

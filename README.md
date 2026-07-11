@@ -24,6 +24,22 @@ The app runs automatically on port 5000. To seed the database with test opportun
 python seed.py
 ```
 
+## Development Reset
+
+To reset the local development database for onboarding/QA testing:
+
+```bash
+python scripts/reset_dev.py
+```
+
+or:
+
+```bash
+make reset-dev
+```
+
+This utility is local-development only. It preserves `joshuatlaven@gmail.com` as the Platform Owner login, creates/reuses a local-only internal `BidLens Platform` organization for the current legacy `users.organization_id` constraint, and removes customer organizations, customer workspaces, invitations, memberships, company profiles, connector configuration, opportunities, history, and other customer-owned records.
+
 ## Environment Variables
 
 - `SAM_API_KEY`: SAM.gov API key used for opportunity pulls and notice description fetches

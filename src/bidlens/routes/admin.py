@@ -153,6 +153,67 @@ def _create_workspace_invitation(
     return invitation
 
 
+def _ensure_workspace_contact_invitations(
+    db: Session,
+    *,
+    org: Organization,
+    workspace: Workspace,
+    created_by_user_id: int | None,
+) -> int:
+    contacts = [
+        {
+            "email": workspace.operational_contact_email,
+            "name": workspace.operational_contact_name,
+            "role": "admin",
+        },
+        {
+            "email": workspace.billing_contact_email,
+            "name": workspace.billing_contact_name,
+            "role": "member",
+        },
+    ]
+    created = 0
+    seen: set[str] = set()
+    for contact in contacts:
+        email = normalize_email(contact["email"] or "")
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        existing_user = db.query(User).filter(User.email == email).first()
+        if existing_user:
+            membership = (
+                db.query(OrganizationMembership)
+                .filter(
+                    OrganizationMembership.organization_id == org.id,
+                    OrganizationMembership.user_id == existing_user.id,
+                )
+                .first()
+            )
+            if membership:
+                continue
+        before = (
+            db.query(WorkspaceInvitation)
+            .filter(
+                WorkspaceInvitation.organization_id == org.id,
+                WorkspaceInvitation.email == email,
+                WorkspaceInvitation.status == "pending",
+            )
+            .first()
+        )
+        _create_workspace_invitation(
+            db,
+            org=org,
+            workspace=workspace,
+            email=email,
+            name=contact["name"],
+            role=contact["role"],
+            created_by_user_id=created_by_user_id,
+        )
+        if before is None:
+            created += 1
+    return created
+
+
 def _members_context(
     request: Request,
     db: Session,
@@ -291,6 +352,16 @@ def list_organization_users(organization_id: int, request: Request, db: Session 
             }
             for membership, user in rows
         ]
+
+    workspace = _workspace_for_org(db, org)
+    auto_created = _ensure_workspace_contact_invitations(
+        db,
+        org=org,
+        workspace=workspace,
+        created_by_user_id=user.id,
+    )
+    if auto_created:
+        db.commit()
 
     return templates.TemplateResponse(
         "workspace_members.html",

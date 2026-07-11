@@ -6,119 +6,210 @@
 <div class="admin-page-layout">
   {% include "_admin_nav.html" %}
   <div class="admin-page-content">
-    <div class="page-header">
-      <h1>Pursuit Lanes</h1>
-      <p class="page-subtitle">Group opportunities with simple workspace rules. Lanes add routing metadata only; they do not change feed visibility.</p>
+    <div class="page-header pursuit-lane-page-header">
+      <div>
+        <h1>Pursuit Lanes</h1>
+        <p class="page-subtitle">Configure how BidLens organizes opportunities by market, client, service area, or team.</p>
+      </div>
+      <form method="POST" action="/pursuit-lanes/rematch{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+        <button type="submit" class="btn btn-sm btn-outline-secondary" {% if not can_manage_lanes %}disabled{% endif %}>Rematch Opportunities</button>
+      </form>
     </div>
 
-{% if not can_manage_lanes %}
-  <div class="alert alert-warning">You can view pursuit lanes, but only current workspace members can edit them.</div>
-{% endif %}
+    {% if not can_manage_lanes %}
+      <div class="alert alert-warning">You can view pursuit lanes, but only current workspace members can edit them.</div>
+    {% endif %}
 
-<section class="card pursuit-lane-create">
-  <div class="card-header">
-    <div>
-      <h2>Create Lane</h2>
-      <p class="muted">Comma- or line-separated values are accepted.</p>
-    </div>
-  </div>
-  <form method="POST" action="/pursuit-lanes{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="form pursuit-lane-form">
-    <div class="pursuit-lane-grid">
-      <div class="form-row">
-        <label>Name</label>
-        <input type="text" name="name" placeholder="Health" required {% if not can_manage_lanes %}disabled{% endif %}>
-      </div>
-      <div class="form-row">
-        <label>Description</label>
-        <input type="text" name="description" placeholder="HHS, Medicaid, CMS, healthcare analytics" {% if not can_manage_lanes %}disabled{% endif %}>
-      </div>
-      <div class="form-row">
-        <label>Agencies</label>
-        <textarea name="agencies" rows="2" placeholder="HHS, CMS, CDC" {% if not can_manage_lanes %}disabled{% endif %}></textarea>
-      </div>
-      <div class="form-row">
-        <label>NAICS</label>
-        <textarea name="naics" rows="2" placeholder="541611, 541990" {% if not can_manage_lanes %}disabled{% endif %}></textarea>
-      </div>
-      <div class="form-row">
-        <label>Keywords</label>
-        <textarea name="keywords" rows="2" placeholder="Medicaid, public health, claims" {% if not can_manage_lanes %}disabled{% endif %}></textarea>
-      </div>
-      <div class="form-row">
-        <label>Set-Asides</label>
-        <textarea name="set_asides" rows="2" placeholder="Small Business, 8(a)" {% if not can_manage_lanes %}disabled{% endif %}></textarea>
-      </div>
-    </div>
-
-    <div class="pursuit-lane-options">
-      <label class="check-row check-row-inline">
-        <input type="checkbox" name="is_active" value="1" checked {% if not can_manage_lanes %}disabled{% endif %}>
-        <span>Active</span>
-      </label>
-    </div>
-
-    <button type="submit" class="btn btn-primary" {% if not can_manage_lanes %}disabled{% endif %}>Create Lane</button>
-  </form>
-</section>
-
-<div class="pursuit-lane-toolbar">
-  <h2>Saved Lanes</h2>
-  <form method="POST" action="/pursuit-lanes/rematch{% if request.url.query %}?{{ request.url.query }}{% endif %}">
-    <button type="submit" class="btn btn-outline-secondary" {% if not can_manage_lanes %}disabled{% endif %}>Rematch Opportunities</button>
-  </form>
-</div>
-
-{% for lane in lanes %}
-  <section class="card pursuit-lane-card">
-    <form method="POST" action="/pursuit-lanes/{{ lane.id }}{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="form pursuit-lane-form">
-      <div class="pursuit-lane-card-header">
-        <div>
-          <div class="pursuit-lane-title-row">
-            <input class="pursuit-lane-name-input" type="text" name="name" value="{{ lane.name }}" required {% if not can_manage_lanes %}disabled{% endif %}>
-            <span class="badge {{ 'badge-status-saved' if lane.is_active else 'badge-status-dropped' }}">{{ 'Active' if lane.is_active else 'Inactive' }}</span>
+    {% if lanes %}
+      <section class="pursuit-lane-config-section my-lanes-config-section" aria-labelledby="my-lanes-heading">
+        <div class="pursuit-lane-section-heading">
+          <div>
+            <span>User attention</span>
+            <h2 id="my-lanes-heading">My Lanes</h2>
           </div>
-          <div class="muted">{{ match_counts.get(lane.id, 0) }} matched opportunities</div>
+          <p>My Lanes help you quickly jump to the pursuit lanes you visit most often. They do not limit which opportunities you can see.</p>
         </div>
-        <button type="submit" class="btn btn-primary" {% if not can_manage_lanes %}disabled{% endif %}>Save</button>
-      </div>
 
-      <div class="form-row">
-        <label>Description</label>
-        <input type="text" name="description" value="{{ lane.description or '' }}" {% if not can_manage_lanes %}disabled{% endif %}>
-      </div>
+        <form method="POST" action="/pursuit-lanes/my-lanes{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="my-lanes-form">
+          <div class="my-lanes-options">
+            {% for lane in lanes if lane.is_active %}
+              <label class="my-lane-option">
+                <input type="checkbox" name="lane_ids" value="{{ lane.id }}" {% if lane.id in my_lane_ids %}checked{% endif %}>
+                <span aria-hidden="true">☆</span>
+                <strong>{{ lane.name }}</strong>
+                <small>{{ match_counts.get(lane.id, 0) }} matches</small>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="my-lanes-actions">
+            <button type="submit" class="btn btn-primary">Save My Lanes</button>
+            {% if my_lanes %}
+              <span>{{ my_lanes|length }} selected</span>
+            {% else %}
+              <span>No My Lanes selected yet.</span>
+            {% endif %}
+          </div>
+        </form>
+      </section>
 
-      <div class="pursuit-lane-grid">
-        <div class="form-row">
-          <label>Agencies</label>
-          <textarea name="agencies" rows="2" {% if not can_manage_lanes %}disabled{% endif %}>{{ (lane.agencies or [])|join(', ') }}</textarea>
+      <section class="pursuit-lane-config-section" aria-labelledby="saved-lanes-heading">
+        <div class="pursuit-lane-section-heading">
+          <div>
+            <span>Current configuration</span>
+            <h2 id="saved-lanes-heading">Configured Lanes</h2>
+          </div>
+          <p>Each lane adds routing context to matching opportunities without changing feed visibility.</p>
         </div>
-        <div class="form-row">
-          <label>NAICS</label>
-          <textarea name="naics" rows="2" {% if not can_manage_lanes %}disabled{% endif %}>{{ (lane.naics or [])|join(', ') }}</textarea>
-        </div>
-        <div class="form-row">
-          <label>Keywords</label>
-          <textarea name="keywords" rows="2" {% if not can_manage_lanes %}disabled{% endif %}>{{ (lane.keywords or [])|join(', ') }}</textarea>
-        </div>
-        <div class="form-row">
-          <label>Set-Asides</label>
-          <textarea name="set_asides" rows="2" {% if not can_manage_lanes %}disabled{% endif %}>{{ (lane.set_asides or [])|join(', ') }}</textarea>
-        </div>
-      </div>
 
-      <div class="pursuit-lane-options">
-        <label class="check-row check-row-inline">
-          <input type="checkbox" name="is_active" value="1" {% if lane.is_active %}checked{% endif %} {% if not can_manage_lanes %}disabled{% endif %}>
-          <span>Active</span>
-        </label>
-      </div>
-    </form>
-  </section>
-{% else %}
-  <div class="card">
-    <p class="muted">No pursuit lanes yet.</p>
-  </div>
-{% endfor %}
+        <div class="pursuit-lane-object-list">
+          {% for lane in lanes %}
+            <details class="pursuit-lane-object">
+              <summary class="pursuit-lane-summary">
+                <div>
+                  <div class="pursuit-lane-title-row">
+                    <strong>{{ lane.name }}</strong>
+                    <span class="badge {{ 'badge-status-saved' if lane.is_active else 'badge-status-dropped' }}">{{ 'Active' if lane.is_active else 'Inactive' }}</span>
+                  </div>
+                  <span>Matches: {{ match_counts.get(lane.id, 0) }} opportunities</span>
+                </div>
+                <span class="btn btn-sm btn-outline-secondary">Edit</span>
+              </summary>
+
+              <form method="POST" action="/pursuit-lanes/{{ lane.id }}{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="form pursuit-lane-form">
+                <div class="pursuit-lane-grid">
+                  <div class="form-row">
+                    <label>Name</label>
+                    <input type="text" name="name" value="{{ lane.name }}" required {% if not can_manage_lanes %}disabled{% endif %}>
+                  </div>
+                  <div class="form-row">
+                    <label>Description</label>
+                    <input type="text" name="description" value="{{ lane.description or '' }}" {% if not can_manage_lanes %}disabled{% endif %}>
+                  </div>
+                  <div class="form-row">
+                    <label>Agencies</label>
+                    <textarea name="agencies" rows="2" {% if not can_manage_lanes %}disabled{% endif %}>{{ (lane.agencies or [])|join(', ') }}</textarea>
+                  </div>
+                  <div class="form-row">
+                    <label>NAICS</label>
+                    <textarea name="naics" rows="2" {% if not can_manage_lanes %}disabled{% endif %}>{{ (lane.naics or [])|join(', ') }}</textarea>
+                  </div>
+                  <div class="form-row">
+                    <label>Keywords</label>
+                    <textarea name="keywords" rows="2" {% if not can_manage_lanes %}disabled{% endif %}>{{ (lane.keywords or [])|join(', ') }}</textarea>
+                  </div>
+                  <div class="form-row">
+                    <label>Set-Asides</label>
+                    <textarea name="set_asides" rows="2" {% if not can_manage_lanes %}disabled{% endif %}>{{ (lane.set_asides or [])|join(', ') }}</textarea>
+                  </div>
+                </div>
+
+                <div class="pursuit-lane-options">
+                  <label class="check-row check-row-inline">
+                    <input type="checkbox" name="is_active" value="1" {% if lane.is_active %}checked{% endif %} {% if not can_manage_lanes %}disabled{% endif %}>
+                    <span>Active</span>
+                  </label>
+                  <button type="submit" class="btn btn-primary" {% if not can_manage_lanes %}disabled{% endif %}>Save Lane</button>
+                </div>
+              </form>
+            </details>
+          {% endfor %}
+        </div>
+      </section>
+
+      <details class="pursuit-lane-new-panel">
+        <summary class="pursuit-lane-summary">
+          <div>
+            <strong>New Pursuit Lane</strong>
+            <span>Define another way BidLens should organize opportunities.</span>
+          </div>
+          <span class="btn btn-sm btn-primary">Create Pursuit Lane</span>
+        </summary>
+        <form method="POST" action="/pursuit-lanes{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="form pursuit-lane-form pursuit-lane-form--new">
+          <div class="pursuit-lane-grid">
+            <div class="form-row">
+              <label>Name</label>
+              <input type="text" name="name" placeholder="Healthcare" required {% if not can_manage_lanes %}disabled{% endif %}>
+            </div>
+            <div class="form-row">
+              <label>Description</label>
+              <input type="text" name="description" placeholder="HHS, Medicaid, CMS, healthcare analytics" {% if not can_manage_lanes %}disabled{% endif %}>
+            </div>
+            <div class="form-row">
+              <label>Agencies</label>
+              <textarea name="agencies" rows="2" placeholder="HHS, CMS, CDC" {% if not can_manage_lanes %}disabled{% endif %}></textarea>
+            </div>
+            <div class="form-row">
+              <label>NAICS</label>
+              <textarea name="naics" rows="2" placeholder="541611, 541990" {% if not can_manage_lanes %}disabled{% endif %}></textarea>
+            </div>
+            <div class="form-row">
+              <label>Keywords</label>
+              <textarea name="keywords" rows="2" placeholder="Medicaid, public health, claims" {% if not can_manage_lanes %}disabled{% endif %}></textarea>
+            </div>
+            <div class="form-row">
+              <label>Set-Asides</label>
+              <textarea name="set_asides" rows="2" placeholder="Small Business, 8(a)" {% if not can_manage_lanes %}disabled{% endif %}></textarea>
+            </div>
+          </div>
+
+          <div class="pursuit-lane-options">
+            <label class="check-row check-row-inline">
+              <input type="checkbox" name="is_active" value="1" checked {% if not can_manage_lanes %}disabled{% endif %}>
+              <span>Active</span>
+            </label>
+            <button type="submit" class="btn btn-primary" {% if not can_manage_lanes %}disabled{% endif %}>Create Pursuit Lane</button>
+          </div>
+        </form>
+      </details>
+    {% else %}
+      <section class="pursuit-lane-empty-state" aria-labelledby="empty-lanes-heading">
+        <div>
+          <span>Workspace routing</span>
+          <h2 id="empty-lanes-heading">No pursuit lanes yet.</h2>
+          <p>Create your first pursuit lane to automatically organize opportunities by market, client, service area, or team.</p>
+        </div>
+
+        <details class="pursuit-lane-empty-create">
+          <summary class="btn btn-primary">Create Pursuit Lane</summary>
+          <form method="POST" action="/pursuit-lanes{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="form pursuit-lane-form pursuit-lane-form--new">
+            <div class="pursuit-lane-grid">
+              <div class="form-row">
+                <label>Name</label>
+                <input type="text" name="name" placeholder="Healthcare" required {% if not can_manage_lanes %}disabled{% endif %}>
+              </div>
+              <div class="form-row">
+                <label>Description</label>
+                <input type="text" name="description" placeholder="HHS, Medicaid, CMS, healthcare analytics" {% if not can_manage_lanes %}disabled{% endif %}>
+              </div>
+              <div class="form-row">
+                <label>Agencies</label>
+                <textarea name="agencies" rows="2" placeholder="HHS, CMS, CDC" {% if not can_manage_lanes %}disabled{% endif %}></textarea>
+              </div>
+              <div class="form-row">
+                <label>NAICS</label>
+                <textarea name="naics" rows="2" placeholder="541611, 541990" {% if not can_manage_lanes %}disabled{% endif %}></textarea>
+              </div>
+              <div class="form-row">
+                <label>Keywords</label>
+                <textarea name="keywords" rows="2" placeholder="Medicaid, public health, claims" {% if not can_manage_lanes %}disabled{% endif %}></textarea>
+              </div>
+              <div class="form-row">
+                <label>Set-Asides</label>
+                <textarea name="set_asides" rows="2" placeholder="Small Business, 8(a)" {% if not can_manage_lanes %}disabled{% endif %}></textarea>
+              </div>
+            </div>
+
+            <div class="pursuit-lane-options">
+              <label class="check-row check-row-inline">
+                <input type="checkbox" name="is_active" value="1" checked {% if not can_manage_lanes %}disabled{% endif %}>
+                <span>Active</span>
+              </label>
+              <button type="submit" class="btn btn-primary" {% if not can_manage_lanes %}disabled{% endif %}>Create Pursuit Lane</button>
+            </div>
+          </form>
+        </details>
+      </section>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

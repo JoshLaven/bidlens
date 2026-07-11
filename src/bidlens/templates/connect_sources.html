@@ -11,8 +11,8 @@
       <span class="setup-connect-eyebrow">Organization Setup</span>
       <h1>Opportunity Discovery</h1>
       <p>
-        Configure one or more sources for BidLens to monitor. The goal is simple:
-        enable BidLens to discover opportunities for this workspace.
+        Turn on the discovery capabilities BidLens should use for this workspace.
+        Each source becomes part of the intake engine behind the scenes.
       </p>
     </div>
     <a href="/home{{ org_q }}" class="btn btn-outline-secondary">Back to Organization Setup</a>
@@ -69,7 +69,7 @@
           {% endif %}
           {% if not sources.sam.connected and not sources.grants.connected and not sources.govwin.connected %}
             <div class="setup-discovery-empty">
-              No sources connected yet. Add a source below to enable Opportunity Discovery.
+              No sources enabled yet. Choose the first discovery capability below.
             </div>
           {% endif %}
         </div>
@@ -84,7 +84,7 @@
                 <strong>SAM.gov</strong>
                 <span>Federal contract notices and solicitations. Requires saved-search criteria.</span>
               </div>
-              <a href="/connect-sources/sam{{ org_q }}" class="btn btn-sm btn-primary">Configure</a>
+              <a href="/connect-sources/sam{{ org_q }}" class="btn btn-sm btn-primary">Set Up</a>
             </div>
           {% endif %}
 

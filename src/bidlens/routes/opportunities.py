@@ -30,6 +30,7 @@ from ..services.opportunity_stages import (
     RFI_TYPE_INDICATORS,
     normalize_display_stage,
 )
+from ..services.pursuit_lanes import user_my_lanes
 from sqlalchemy import and_, or_, select
 from dataclasses import dataclass
 from typing import Optional
@@ -1402,6 +1403,7 @@ async def feed(
         "page_size": FEED_PAGE_SIZE,
         "total_pages": total_pages,
         "active_lanes": _active_lanes(db, user),
+        "my_lanes": user_my_lanes(db, organization_id=_user_org_id(user), user_id=user.id),
         "triage_enabled": user.triage_enabled,
         "now": datetime.utcnow(),
     })
@@ -1593,6 +1595,7 @@ async def my_shortlist(
         "page_size": FEED_PAGE_SIZE,
         "total_pages": total_pages,
         "active_lanes": _active_lanes(db, user),
+        "my_lanes": user_my_lanes(db, organization_id=_user_org_id(user), user_id=user.id),
     })
 
 

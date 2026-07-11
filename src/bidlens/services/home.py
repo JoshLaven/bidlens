@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..models import (
     CompanyProfile,
+    DailySnapshot,
     Event,
     IngestionRun,
     Opportunity,
@@ -18,6 +19,7 @@ from ..models import (
     OrgProfile,
     PursuitLane,
     SamSourceConfig,
+    Workspace,
 )
 from .salesforce import SalesforceService
 
@@ -208,6 +210,53 @@ def _setup_history_from_events(db: Session, organization_id: int) -> list[dict[s
     ]
 
 
+def _stored_daily_snapshot_context(
+    db: Session,
+    *,
+    organization_id: int,
+    user_id: int,
+    today: datetime,
+) -> dict[str, Any] | None:
+    workspace = (
+        db.query(Workspace)
+        .filter(Workspace.organization_id == organization_id)
+        .first()
+    )
+    if not workspace:
+        return None
+
+    snapshot = (
+        db.query(DailySnapshot)
+        .filter(
+            DailySnapshot.workspace_id == workspace.id,
+            DailySnapshot.user_id == user_id,
+            DailySnapshot.snapshot_date == today.date(),
+        )
+        .first()
+    )
+    if not snapshot:
+        return None
+
+    payload = snapshot.snapshot_json or {}
+    return {
+        "id": snapshot.id,
+        "workspace_id": snapshot.workspace_id,
+        "user_id": snapshot.user_id,
+        "snapshot_date": snapshot.snapshot_date,
+        "created_at": snapshot.created_at,
+        "status": snapshot.status,
+        "snapshot_json": payload,
+        "sections": {
+            "new_opportunities": payload.get("new_opportunities") or [],
+            "updated_opportunities": payload.get("updated_opportunities") or [],
+            "upcoming_deadlines": payload.get("upcoming_deadlines") or [],
+            "interested_activity": payload.get("interested_activity") or [],
+            "shortlist_changes": payload.get("shortlist_changes") or [],
+            "connector_issues": payload.get("connector_issues") or [],
+        },
+    }
+
+
 def get_home_context(
     db: Session,
     organization_id: int,
@@ -290,6 +339,12 @@ def get_home_context(
         if last_successful_import
         else None
     )
+    daily_snapshot = _stored_daily_snapshot_context(
+        db,
+        organization_id=organization_id,
+        user_id=user_id,
+        today=now,
+    )
 
     recommendations: list[dict[str, Any]] = []
     completed: list[dict[str, Any]] = [
@@ -302,17 +357,17 @@ def get_home_context(
     if active_profile is None:
         recommendations.append(_recommendation(
             key="company-profile",
-            title="Complete Organization Identity",
+            title="Configure Organization",
             label="Required",
             description="Confirm the website and federal identifiers BidLens cannot reliably infer.",
-            cta_label="Organization Identity",
+            cta_label="Organization",
             cta_url=_workspace_url("/company-profile", organization_id),
             priority=10,
         ))
     else:
         completed.append(_completed_item(
             key="company-profile",
-            title="Organization identity completed",
+            title="Organization configured",
             completed_at=active_profile.updated_at,
         ))
 
@@ -505,4 +560,5 @@ def get_home_context(
         } if is_live else None,
         "attention_items": attention_items,
         "current_user_id": user_id,
+        "daily_snapshot": daily_snapshot,
     }

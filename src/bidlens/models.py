@@ -379,6 +379,24 @@ class WorkspaceInvitation(Base):
     workspace = relationship("Workspace", back_populates="invitations")
 
 
+class DailySnapshot(Base):
+    __tablename__ = "daily_snapshots"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "user_id", "snapshot_date", name="uq_daily_snapshot_workspace_user_date"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    snapshot_date = Column(Date, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    status = Column(String, nullable=False, default="completed", server_default="completed", index=True)
+    snapshot_json = Column(JSON, nullable=False, default=dict)
+
+    workspace = relationship("Workspace")
+    user = relationship("User")
+
+
 class PursuitLane(Base):
     __tablename__ = "pursuit_lanes"
 

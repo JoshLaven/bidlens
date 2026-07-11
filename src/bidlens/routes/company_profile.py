@@ -41,7 +41,7 @@ def _clean_optional_text(value: str | None) -> str | None:
     return text or None
 
 
-def _profile_payload() -> dict[str, str]:
+def _profile_payload() -> dict[str, object]:
     return {"profile_type": "organization_identity"}
 
 
@@ -52,6 +52,28 @@ def _profile_form(profile: CompanyProfile | None, organization: Organization | N
         "uei": _clean_text(profile.uei if profile else None),
         "cage_code": _clean_text(profile.cage_code if profile else None),
         "duns": _clean_text(profile.duns if profile else None),
+    }
+
+
+def _recent_work_context(profile: CompanyProfile | None) -> dict[str, object]:
+    identifiers = []
+    if profile and profile.uei:
+        identifiers.append({"label": "UEI", "value": profile.uei})
+    if profile and profile.cage_code:
+        identifiers.append({"label": "CAGE", "value": profile.cage_code})
+    if profile and profile.duns:
+        identifiers.append({"label": "DUNS", "value": profile.duns})
+
+    profile_json = profile.profile_json if profile and isinstance(profile.profile_json, dict) else {}
+    recent_work = profile_json.get("recent_work") if isinstance(profile_json, dict) else None
+    awards = recent_work.get("awards", []) if isinstance(recent_work, dict) else []
+    status = recent_work.get("status") if isinstance(recent_work, dict) else None
+
+    return {
+        "identifiers": identifiers,
+        "awards": awards,
+        "status": status or ("ready" if identifiers else "needs_identifiers"),
+        "requested": bool(recent_work and recent_work.get("requested_at")),
     }
 
 
@@ -115,6 +137,27 @@ def upsert_company_profile(
     profile.uei = _clean_optional_text(uei)
     profile.cage_code = _clean_optional_text(cage_code)
     profile.duns = _clean_optional_text(duns)
+    existing_recent_work = (
+        profile.profile_json.get("recent_work")
+        if isinstance(profile.profile_json, dict)
+        else None
+    )
+    existing_awards = (
+        existing_recent_work.get("awards", [])
+        if isinstance(existing_recent_work, dict)
+        else []
+    )
+    if profile.uei or profile.cage_code or profile.duns:
+        payload["recent_work"] = {
+            "status": "ready",
+            "requested_at": datetime.utcnow().isoformat(),
+            "identifiers": {
+                "uei": profile.uei,
+                "cage_code": profile.cage_code,
+                "duns": profile.duns,
+            },
+            "awards": existing_awards,
+        }
     profile.profile_json = payload
 
     archived_count = archive_duplicate_active_profiles(
@@ -169,6 +212,7 @@ def render_company_profile(
             "sidebar": get_sidebar(db, user),
             "profile": profile,
             "profile_form": form,
+            "recent_work": _recent_work_context(profile),
             "saved": saved,
             "duplicate_cleanup_count": duplicate_cleanup_count,
         },

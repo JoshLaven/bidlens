@@ -16,82 +16,113 @@
     </script>
 </head>
 <body>
-    {% set nav_org_id = request.query_params.get('org_id') if request is defined else none %}
+    {% set nav_org_id = request.query_params.get('org_id') if request is defined and request.query_params is defined else none %}
     {% set nav_org_q = '?org_id=' ~ nav_org_id if nav_org_id and nav_org_id.isdigit() else '' %}
+    {% set request_path = request.url.path if request is defined and request.url is defined else '' %}
     {% set platform_mode = user and active_page == 'platform' and user.is_platform_admin is defined and user.is_platform_admin %}
-    {% set workspace_is_live = user and user.current_organization_is_live is defined and user.current_organization_is_live %}
-    <nav>
-        <div class="container nav-shell">
-            <div class="nav-brand">
-              <a href="{{ '/platform' if platform_mode else '/home' ~ nav_org_q }}" class="logo">BidLens</a>
-              <span class="nav-tagline">{{ 'Platform' if platform_mode else 'Opportunity Intelligence' }}</span>
-            </div>
-            <div class="nav-links">
-                {% if user %}
-                  {% if platform_mode %}
-                    <div class="nav-workspace" aria-label="Platform">
-                      <a href="/platform" class="active">Platform</a>
-                    </div>
-                    <div class="nav-utility">
-                      <details class="user-menu">
-                        <summary class="user-menu-trigger">
-                          <span class="user-menu-name">{{ user.name or user.email }}</span>
-                          <span class="user-menu-org">BidLens Platform</span>
-                        </summary>
-                        <div class="user-menu-panel">
-                          <div class="user-menu-header">
-                            <strong>{{ user.name or user.email }}</strong>
-                            <span>BidLens Platform</span>
-                          </div>
-                          <a href="/platform" class="active">Platform</a>
-                          <a href="/logout">Logout</a>
-                        </div>
-                      </details>
-                    </div>
-                  {% else %}
-                    <div class="nav-workspace" aria-label="Primary workspaces">
-                      {% if user.current_role == 'admin' %}
-                        <a href="/home{{ nav_org_q }}" class="{{ 'active' if active_page == 'home' else '' }}">Home</a>
-                      {% endif %}
-                      <a href="/{{ nav_org_q }}" class="{{ 'active' if active_page == 'feed' else '' }}">Feed</a>
-                      <a href="/my-shortlist{{ nav_org_q }}" class="{{ 'active' if active_page == 'my_shortlist' else '' }}">My Shortlist</a>
-                      <a href="/triage{{ nav_org_q }}" class="{{ 'active' if active_page == 'triage' else '' }}">Triage (<span data-triage-nav-count>{{ user.triage_unreviewed_count|default(0) }}</span>)</a>
-                      <a href="/archive{{ nav_org_q }}" class="{{ 'active' if active_page == 'archive' else '' }}">Archive</a>
-                      {% if user.current_role == 'admin' and workspace_is_live %}
-                        <a href="/integrations{{ nav_org_q }}" class="{{ 'active' if active_page == 'integrations' else '' }}">Integrations</a>
-                      {% endif %}
-                    </div>
-                    <div class="nav-utility">
-                      <details class="user-menu">
-                        <summary class="user-menu-trigger">
-                          <span class="user-menu-name">{{ user.name or user.email }}</span>
-                          <span class="user-menu-org">{{ user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else user.organization.name if user.organization else 'Workspace' }}</span>
-                        </summary>
-                        <div class="user-menu-panel">
-                          <div class="user-menu-header">
-                            <strong>{{ user.name or user.email }}</strong>
-                            <span>{{ user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else user.organization.name if user.organization else 'Workspace' }}</span>
-                          </div>
-                          <a href="/my-settings{{ nav_org_q }}" class="{{ 'active' if active_page == 'my_settings' else '' }}">My Settings</a>
-                          {% if user.is_platform_admin is defined and user.is_platform_admin %}
-                            <a href="/platform" class="{{ 'active' if active_page == 'platform' else '' }}">Platform</a>
-                          {% endif %}
-                          <a href="/company-profile{{ nav_org_q }}" class="{{ 'active' if active_page == 'company_profile' else '' }}">Organization Identity</a>
-                          {% if user.current_role == 'admin' and workspace_is_live %}
-                            <a href="/administration{{ nav_org_q }}" class="{{ 'active' if active_page == 'administration' else '' }}">Administration</a>
-                          {% endif %}
-                          <a href="/logout">Logout</a>
-                        </div>
-                      </details>
-                    </div>
-                  {% endif %}
-                {% else %}
-                    <a href="/login">Login</a>
+    {% set is_workspace_admin = user and user.current_role == 'admin' %}
+    {% set is_platform_owner = user and user.is_platform_admin is defined and user.is_platform_admin %}
+    {% set primary_active = active_page %}
+    {% if request_path.startswith('/opportunity/') or request_path == '/calendar' %}
+      {% set primary_active = 'feed' %}
+    {% elif request_path.startswith('/archive') %}
+      {% set primary_active = 'archive' %}
+    {% elif request_path.startswith('/my-shortlist') %}
+      {% set primary_active = 'my_shortlist' %}
+    {% elif request_path.startswith('/triage') %}
+      {% set primary_active = 'triage' %}
+    {% elif request_path == '/' %}
+      {% set primary_active = 'feed' %}
+    {% endif %}
+    {% set workspace_management_pages = [
+      'administration',
+      'company_profile',
+      'connect_sources',
+      'outbound_integrations',
+      'imports',
+      'integrations',
+      'pursuit_lanes',
+      'settings'
+    ] %}
+    <div class="app-shell{% if not user %} app-shell--public{% endif %}">
+      {% if user %}
+        <aside class="primary-sidebar" aria-label="Primary">
+          <div class="primary-sidebar-brand">
+            <a href="{{ '/platform' if platform_mode else ('/home' ~ nav_org_q if is_workspace_admin else '/' ~ nav_org_q) }}" class="logo">BidLens</a>
+            <span>{{ 'Platform' if platform_mode else 'Opportunity Intelligence' }}</span>
+          </div>
+
+          {% if not platform_mode %}
+            <nav class="primary-sidebar-nav" aria-label="Primary navigation">
+              <a href="/home{{ nav_org_q }}" class="primary-sidebar-link {{ 'active' if primary_active == 'home' else '' }}" aria-current="{{ 'page' if primary_active == 'home' else 'false' }}">
+                <span aria-hidden="true">⌂</span>
+                <strong>Home</strong>
+              </a>
+
+              <div class="primary-sidebar-divider" aria-hidden="true"></div>
+              <div class="primary-sidebar-section-label">Opportunities</div>
+
+              <a href="/{{ nav_org_q }}" class="primary-sidebar-link {{ 'active' if primary_active == 'feed' else '' }}" aria-current="{{ 'page' if primary_active == 'feed' else 'false' }}">
+                <span aria-hidden="true">□</span>
+                <strong>Feed</strong>
+              </a>
+              <a href="/my-shortlist{{ nav_org_q }}" class="primary-sidebar-link {{ 'active' if primary_active == 'my_shortlist' else '' }}" aria-current="{{ 'page' if primary_active == 'my_shortlist' else 'false' }}">
+                <span aria-hidden="true">☆</span>
+                <strong>My Shortlist</strong>
+              </a>
+              {% if is_workspace_admin %}
+                <a href="/triage{{ nav_org_q }}" class="primary-sidebar-link {{ 'active' if primary_active == 'triage' else '' }}" aria-current="{{ 'page' if primary_active == 'triage' else 'false' }}">
+                  <span aria-hidden="true">✓</span>
+                  <strong>Triage <em>(Admin only)</em></strong>
+                  <small data-triage-nav-count>{{ user.triage_unreviewed_count|default(0) }}</small>
+                </a>
+              {% endif %}
+              <a href="/archive{{ nav_org_q }}" class="primary-sidebar-link {{ 'active' if primary_active == 'archive' else '' }}" aria-current="{{ 'page' if primary_active == 'archive' else 'false' }}">
+                <span aria-hidden="true">◷</span>
+                <strong>Archive</strong>
+              </a>
+
+              {% if is_workspace_admin %}
+                <div class="primary-sidebar-divider primary-sidebar-divider--management" aria-hidden="true"></div>
+                <a href="/administration{{ nav_org_q }}" class="primary-sidebar-link primary-sidebar-link--management {{ 'active' if active_page in workspace_management_pages else '' }}" aria-current="{{ 'page' if active_page in workspace_management_pages else 'false' }}">
+                  <span aria-hidden="true">⚙︎</span>
+                  <strong>Workspace Management</strong>
+                </a>
+              {% endif %}
+            </nav>
+          {% else %}
+            <nav class="primary-sidebar-nav" aria-label="Platform navigation">
+              <a href="/platform" class="primary-sidebar-link active" aria-current="page">
+                <span aria-hidden="true">◆</span>
+                <strong>Platform</strong>
+              </a>
+            </nav>
+          {% endif %}
+
+          <div class="primary-sidebar-user">
+            <details class="user-menu sidebar-user-menu">
+              <summary class="user-menu-trigger">
+                <span class="user-menu-name">{{ user.name or user.email }}</span>
+                <span class="user-menu-org">{{ 'BidLens Platform' if platform_mode else user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else user.organization.name if user.organization else 'Workspace' }}</span>
+              </summary>
+              <div class="user-menu-panel">
+                <div class="user-menu-header">
+                  <strong>{{ user.name or user.email }}</strong>
+                  <span>{{ 'BidLens Platform' if platform_mode else user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else user.organization.name if user.organization else 'Workspace' }}</span>
+                </div>
+                {% if not platform_mode %}
+                  <a href="/my-settings{{ nav_org_q }}" class="{{ 'active' if active_page == 'my_settings' else '' }}">My Settings</a>
                 {% endif %}
-            </div>
-        </div>
-    </nav>
-    <main>
+                {% if is_platform_owner %}
+                  <a href="/platform" class="{{ 'active' if active_page == 'platform' else '' }}">Platform</a>
+                {% endif %}
+                <a href="/logout">Logout</a>
+              </div>
+            </details>
+          </div>
+        </aside>
+      {% endif %}
+      <main>
       {% set show_work_sidebar = user and active_page == 'feed' %}
       <div class="container layout{% if not show_work_sidebar %} layout--configuration{% endif %}"{% if show_work_sidebar %} data-work-layout{% endif %}>
         <div class="layout-main">
@@ -141,7 +172,8 @@
           </aside>
         {% endif %}
       </div>
-    </main>
+      </main>
+    </div>
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
     <script>

@@ -13,7 +13,7 @@
 
 {{ queue_heading('The Feed', 'Process active opportunities, move the right ones forward, and keep the queue current.', export_url) }}
 {{ queue_search('/', 'feed-search-input', q, sort, direction, none, org_id_param, lane_id, stages_value) }}
-{{ queue_toolbar('/', 'feed', sort, direction, q, none, org_id_param, lane_id, active_lanes, stages_value, none, selected_stages) }}
+{{ queue_toolbar('/', 'feed', sort, direction, q, none, org_id_param, lane_id, active_lanes, stages_value, none, selected_stages, my_lanes) }}
 
 {% if not triage_enabled and user.current_role == 'admin' %}
   {% include "_source_controls.html" %}

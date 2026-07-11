@@ -43,6 +43,74 @@ def _settings_redirect_url(request: Request) -> str:
     return f"/settings?{query}" if query else "/settings"
 
 
+def _org_query(request: Request) -> str:
+    query = str(request.url.query or "").strip()
+    return f"?{query}" if query else ""
+
+
+def _workspace_management_sections(request: Request, organization_id: int) -> list[dict[str, str]]:
+    org_q = _org_query(request)
+    member_q = org_q or f"?org_id={organization_id}"
+    return [
+        {
+            "key": "organization",
+            "label": "Organization",
+            "description": "Manage the organization profile, website, government identifiers, and recent work context.",
+            "url": f"/company-profile{org_q}",
+            "cta": "Open Organization",
+        },
+        {
+            "key": "members",
+            "label": "Workspace Members",
+            "description": "Invite teammates, review pending invitations, and manage active workspace membership.",
+            "url": f"/admin/organizations/{organization_id}/users{member_q}",
+            "cta": "Manage Members",
+        },
+        {
+            "key": "discovery",
+            "label": "Opportunity Discovery",
+            "description": "Configure inbound sources such as SAM.gov, Grants.gov, and GovWin.",
+            "url": f"/connect-sources{org_q}",
+            "cta": "Manage Discovery",
+        },
+        {
+            "key": "business-systems",
+            "label": "Business Systems",
+            "description": "Manage outbound systems such as Salesforce and future CRM destinations.",
+            "url": f"/outbound-integrations{org_q}",
+            "cta": "Manage Systems",
+        },
+        {
+            "key": "lanes",
+            "label": "Pursuit Lanes",
+            "description": "Manage the shared lane taxonomy BidLens uses to organize opportunities.",
+            "url": f"/pursuit-lanes{org_q}",
+            "cta": "Manage Lanes",
+        },
+        {
+            "key": "feed-rules",
+            "label": "Feed Rules",
+            "description": "Configure workspace defaults, triage mode, and digest settings.",
+            "url": f"/settings{org_q}",
+            "cta": "Open Feed Rules",
+        },
+        {
+            "key": "import-history",
+            "label": "Import History",
+            "description": "Review source pulls, manual imports, and operational intake history.",
+            "url": f"/imports/history{org_q}",
+            "cta": "View History",
+        },
+        {
+            "key": "setup-history",
+            "label": "Setup History",
+            "description": "Review setup completion from Home until a dedicated workspace history page exists.",
+            "url": f"/home{org_q}#setup-history",
+            "cta": "View Setup History",
+        },
+    ]
+
+
 @router.get("/my-settings")
 async def my_settings_page(
     request: Request,
@@ -70,9 +138,12 @@ async def administration_page(
     if not _is_admin(user):
         return RedirectResponse(url="/", status_code=303)
 
-    org_query = str(request.url.query or "").strip()
-    suffix = f"?{org_query}" if org_query else ""
-    return RedirectResponse(url=f"/imports/govwin{suffix}", status_code=303)
+    return templates.TemplateResponse("administration.html", {
+        "request": request,
+        "user": user,
+        "active_page": "administration",
+        "sections": _workspace_management_sections(request, _user_org_id(user)),
+    })
 
 
 @router.get("/salesforce")

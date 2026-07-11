@@ -1,118 +1,30 @@
 {% extends "base.html" %}
-{% block title %}Administration - BidLens{% endblock %}
+{% block title %}Workspace Management - BidLens{% endblock %}
 {% block content %}
-<div class="page-header">
-  <h1>Administration</h1>
-  <p class="page-subtitle">Organization-level configuration for {{ user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else user.organization.name if user.organization else 'this workspace' }}.</p>
-</div>
+<div class="workspace-management-shell">
+  <div class="page-header workspace-management-header">
+    <div>
+      <span class="workspace-management-eyebrow">Workspace Management</span>
+      <h1>Workspace Management</h1>
+      <p class="page-subtitle">
+        Manage configuration for {{ user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else user.organization.name if user.organization else 'this workspace' }}.
+      </p>
+    </div>
+  </div>
 
-<div class="admin-settings-layout" data-admin-layout>
-  <nav class="admin-settings-nav" aria-label="Administration sections">
+  <section class="workspace-management-grid" aria-label="Workspace Management destinations">
     {% for section in sections %}
-      <button type="button" class="{{ 'active' if loop.first else '' }}" data-admin-section="{{ section.key }}">
-        <span class="admin-settings-nav-icon" aria-hidden="true">
-          {% if section.key == 'sources' %}↓{% elif section.key == 'history' %}◷{% elif section.key == 'lanes' %}◇{% elif section.key == 'organization' %}▦{% else %}☁{% endif %}
-        </span>
-        <span>{{ section.label }}</span>
-      </button>
+      <article class="workspace-management-card workspace-management-card--{{ section.key }}">
+        <div>
+          <span class="workspace-management-card-icon" aria-hidden="true">
+            {% if section.key == 'organization' %}▦{% elif section.key == 'members' %}◌{% elif section.key == 'discovery' %}↓{% elif section.key == 'business-systems' %}☁{% elif section.key == 'lanes' %}◇{% elif section.key == 'feed-rules' %}✓{% elif section.key == 'import-history' %}◷{% else %}↻{% endif %}
+          </span>
+          <h2>{{ section.label }}</h2>
+          <p>{{ section.description }}</p>
+        </div>
+        <a href="{{ section.url }}" class="btn btn-sm btn-outline-secondary">{{ section.cta }}</a>
+      </article>
     {% endfor %}
-  </nav>
-
-  <section class="admin-settings-panel">
-    <div class="admin-panel-view is-active" data-admin-panel="sources">
-      <div class="admin-settings-panel-header">
-        <h2>Opportunity Sources</h2>
-        <p>Configure and run imports from external sources.</p>
-      </div>
-      <div class="admin-source-list">
-        <div class="admin-source-row">
-          <div>
-            <strong>SAM.gov</strong>
-            <span>Pull opportunities from SAM.gov.</span>
-          </div>
-          <a href="/imports/govwin{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary">Configure</a>
-        </div>
-        <div class="admin-source-row">
-          <div>
-            <strong>Grants.gov</strong>
-            <span>Pull opportunities from Grants.gov.</span>
-          </div>
-          <a href="/imports/govwin{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary">Configure</a>
-        </div>
-        <div class="admin-source-row">
-          <div>
-            <strong>GovWin (Excel Upload)</strong>
-            <span>Upload GovWin exports.</span>
-          </div>
-          <a href="/imports/govwin{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary">Configure</a>
-        </div>
-      </div>
-    </div>
-
-    <div class="admin-panel-view" data-admin-panel="history" hidden>
-      <div class="admin-settings-panel-header">
-        <h2>Pull History</h2>
-        <p>Review recent GovWin, SAM.gov, and Grants.gov source activity.</p>
-      </div>
-      <a href="/imports/history{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-primary">Open Pull History</a>
-    </div>
-
-    <div class="admin-panel-view" data-admin-panel="lanes" hidden>
-      <div class="admin-settings-panel-header">
-        <h2>Pursuit Lanes</h2>
-        <p>Configure organization-level pursuit lanes used by the Feed.</p>
-      </div>
-      <a href="/pursuit-lanes{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-primary">Open Pursuit Lanes</a>
-    </div>
-
-    <div class="admin-panel-view" data-admin-panel="organization" hidden>
-      <div class="admin-settings-panel-header">
-        <h2>Organization</h2>
-        <p>Manage organization feed settings, triage mode, and digest defaults.</p>
-      </div>
-      <a href="/settings{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-primary">Open Organization Settings</a>
-    </div>
-
-    <div class="admin-panel-view" data-admin-panel="salesforce" hidden>
-      <div class="admin-settings-panel-header">
-        <h2>Salesforce</h2>
-        <p>Authorize Salesforce and inspect Opportunity create requirements.</p>
-      </div>
-      <div class="admin-source-list">
-        <div class="admin-source-row">
-          <div>
-            <strong>Salesforce OAuth</strong>
-            <span>Connect BidLens to the configured Salesforce Connected App.</span>
-          </div>
-          <a href="/api/salesforce/oauth/start" class="btn btn-sm btn-outline-secondary">Authorize</a>
-        </div>
-        <div class="admin-source-row">
-          <div>
-            <strong>Opportunity Create Requirements</strong>
-            <span>Inspect required Opportunity fields and StageName values.</span>
-          </div>
-          <a href="/api/salesforce/opportunity-create-requirements" class="btn btn-sm btn-outline-secondary">Inspect</a>
-        </div>
-      </div>
-    </div>
   </section>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-document.querySelectorAll('[data-admin-section]').forEach((button) => {
-  button.addEventListener('click', () => {
-    const key = button.dataset.adminSection;
-    document.querySelectorAll('[data-admin-section]').forEach((item) => {
-      item.classList.toggle('active', item === button);
-    });
-    document.querySelectorAll('[data-admin-panel]').forEach((panel) => {
-      const isActive = panel.dataset.adminPanel === key;
-      panel.hidden = !isActive;
-      panel.classList.toggle('is-active', isActive);
-    });
-  });
-});
-</script>
 {% endblock %}

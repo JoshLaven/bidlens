@@ -125,7 +125,7 @@
   </script>
 {% endmacro %}
 
-{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none) %}
+{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none, my_lanes=none) %}
   <div class="queue-toolbar" aria-label="Queue organization controls">
     {% if selected_stages is not none %}
       {{ stage_filter_chips(route, selected_stages, stages_value, sort, direction, q, org_id, lane_id, sources_value) }}
@@ -166,13 +166,31 @@
     </form>
   </div>
 
-  {% if active_lanes %}
+  {% if active_lanes or my_lanes %}
+    {% set my_lane_ids = my_lanes|map(attribute='id')|list if my_lanes else [] %}
     <div class="queue-lane-row" aria-label="Pursuit lane filter">
-      <span class="feed-toolbar-label">Lane</span>
-      <a href="{{ route }}?{% if current_tab %}tab={{ current_tab }}&{% endif %}sort={{ sort }}&direction={{ direction }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}{% if stages_value is not none %}&stages={{ stages_value }}{% endif %}" class="btn btn-sm {{ 'btn-primary' if not lane_id else 'btn-outline-secondary' }}">All</a>
-      {% for lane in active_lanes %}
-        <a href="{{ route }}?{% if current_tab %}tab={{ current_tab }}&{% endif %}sort={{ sort }}&direction={{ direction }}&lane_id={{ lane.id }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}{% if stages_value is not none %}&stages={{ stages_value }}{% endif %}" class="btn btn-sm {{ 'btn-primary' if lane_id == lane.id else 'btn-outline-secondary' }}">{{ lane.name }}</a>
-      {% endfor %}
+      <div class="queue-lane-group">
+        <span class="feed-toolbar-label">Feed</span>
+        <a href="{{ route }}?{% if current_tab %}tab={{ current_tab }}&{% endif %}sort={{ sort }}&direction={{ direction }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}{% if stages_value is not none %}&stages={{ stages_value }}{% endif %}{% if sources_value is not none %}&sources={{ sources_value }}{% endif %}" class="btn btn-sm {{ 'btn-primary' if not lane_id else 'btn-outline-secondary' }}">All Opportunities</a>
+      </div>
+      {% if my_lanes %}
+        <div class="queue-lane-group">
+          <span class="feed-toolbar-label">My Lanes</span>
+          {% for lane in my_lanes %}
+            <a href="{{ route }}?{% if current_tab %}tab={{ current_tab }}&{% endif %}sort={{ sort }}&direction={{ direction }}&lane_id={{ lane.id }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}{% if stages_value is not none %}&stages={{ stages_value }}{% endif %}{% if sources_value is not none %}&sources={{ sources_value }}{% endif %}" class="btn btn-sm queue-lane-shortcut {{ 'btn-primary' if lane_id == lane.id else 'btn-outline-secondary' }}"><span aria-hidden="true">★</span>{{ lane.name }}</a>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% if active_lanes %}
+        <div class="queue-lane-group">
+          <span class="feed-toolbar-label">All Lanes</span>
+          {% for lane in active_lanes %}
+            {% if lane.id not in my_lane_ids %}
+              <a href="{{ route }}?{% if current_tab %}tab={{ current_tab }}&{% endif %}sort={{ sort }}&direction={{ direction }}&lane_id={{ lane.id }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}{% if stages_value is not none %}&stages={{ stages_value }}{% endif %}{% if sources_value is not none %}&sources={{ sources_value }}{% endif %}" class="btn btn-sm {{ 'btn-primary' if lane_id == lane.id else 'btn-outline-secondary' }}">{{ lane.name }}</a>
+            {% endif %}
+          {% endfor %}
+        </div>
+      {% endif %}
     </div>
   {% endif %}
 {% endmacro %}

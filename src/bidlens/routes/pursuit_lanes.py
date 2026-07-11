@@ -7,7 +7,13 @@ from sqlalchemy.orm import Session
 from ..auth import attach_request_user_context, get_current_user
 from ..database import get_db
 from ..models import OrganizationMembership, OpportunityPursuitLaneMatch, PursuitLane, User
-from ..services.pursuit_lanes import parse_list, refresh_lane_matches, refresh_org_lane_matches
+from ..services.pursuit_lanes import (
+    parse_list,
+    refresh_lane_matches,
+    refresh_org_lane_matches,
+    set_user_my_lanes,
+    user_my_lanes,
+)
 from .opportunities import get_sidebar
 
 router = APIRouter()
@@ -74,6 +80,8 @@ async def pursuit_lanes_page(request: Request, db: Session = Depends(get_db)):
             .all()
         )
     }
+    my_lanes = user_my_lanes(db, organization_id=org_id, user_id=user.id)
+    my_lane_ids = {lane.id for lane in my_lanes}
 
     return templates.TemplateResponse(
         "pursuit_lanes.html",
@@ -82,6 +90,8 @@ async def pursuit_lanes_page(request: Request, db: Session = Depends(get_db)):
             "user": user,
             "lanes": lanes,
             "match_counts": match_counts,
+            "my_lanes": my_lanes,
+            "my_lane_ids": my_lane_ids,
             "can_manage_lanes": _can_manage_lanes(db, user),
             "active_page": "pursuit_lanes",
             "sidebar": get_sidebar(db, user),
@@ -167,6 +177,28 @@ async def update_pursuit_lane(
     lane.set_asides = parse_list(set_asides)
     lane.is_active = bool(is_active)
     refresh_lane_matches(db, org_id, lane)
+    db.commit()
+    return _redirect(request)
+
+
+@router.post("/pursuit-lanes/my-lanes")
+async def update_my_lanes(
+    request: Request,
+    lane_ids: list[int] = Form(default=[]),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    if not _can_manage_lanes(db, user):
+        return _redirect(request)
+
+    set_user_my_lanes(
+        db,
+        organization_id=_user_org_id(user),
+        user_id=user.id,
+        lane_ids=lane_ids,
+    )
     db.commit()
     return _redirect(request)
 

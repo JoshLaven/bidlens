@@ -1,27 +1,24 @@
 {% extends "base.html" %}
-{% block title %}Organization Identity - BidLens{% endblock %}
+{% block title %}Organization - BidLens{% endblock %}
 
 {% block content %}
-<div class="company-profile-shell">
-  <header class="company-profile-hero">
+<div class="company-profile-shell company-profile-shell--compact">
+  <header class="company-profile-hero company-profile-hero--compact">
     <div>
-      <span class="company-profile-eyebrow">Organization identity</span>
-      <h1>Who is this organization?</h1>
-      <p>
-        Keep the canonical identity record for this organization. BidLens can learn
-        capabilities and patterns over time; this page only captures facts it cannot reliably infer.
-      </p>
+      <span class="company-profile-eyebrow">Organization Setup</span>
+      <h1>Organization</h1>
+      <p>Configure the facts BidLens should use when matching, enriching, and routing opportunities.</p>
     </div>
     {% if profile %}
-      <div class="company-profile-status-card">
-        <span>Last updated</span>
-        <strong>{{ profile.updated_at.strftime("%b %d, %Y") if profile.updated_at else "Today" }}</strong>
+      <div class="company-profile-status-card company-profile-status-card--compact">
+        <span>Updated</span>
+        <strong>{{ profile.updated_at.strftime("%b %d") if profile.updated_at else "Today" }}</strong>
       </div>
     {% endif %}
   </header>
 
   {% if saved %}
-    <div class="alert alert-success">Organization Identity saved.</div>
+    <div class="alert alert-success">Organization saved. BidLens updated this workspace context.</div>
   {% endif %}
   {% if duplicate_cleanup_count %}
     <div class="alert alert-warning">
@@ -29,102 +26,165 @@
     </div>
   {% endif %}
 
-  <form method="POST" action="/company-profile" class="company-profile-form">
-    <section class="company-profile-card-simple company-profile-card-simple--anchor">
-      <div class="company-profile-section-heading">
-        <div>
-          <span>Identity</span>
-          <h2>Organization</h2>
-        </div>
-        <p>This organization was created when your BidLens workspace was provisioned.</p>
+  <section class="company-profile-card-simple company-profile-card-simple--compact">
+    <div class="company-profile-section-heading company-profile-section-heading--compact">
+      <div>
+        <span>Current state</span>
+        <h2>Company Profile</h2>
       </div>
-
-      <div class="company-profile-org-anchor">
-        <span>Organization</span>
-        <strong>{{ profile_form.organization_name }}</strong>
-      </div>
-    </section>
-
-    <section class="company-profile-card-simple">
-      <div class="company-profile-section-heading">
-        <div class="form-group">
-          <span>Editable information</span>
-          <h2>Website</h2>
-        </div>
-        <p>Optional public website for this organization.</p>
-      </div>
-
-      <div class="form-group">
-        <label for="website_url">Website</label>
-        <input
-          id="website_url"
-          name="website_url"
-          type="url"
-          value="{{ profile_form.website_url }}"
-          placeholder="https://example.com"
-        >
-      </div>
-    </section>
-
-    <section class="company-profile-card-simple">
-      <div class="company-profile-section-heading">
-        <div>
-          <span>Recommended for federal work</span>
-          <h2>Federal Identifiers</h2>
-        </div>
-        <p>Optional, but recommended for organizations pursuing federal opportunities.</p>
-      </div>
-      <div class="company-profile-form-grid company-profile-form-grid--three">
-        <div class="form-group">
-          <label for="uei">UEI</label>
-          <input
-            id="uei"
-            name="uei"
-            type="text"
-            value="{{ profile_form.uei }}"
-            placeholder="ABCDEFGHIJKL"
-          >
-        </div>
-        <div class="form-group">
-          <label for="cage_code">CAGE</label>
-          <input
-            id="cage_code"
-            name="cage_code"
-            type="text"
-            value="{{ profile_form.cage_code }}"
-            placeholder="1ABCD"
-          >
-        </div>
-        <div class="form-group">
-          <label for="duns">DUNS</label>
-          <input
-            id="duns"
-            name="duns"
-            type="text"
-            value="{{ profile_form.duns }}"
-            placeholder="123456789"
-          >
-        </div>
-      </div>
-    </section>
-
-    <section class="company-profile-card-simple company-profile-card-simple--muted">
-      <div class="company-profile-section-heading">
-        <div>
-          <span>Future enhancement</span>
-          <h2>Recent Work</h2>
-        </div>
-        <p>Coming soon: five most recent federal awards from USASpending.</p>
-      </div>
-      <p class="company-profile-placeholder">
-        Coming Soon. Recent Work will be read-only organizational context, not something edited or configured here.
-      </p>
-    </section>
-
-    <div class="company-profile-actions">
-      <button type="submit" class="btn btn-primary">Save Organization Identity</button>
-      <a href="/home{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-outline-secondary">Back to Home</a>
+      <p>Show current values first, then edit only what needs to change.</p>
     </div>
-  </form>
+
+    <div class="company-profile-config-list company-profile-config-list--compact">
+      <div class="company-profile-setting-row">
+        <div>
+          <span>Organization Name</span>
+          <strong>{{ profile_form.organization_name }}</strong>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Organization name editing is handled outside this setup page.">Edit</button>
+      </div>
+
+      <details class="company-profile-setting-row company-profile-setting-row--editable">
+        <summary>
+          <div>
+            <span>Website</span>
+            <strong>{{ profile_form.website_url or 'Not set' }}</strong>
+          </div>
+          <span class="btn btn-sm btn-outline-secondary">Edit</span>
+        </summary>
+        <form method="POST" action="/company-profile{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="company-profile-inline-form company-profile-inline-form--compact">
+          <input type="hidden" name="uei" value="{{ profile_form.uei }}">
+          <input type="hidden" name="cage_code" value="{{ profile_form.cage_code }}">
+          <input type="hidden" name="duns" value="{{ profile_form.duns }}">
+          <div class="form-group">
+            <label for="website_url">Website</label>
+            <input id="website_url" name="website_url" type="url" value="{{ profile_form.website_url }}" placeholder="https://example.com">
+          </div>
+          <div class="company-profile-actions">
+            <button type="submit" class="btn btn-primary">Save Website</button>
+          </div>
+        </form>
+      </details>
+    </div>
+  </section>
+
+  <section class="company-profile-card-simple company-profile-card-simple--compact">
+    <div class="company-profile-section-heading company-profile-section-heading--compact">
+      <div>
+        <span>Federal context</span>
+        <h2>Government Identifiers</h2>
+      </div>
+      <p>UEI, CAGE, and DUNS are configured together, but each value can be edited independently.</p>
+    </div>
+
+    <div class="company-profile-config-list company-profile-config-list--compact">
+      <details class="company-profile-setting-row company-profile-setting-row--editable">
+        <summary>
+          <div>
+            <span>UEI</span>
+            <strong>{{ profile_form.uei or 'Not set' }}</strong>
+          </div>
+          <span class="btn btn-sm btn-outline-secondary">Edit</span>
+        </summary>
+        <form method="POST" action="/company-profile{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="company-profile-inline-form company-profile-inline-form--compact">
+          <input type="hidden" name="website_url" value="{{ profile_form.website_url }}">
+          <input type="hidden" name="cage_code" value="{{ profile_form.cage_code }}">
+          <input type="hidden" name="duns" value="{{ profile_form.duns }}">
+          <div class="company-profile-inline-grid">
+            <div class="form-group">
+              <label for="uei">UEI</label>
+              <input id="uei" name="uei" type="text" value="{{ profile_form.uei }}" placeholder="ABCDEFGHIJKL">
+            </div>
+            <button type="submit" class="btn btn-primary">Save UEI</button>
+          </div>
+        </form>
+      </details>
+
+      <details class="company-profile-setting-row company-profile-setting-row--editable">
+        <summary>
+          <div>
+            <span>CAGE</span>
+            <strong>{{ profile_form.cage_code or 'Not set' }}</strong>
+          </div>
+          <span class="btn btn-sm btn-outline-secondary">Edit</span>
+        </summary>
+        <form method="POST" action="/company-profile{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="company-profile-inline-form company-profile-inline-form--compact">
+          <input type="hidden" name="website_url" value="{{ profile_form.website_url }}">
+          <input type="hidden" name="uei" value="{{ profile_form.uei }}">
+          <input type="hidden" name="duns" value="{{ profile_form.duns }}">
+          <div class="company-profile-inline-grid">
+            <div class="form-group">
+              <label for="cage_code">CAGE</label>
+              <input id="cage_code" name="cage_code" type="text" value="{{ profile_form.cage_code }}" placeholder="1ABCD">
+            </div>
+            <button type="submit" class="btn btn-primary">Save CAGE</button>
+          </div>
+        </form>
+      </details>
+
+      <details class="company-profile-setting-row company-profile-setting-row--editable">
+        <summary>
+          <div>
+            <span>DUNS</span>
+            <strong>{{ profile_form.duns or 'Not set' }}</strong>
+          </div>
+          <span class="btn btn-sm btn-outline-secondary">Edit</span>
+        </summary>
+        <form method="POST" action="/company-profile{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="company-profile-inline-form company-profile-inline-form--compact">
+          <input type="hidden" name="website_url" value="{{ profile_form.website_url }}">
+          <input type="hidden" name="uei" value="{{ profile_form.uei }}">
+          <input type="hidden" name="cage_code" value="{{ profile_form.cage_code }}">
+          <div class="company-profile-inline-grid">
+            <div class="form-group">
+              <label for="duns">DUNS</label>
+              <input id="duns" name="duns" type="text" value="{{ profile_form.duns }}" placeholder="123456789">
+            </div>
+            <button type="submit" class="btn btn-primary">Save DUNS</button>
+          </div>
+        </form>
+      </details>
+    </div>
+  </section>
+
+  <section class="company-profile-card-simple company-profile-card-simple--compact">
+    <div class="company-profile-section-heading company-profile-section-heading--compact">
+      <div>
+        <span>Enrichment</span>
+        <h2>Recent Work</h2>
+      </div>
+      <p>BidLens uses identifiers above to attach public award context when available.</p>
+    </div>
+
+    {% if recent_work.awards %}
+      <div class="company-profile-work-list">
+        {% for award in recent_work.awards %}
+          <div class="company-profile-work-row">
+            <strong>{{ award.title }}</strong>
+            <span>{{ award.agency or 'Agency unavailable' }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% elif recent_work.identifiers %}
+      <div class="company-profile-enrichment-ready company-profile-enrichment-ready--compact">
+        <div>
+          <strong>Ready to enrich recent work</strong>
+          <span>BidLens has the identifiers it needs when matching award data is available.</span>
+        </div>
+        <div class="company-profile-identifier-pills">
+          {% for identifier in recent_work.identifiers %}
+            <span>{{ identifier.label }} {{ identifier.value }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    {% else %}
+      <p class="company-profile-placeholder">
+        Add UEI, CAGE, or DUNS to let BidLens connect public award context to this workspace.
+      </p>
+    {% endif %}
+  </section>
+
+  <div class="company-profile-actions company-profile-actions--footer">
+    <a href="/home{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-outline-secondary">Back to Organization Setup</a>
+  </div>
 </div>
 {% endblock %}

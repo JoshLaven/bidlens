@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from bidlens.database import Base
 from bidlens.models import (
     CompanyProfile,
+    DailySnapshot,
     Event,
     IngestionRun,
     Opportunity,
@@ -18,6 +19,7 @@ from bidlens.models import (
     PursuitLane,
     SamSourceConfig,
     User,
+    Workspace,
 )
 from bidlens.routes.home import go_live
 from bidlens.services.home import get_home_context
@@ -111,7 +113,7 @@ class HomeContextTests(unittest.TestCase):
         self.assertIsNone(context["operational_home_context"])
         self.assertEqual(context["workspace_summary"]["headline"], "Welcome to BidLens.")
         self.assertIn("Organization created", [item["title"] for item in context["completed"]])
-        self.assertEqual(steps["company-profile"]["title"], "Complete Organization Identity")
+        self.assertEqual(steps["company-profile"]["title"], "Configure Organization")
         self.assertEqual(steps["opportunity-source"]["title"], "Enable Opportunity Discovery")
         self.assertEqual(steps["business-systems"]["title"], "Connect Business Systems")
 
@@ -174,6 +176,39 @@ class HomeContextTests(unittest.TestCase):
         self.assertEqual(
             context["operational_home_context"]["operational_snapshot"]["opportunities_awaiting_review"],
             1,
+        )
+
+    def test_home_context_loads_stored_daily_snapshot_for_today(self):
+        workspace = Workspace(
+            organization_id=self.org.id,
+            name="Home Workspace",
+            slug="home-workspace",
+        )
+        self.db.add(workspace)
+        self.db.flush()
+        self.db.add(DailySnapshot(
+            workspace_id=workspace.id,
+            user_id=self.admin.id,
+            snapshot_date=self.now.date(),
+            status="completed",
+            snapshot_json={
+                "new_opportunities": [{"title": "Stored new opportunity", "agency": "Agency"}],
+                "updated_opportunities": [],
+                "upcoming_deadlines": [],
+                "interested_activity": [],
+                "team_activity": [],
+                "shortlist_changes": [],
+            },
+        ))
+        self.db.commit()
+
+        context = self._context()
+
+        self.assertIsNotNone(context["daily_snapshot"])
+        self.assertEqual(context["daily_snapshot"]["snapshot_date"], self.now.date())
+        self.assertEqual(
+            context["daily_snapshot"]["sections"]["new_opportunities"][0]["title"],
+            "Stored new opportunity",
         )
 
     def test_go_live_route_sets_org_live_and_records_event(self):

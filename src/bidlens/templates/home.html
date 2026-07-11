@@ -25,6 +25,90 @@
     {% endif %}
   </header>
 
+  {% if request.query_params.get('profile_saved') %}
+    <div class="alert alert-success">
+      Organization updated. BidLens will use those identifiers to enrich Recent Work when matching award data is available.
+    </div>
+  {% endif %}
+
+  {% if home.daily_snapshot %}
+    {% set daily_snapshot = home.daily_snapshot %}
+    {% set sections = daily_snapshot.sections %}
+    <section class="home-section home-daily-snapshot" aria-labelledby="daily-snapshot-heading">
+      <div class="home-section-heading">
+        <div>
+          <span>Daily Snapshot</span>
+          <h2 id="daily-snapshot-heading">Daily Snapshot</h2>
+        </div>
+        <p>Stored factual activity for {{ daily_snapshot.snapshot_date.strftime("%b %d, %Y") }}.</p>
+      </div>
+
+      <div class="home-daily-snapshot-grid">
+        <article>
+          <h3>New Opportunities</h3>
+          <ul>
+            {% for item in sections.new_opportunities %}
+              <li>{{ item.title }}{% if item.agency %} · {{ item.agency }}{% endif %}</li>
+            {% else %}
+              <li>No new opportunities yesterday.</li>
+            {% endfor %}
+          </ul>
+        </article>
+        <article>
+          <h3>Updated Opportunities</h3>
+          <ul>
+            {% for item in sections.updated_opportunities %}
+              <li>{{ item.opportunity.title }}{% if item.changed_fields %} · {{ item.changed_fields|list|join(', ') }}{% endif %}</li>
+            {% else %}
+              <li>No updated opportunities yesterday.</li>
+            {% endfor %}
+          </ul>
+        </article>
+        <article>
+          <h3>Upcoming Deadlines</h3>
+          <ul>
+            {% for item in sections.upcoming_deadlines %}
+              <li>{{ item.title }}{% if item.response_deadline %} · due {{ item.response_deadline }}{% endif %}</li>
+            {% else %}
+              <li>No upcoming deadlines in the next 7 days.</li>
+            {% endfor %}
+          </ul>
+        </article>
+        <article>
+          <h3>Interested Activity</h3>
+          <ul>
+            {% for item in sections.interested_activity %}
+              {% set actor = item.user.name or item.user.email if item.user else 'Someone' %}
+              <li>{{ actor }} · {{ item.opportunity.title }}</li>
+            {% else %}
+              <li>No new interested activity yesterday.</li>
+            {% endfor %}
+          </ul>
+        </article>
+        <article>
+          <h3>Shortlist Changes</h3>
+          <ul>
+            {% for item in sections.shortlist_changes %}
+              <li>{{ item.opportunity.title }} · {{ item.from or 'None' }} to {{ item.to or 'None' }}</li>
+            {% else %}
+              <li>No shortlist changes yesterday.</li>
+            {% endfor %}
+          </ul>
+        </article>
+        <article>
+          <h3>Connector Issues</h3>
+          <ul>
+            {% for item in sections.connector_issues %}
+              <li>{{ item.source_label }} · {{ item.status }}{% if item.notes %} · {{ item.notes }}{% endif %}</li>
+            {% else %}
+              <li>No connector issues detected.</li>
+            {% endfor %}
+          </ul>
+        </article>
+      </div>
+    </section>
+  {% endif %}
+
   {% macro operational_snapshot() %}
     <section class="home-section" aria-labelledby="operational-snapshot-heading">
       <div class="home-section-heading">

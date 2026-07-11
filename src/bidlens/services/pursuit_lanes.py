@@ -4,7 +4,7 @@ import re
 
 from sqlalchemy.orm import Session
 
-from ..models import Opportunity, OpportunityPursuitLaneMatch, PursuitLane
+from ..models import Opportunity, OpportunityPursuitLaneMatch, PursuitLane, PursuitLaneAssignment
 
 
 def parse_list(value: str | list | None) -> list[str]:
@@ -142,3 +142,53 @@ def refresh_org_lane_matches(db: Session, organization_id: int) -> int:
     for lane in lanes:
         total += refresh_lane_matches(db, organization_id, lane)
     return total
+
+
+def user_my_lanes(db: Session, *, organization_id: int, user_id: int) -> list[PursuitLane]:
+    return (
+        db.query(PursuitLane)
+        .join(PursuitLaneAssignment, PursuitLaneAssignment.pursuit_lane_id == PursuitLane.id)
+        .filter(
+            PursuitLaneAssignment.organization_id == organization_id,
+            PursuitLaneAssignment.user_id == user_id,
+            PursuitLane.organization_id == organization_id,
+            PursuitLane.is_active.is_(True),
+        )
+        .order_by(PursuitLane.name.asc())
+        .all()
+    )
+
+
+def set_user_my_lanes(
+    db: Session,
+    *,
+    organization_id: int,
+    user_id: int,
+    lane_ids: list[int],
+) -> int:
+    valid_lane_ids = {
+        lane_id
+        for (lane_id,) in (
+            db.query(PursuitLane.id)
+            .filter(
+                PursuitLane.organization_id == organization_id,
+                PursuitLane.is_active.is_(True),
+                PursuitLane.id.in_(lane_ids or [-1]),
+            )
+            .all()
+        )
+    }
+    db.query(PursuitLaneAssignment).filter(
+        PursuitLaneAssignment.organization_id == organization_id,
+        PursuitLaneAssignment.user_id == user_id,
+    ).delete(synchronize_session=False)
+
+    for lane_id in sorted(valid_lane_ids):
+        db.add(
+            PursuitLaneAssignment(
+                organization_id=organization_id,
+                pursuit_lane_id=lane_id,
+                user_id=user_id,
+            )
+        )
+    return len(valid_lane_ids)
