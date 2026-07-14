@@ -17,7 +17,6 @@ from ..models import (
     User,
     UserOpportunity,
     OpportunityStatus,
-    OrgProfile,
     OpportunityNote,
     OpportunityHistoryEvent,
     OrganizationMembership,
@@ -29,6 +28,12 @@ from ..services.opportunity_stages import (
     DISPLAY_STAGES,
     RFI_TYPE_INDICATORS,
     normalize_display_stage,
+)
+from ..services.feed_queries import (
+    apply_org_feed_filters,
+    build_feed_query,
+    exclude_past_due_opportunities,
+    feed_awaiting_review_query,
 )
 from ..services.pursuit_lanes import user_my_lanes
 from ..services.platform import pre_live_admin_setup_url
@@ -94,13 +99,6 @@ def _is_url_like(value):
     return s.startswith("http://") or s.startswith("https://") or s.startswith("www.")
 
 
-def _parse_csv(text: str | None) -> list[str]:
-    """Split comma-separated OrgProfile field into a cleaned list."""
-    if not text:
-        return []
-    return [s.strip() for s in text.split(",") if s.strip()]
-
-
 def _normalize_brief_section_items(value) -> list[str]:
     if value is None:
         return []
@@ -141,39 +139,7 @@ def _build_brief_sections(brief: dict | None) -> list[dict]:
 
 def apply_org_filters(query, db: Session, user):
     """Apply OrgProfile keyword/agency/deadline filters to an Opportunity query."""
-    profile = db.query(OrgProfile).filter(OrgProfile.org_id == _user_org_id(user)).first()
-    if not profile:
-        return query
-
-    include_kw = _parse_csv(profile.include_keywords)
-    exclude_kw = _parse_csv(profile.exclude_keywords)
-
-    if include_kw:
-        conditions = [Opportunity.title.ilike(f"%{kw}%") for kw in include_kw]
-        query = query.filter(or_(*conditions))
-
-    if exclude_kw:
-        for kw in exclude_kw:
-            query = query.filter(~Opportunity.title.ilike(f"%{kw}%"))
-
-    include_ag = _parse_csv(profile.include_agencies)
-    exclude_ag = _parse_csv(profile.exclude_agencies)
-
-    if include_ag:
-        conditions = [Opportunity.agency.ilike(f"%{ag}%") for ag in include_ag]
-        query = query.filter(or_(*conditions))
-
-    if exclude_ag:
-        for ag in exclude_ag:
-            query = query.filter(~Opportunity.agency.ilike(f"%{ag}%"))
-
-    today = date.today()
-    if profile.min_days_out is not None:
-        query = query.filter(Opportunity.response_deadline >= today + timedelta(days=profile.min_days_out))
-    if profile.max_days_out is not None:
-        query = query.filter(Opportunity.response_deadline <= today + timedelta(days=profile.max_days_out))
-
-    return query
+    return apply_org_feed_filters(query, db, organization_id=_user_org_id(user))
 
 
 def require_user(request: Request, db: Session):
@@ -744,41 +710,11 @@ def _feed_query(db: Session, user, tab: str | None = None):
     ``tab`` remains accepted for legacy callers and URLs, but opportunity type
     is descriptive metadata rather than a Feed partition.
     """
-    q = (
-        db.query(Opportunity, UserOpportunity.watched.label("watched"))
-        .outerjoin(
-            UserOpportunity,
-            and_(
-                UserOpportunity.opportunity_id == Opportunity.id,
-                UserOpportunity.user_id == user.id,
-                UserOpportunity.organization_id == _user_org_id(user),
-            ),
-        )
-        .filter(Opportunity.organization_id == _user_org_id(user))
-        .filter(Opportunity.decision_state != "ARCHIVED")
-        .filter(Opportunity.qualification_status == QUALIFICATION_QUALIFIED)
+    return build_feed_query(
+        db,
+        organization_id=_user_org_id(user),
+        user_id=user.id,
     )
-    interested_opp_ids = (
-        select(Vote.opp_id)
-        .where(
-            Vote.org_id == _user_org_id(user),
-            Vote.user_id == user.id,
-            Vote.vote == "PURSUE",
-        )
-    )
-    q = q.filter(~Opportunity.id.in_(interested_opp_ids))
-
-    archived_opp_ids = (
-        select(Vote.opp_id)
-        .where(
-            Vote.org_id == _user_org_id(user),
-            Vote.user_id == user.id,
-            Vote.vote == "PASS",
-        )
-    )
-    q = q.filter(~Opportunity.id.in_(archived_opp_ids))
-
-    return _exclude_inactive_govwin_stages(q)
 
 
 def _user_archive_query(db: Session, user, tab: str):
@@ -1125,15 +1061,7 @@ def _clean_preview_text(value: str | None) -> str:
 
 
 def _apply_past_due_filter(query, *, show_past_due: str = ""):
-    if show_past_due == "1":
-        return query
-    today = date.today()
-    return query.filter(
-        or_(
-            Opportunity.response_deadline.is_(None),
-            Opportunity.response_deadline >= today,
-        )
-    )
+    return exclude_past_due_opportunities(query, show_past_due=show_past_due)
 
 
 def _active_lanes(db: Session, user) -> list[PursuitLane]:
@@ -1402,11 +1330,13 @@ async def feed(
     selected_direction = _normalize_sort_direction(direction)
     # Legacy date/pass parameters remain accepted for old links, but the Feed
     # always represents the current user's active queue.
-    query = _feed_query(db, user)
-    query = apply_org_filters(query, db, user)
+    query = feed_awaiting_review_query(
+        db,
+        organization_id=_user_org_id(user),
+        user_id=user.id,
+    )
     query = _apply_lane_filter(query, db, user, lane_id=lane_id)
     query = _apply_feed_search(query, search_term=search_query)
-    query = _apply_past_due_filter(query)
     selected_stages = _normalize_stage_filters(
         stages if stages is not None else ([stage] if stage and stage != "All" else None)
     )

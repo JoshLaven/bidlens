@@ -25,6 +25,7 @@ from bidlens.models import (
 )
 from bidlens.routes.home import go_live, home_page, organization_setup_page
 from bidlens.routes import opportunities
+from bidlens.services.feed_queries import feed_awaiting_review_query
 from bidlens.services.home import get_daily_brief_home_context, get_home_context
 
 
@@ -86,7 +87,7 @@ class HomeContextTests(unittest.TestCase):
             "agency": "Test Agency",
             "opportunity_type": "Solicitation",
             "posted_date": dt.date(2026, 7, 1),
-            "response_deadline": dt.date(2026, 8, 1),
+            "response_deadline": dt.date.today() + dt.timedelta(days=30),
             "qualification_status": "unreviewed",
             "decision_state": "INBOX",
         }
@@ -221,12 +222,14 @@ class HomeContextTests(unittest.TestCase):
             title="Live feed opportunity one",
             qualification_status="qualified",
             decision_state="INBOX",
+            response_deadline=dt.date.today() + dt.timedelta(days=30),
         )
         self._opportunity(
             source_record_id="LIVE-FEED-2",
             title="Live feed opportunity two",
             qualification_status="qualified",
             decision_state="INBOX",
+            response_deadline=dt.date.today() + dt.timedelta(days=31),
         )
         workspace = Workspace(
             organization_id=self.org.id,
@@ -298,12 +301,14 @@ class HomeContextTests(unittest.TestCase):
             title="First live opportunity",
             qualification_status="qualified",
             decision_state="INBOX",
+            response_deadline=dt.date.today() + dt.timedelta(days=30),
         )
         second = self._opportunity(
             source_record_id="LIVE-REVIEW-2",
             title="Second live opportunity",
             qualification_status="qualified",
             decision_state="INBOX",
+            response_deadline=dt.date.today() + dt.timedelta(days=31),
         )
         workspace = Workspace(
             organization_id=self.org.id,
@@ -387,6 +392,110 @@ class HomeContextTests(unittest.TestCase):
         self.assertEqual(before["brief_points"], after_cleared["brief_points"])
         self.assertEqual(before["sections"], after_one_review["sections"])
         self.assertEqual(before["sections"], after_cleared["sections"])
+
+    def test_daily_brief_feed_count_matches_default_feed_eligibility(self):
+        today = dt.date.today()
+        included_future = self._opportunity(
+            source_record_id="COUNT-FUTURE",
+            title="Future opportunity",
+            qualification_status="qualified",
+            decision_state="INBOX",
+            response_deadline=today + dt.timedelta(days=14),
+        )
+        included_today = self._opportunity(
+            source_record_id="COUNT-TODAY",
+            title="Due today opportunity",
+            qualification_status="qualified",
+            decision_state="INBOX",
+            response_deadline=today,
+        )
+        self._opportunity(
+            source_record_id="COUNT-PAST",
+            title="Past due opportunity",
+            qualification_status="qualified",
+            decision_state="INBOX",
+            response_deadline=today - dt.timedelta(days=1),
+        )
+        pursued = self._opportunity(
+            source_record_id="COUNT-PURSUE",
+            title="Pursued opportunity",
+            qualification_status="qualified",
+            decision_state="INBOX",
+            response_deadline=today + dt.timedelta(days=14),
+        )
+        passed = self._opportunity(
+            source_record_id="COUNT-PASS",
+            title="Passed opportunity",
+            qualification_status="qualified",
+            decision_state="INBOX",
+            response_deadline=today + dt.timedelta(days=14),
+        )
+        self._opportunity(
+            source_record_id="COUNT-ARCHIVED",
+            title="Archived opportunity",
+            qualification_status="qualified",
+            decision_state="ARCHIVED",
+            response_deadline=today + dt.timedelta(days=14),
+        )
+        self._opportunity(
+            source_record_id="COUNT-UNQUALIFIED",
+            title="Unqualified opportunity",
+            qualification_status="rejected",
+            decision_state="INBOX",
+            response_deadline=today + dt.timedelta(days=14),
+        )
+        self._opportunity(
+            source="govwin_export",
+            source_record_id="COUNT-GOVWIN-SOURCE-SELECTION",
+            title="Inactive GovWin opportunity",
+            opportunity_type="Source Selection",
+            source_stage="Source Selection",
+            qualification_status="qualified",
+            decision_state="INBOX",
+            response_deadline=today + dt.timedelta(days=14),
+        )
+        workspace = Workspace(
+            organization_id=self.org.id,
+            name="Home Workspace",
+            slug="home-workspace-feed-count",
+        )
+        self.db.add(workspace)
+        self.db.flush()
+        self.db.add_all([
+            Vote(org_id=self.org.id, user_id=self.admin.id, opp_id=pursued.id, vote="PURSUE"),
+            Vote(org_id=self.org.id, user_id=self.admin.id, opp_id=passed.id, vote="PASS"),
+            DailySnapshot(
+                workspace_id=workspace.id,
+                user_id=self.admin.id,
+                snapshot_date=self.now.date(),
+                status="completed",
+                snapshot_json={
+                    "summary": {},
+                    "shortlist_updates": [],
+                    "team_signals": [],
+                    "shortlist_deadlines": [],
+                    "connector_issues": [],
+                },
+            ),
+        ])
+        self.db.commit()
+
+        default_feed_query = feed_awaiting_review_query(
+            self.db,
+            organization_id=self.org.id,
+            user_id=self.admin.id,
+        )
+        default_feed_ids = {opportunity.id for opportunity, _watched in default_feed_query.all()}
+        context = get_daily_brief_home_context(
+            self.db,
+            self.org.id,
+            self.admin.id,
+            now=self.now,
+        )
+
+        self.assertEqual(default_feed_ids, {included_future.id, included_today.id})
+        self.assertEqual(context["feed_review"]["count"], len(default_feed_ids))
+        self.assertEqual(context["feed_review"]["message"], "2 opportunities awaiting review.")
 
     def test_daily_brief_context_distinguishes_missing_snapshot_from_no_activity(self):
         self._opportunity(

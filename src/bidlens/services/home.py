@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlencode
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -19,9 +19,9 @@ from ..models import (
     OrgProfile,
     PursuitLane,
     SamSourceConfig,
-    Vote,
     Workspace,
 )
+from .feed_queries import feed_awaiting_review_query
 from .salesforce import SalesforceService
 
 
@@ -364,36 +364,14 @@ def _feed_awaiting_review_count(
     organization_id: int,
     user_id: int,
 ) -> int:
-    acted_opp_ids = (
-        select(Vote.opp_id)
-        .where(
-            Vote.org_id == organization_id,
-            Vote.user_id == user_id,
-            Vote.vote.in_(("PURSUE", "PASS")),
-        )
-    )
-    source = func.lower(func.coalesce(Opportunity.source, ""))
-    raw_source_stage = func.lower(
-        func.trim(
-            func.coalesce(
-                Opportunity.source_stage,
-                Opportunity.opportunity_type,
-                "",
-            )
-        )
-    )
     return (
-        db.query(func.count(Opportunity.id))
-        .filter(
-            Opportunity.organization_id == organization_id,
-            Opportunity.decision_state != "ARCHIVED",
-            Opportunity.qualification_status == "qualified",
-            ~Opportunity.id.in_(acted_opp_ids),
-            ~and_(
-                source.in_(("govwin_export", "govwin_api")),
-                raw_source_stage == "source selection",
-            ),
+        feed_awaiting_review_query(
+            db,
+            organization_id=organization_id,
+            user_id=user_id,
+            include_watched=False,
         )
+        .with_entities(func.count(Opportunity.id))
         .scalar()
         or 0
     )

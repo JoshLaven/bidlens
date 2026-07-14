@@ -120,15 +120,13 @@ class FeedRouteArchiveTests(unittest.TestCase):
         query.limit.return_value.all.return_value = []
 
         identity_helpers = (
-            "apply_org_filters",
             "_apply_lane_filter",
             "_apply_feed_search",
-            "_apply_past_due_filter",
             "_apply_feed_ordering",
         )
         patches = [
             patch.object(opportunities, "require_user", return_value=user),
-            patch.object(opportunities, "_feed_query", return_value=query),
+            patch.object(opportunities, "feed_awaiting_review_query", return_value=query),
             patch.object(opportunities, "_enrich_opps", return_value=[]),
             patch.object(opportunities, "get_sidebar", return_value={}),
             patch.object(opportunities, "_active_lanes", return_value=[]),
@@ -154,7 +152,11 @@ class FeedRouteArchiveTests(unittest.TestCase):
                 )
             )
 
-        feed_query.assert_called_once_with(db, user)
+        feed_query.assert_called_once_with(
+            db,
+            organization_id=user.organization_id,
+            user_id=user.id,
+        )
 
 
 if __name__ == "__main__":
