@@ -20,6 +20,9 @@ from bidlens.services.daily_snapshot import create_daily_snapshot, get_stored_da
 
 
 SECTION_LABELS = [
+    ("my_shortlist", "My Shortlist"),
+    ("team_signals", "Team Signals"),
+    ("my_lanes", "My Lanes"),
     ("new_opportunities", "New Opportunities"),
     ("updated_opportunities", "Updated Opportunities"),
     ("upcoming_deadlines", "Upcoming Deadlines"),
@@ -49,6 +52,14 @@ def _opportunity_title(item: dict[str, Any]) -> str:
 
 
 def _format_section_item(section_key: str, item: dict[str, Any]) -> str:
+    if section_key in {"my_shortlist", "team_signals", "my_lanes"}:
+        parts = [str(item.get("title") or "Untitled update")]
+        if item.get("subtitle"):
+            parts.append(str(item["subtitle"]))
+        if item.get("destination_url"):
+            parts.append(str(item["destination_url"]))
+        return " · ".join(parts)
+
     if section_key == "new_opportunities":
         parts = [_opportunity_title(item)]
         if item.get("agency"):
@@ -107,10 +118,10 @@ def format_snapshot(snapshot: DailySnapshot) -> str:
         "-" * 32,
     ]
 
-    my_lanes = payload.get("my_lanes") or []
-    lines.extend(["", "My Lanes"])
-    if my_lanes:
-        for lane in my_lanes:
+    my_lane_context = payload.get("my_lane_context") or []
+    lines.extend(["", "My Lane Context"])
+    if my_lane_context:
+        for lane in my_lane_context:
             lines.append(
                 "  - "
                 f"{lane.get('name') or lane.get('id')} · "

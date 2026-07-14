@@ -1,3 +1,5 @@
+from urllib.parse import parse_qsl, urlencode
+
 from fastapi import APIRouter, Request, Form, Depends
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -5,7 +7,9 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..auth import attach_request_user_context, get_current_user
-from ..models import OrgProfile, OrganizationMembership
+from ..models import Event, OrgProfile, OrganizationMembership, PursuitLane
+from ..services.platform import post_setup_completion_url
+from ..services.pursuit_lanes import set_user_my_lanes, user_my_lanes
 
 router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
@@ -43,72 +47,23 @@ def _settings_redirect_url(request: Request) -> str:
     return f"/settings?{query}" if query else "/settings"
 
 
-def _org_query(request: Request) -> str:
-    query = str(request.url.query or "").strip()
-    return f"?{query}" if query else ""
+def _post_settings_save_url(request: Request, db: Session, user) -> str:
+    return post_setup_completion_url(
+        db,
+        user,
+        organization_id=_user_org_id(user),
+        live_url=_settings_redirect_url(request),
+    )
 
 
-def _workspace_management_sections(request: Request, organization_id: int) -> list[dict[str, str]]:
-    org_q = _org_query(request)
-    member_q = org_q or f"?org_id={organization_id}"
-    return [
-        {
-            "key": "organization",
-            "label": "Organization",
-            "description": "Manage the organization profile, website, government identifiers, and recent work context.",
-            "url": f"/company-profile{org_q}",
-            "cta": "Open Organization",
-        },
-        {
-            "key": "members",
-            "label": "Workspace Members",
-            "description": "Invite teammates, review pending invitations, and manage active workspace membership.",
-            "url": f"/admin/organizations/{organization_id}/users{member_q}",
-            "cta": "Manage Members",
-        },
-        {
-            "key": "discovery",
-            "label": "Opportunity Discovery",
-            "description": "Configure inbound sources such as SAM.gov, Grants.gov, and GovWin.",
-            "url": f"/connect-sources{org_q}",
-            "cta": "Manage Discovery",
-        },
-        {
-            "key": "business-systems",
-            "label": "Business Systems",
-            "description": "Manage outbound systems such as Salesforce and future CRM destinations.",
-            "url": f"/outbound-integrations{org_q}",
-            "cta": "Manage Systems",
-        },
-        {
-            "key": "lanes",
-            "label": "Pursuit Lanes",
-            "description": "Manage the shared lane taxonomy BidLens uses to organize opportunities.",
-            "url": f"/pursuit-lanes{org_q}",
-            "cta": "Manage Lanes",
-        },
-        {
-            "key": "feed-rules",
-            "label": "Feed Rules",
-            "description": "Configure workspace defaults, triage mode, and digest settings.",
-            "url": f"/settings{org_q}",
-            "cta": "Open Feed Rules",
-        },
-        {
-            "key": "import-history",
-            "label": "Import History",
-            "description": "Review source pulls, manual imports, and operational intake history.",
-            "url": f"/imports/history{org_q}",
-            "cta": "View History",
-        },
-        {
-            "key": "setup-history",
-            "label": "Setup History",
-            "description": "Review setup completion from Home until a dedicated workspace history page exists.",
-            "url": f"/home{org_q}#setup-history",
-            "cta": "View Setup History",
-        },
+def _my_lanes_redirect_url(request: Request) -> str:
+    params = [
+        (key, value)
+        for key, value in parse_qsl(str(request.url.query or ""), keep_blank_values=False)
+        if key != "saved"
     ]
+    params.append(("saved", "1"))
+    return f"/my-settings/my-lanes?{urlencode(params)}"
 
 
 @router.get("/my-settings")
@@ -127,6 +82,116 @@ async def my_settings_page(
     })
 
 
+def _settings_placeholder_response(request: Request, user, title: str, description: str):
+    return templates.TemplateResponse("my_settings_placeholder.html", {
+        "request": request,
+        "user": user,
+        "title": title,
+        "description": description,
+        "active_page": "my_settings",
+    })
+
+
+@router.get("/my-settings/account")
+async def my_account_settings_page(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    return _settings_placeholder_response(
+        request,
+        user,
+        "Account",
+        "Account preferences will live here in a future settings pass.",
+    )
+
+
+@router.get("/my-settings/notifications")
+async def my_notification_settings_page(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    return _settings_placeholder_response(
+        request,
+        user,
+        "Notifications",
+        "Daily Brief and notification preferences will live here in a future settings pass.",
+    )
+
+
+@router.get("/my-settings/organization")
+async def my_organization_settings_page(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    return _settings_placeholder_response(
+        request,
+        user,
+        "My Organization",
+        "Organization-specific settings are managed by Workspace Admins.",
+    )
+
+
+@router.get("/my-settings/my-lanes")
+async def my_lanes_settings_page(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    org_id = _user_org_id(user)
+    lanes = (
+        db.query(PursuitLane)
+        .filter(
+            PursuitLane.organization_id == org_id,
+            PursuitLane.is_active.is_(True),
+        )
+        .order_by(PursuitLane.name.asc(), PursuitLane.id.asc())
+        .all()
+    )
+    my_lanes = user_my_lanes(db, organization_id=org_id, user_id=user.id)
+    return templates.TemplateResponse("my_lanes_settings.html", {
+        "request": request,
+        "user": user,
+        "lanes": lanes,
+        "my_lanes": my_lanes,
+        "my_lane_ids": {lane.id for lane in my_lanes},
+        "saved": request.query_params.get("saved") == "1",
+        "active_page": "my_settings",
+    })
+
+
+@router.post("/my-settings/my-lanes")
+async def save_my_lanes_settings(
+    request: Request,
+    lane_ids: list[int] = Form(default=[]),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    set_user_my_lanes(
+        db,
+        organization_id=_user_org_id(user),
+        user_id=user.id,
+        lane_ids=lane_ids,
+    )
+    db.commit()
+
+    return RedirectResponse(url=_my_lanes_redirect_url(request), status_code=303)
+
+
 @router.get("/administration")
 async def administration_page(
     request: Request,
@@ -138,12 +203,9 @@ async def administration_page(
     if not _is_admin(user):
         return RedirectResponse(url="/", status_code=303)
 
-    return templates.TemplateResponse("administration.html", {
-        "request": request,
-        "user": user,
-        "active_page": "administration",
-        "sections": _workspace_management_sections(request, _user_org_id(user)),
-    })
+    query = str(request.url.query or "").strip()
+    suffix = f"?{query}" if query else ""
+    return RedirectResponse(url=f"/company-profile{suffix}", status_code=303)
 
 
 @router.get("/salesforce")
@@ -228,6 +290,22 @@ async def settings_save(
     if _is_admin(user):
         profile.triage_enabled = triage_enabled == "1"
 
+    org_id = _user_org_id(user)
+    already_configured = (
+        db.query(Event.id)
+        .filter(Event.org_id == org_id, Event.event_type == "feed_rules_configured")
+        .first()
+    )
+    if not already_configured:
+        db.add(Event(
+            org_id=org_id,
+            user_id=user.id,
+            opp_id=None,
+            event_type="feed_rules_configured",
+            ui_version="setup_v1",
+            payload={"source": "settings"},
+        ))
+
     db.commit()
 
-    return RedirectResponse(url=_settings_redirect_url(request), status_code=303)
+    return RedirectResponse(url=_post_settings_save_url(request, db, user), status_code=303)

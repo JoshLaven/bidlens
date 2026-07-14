@@ -5,10 +5,13 @@
     <div class="auth-card">
         <h1>Welcome to BidLens</h1>
         <p>Enter your email to get started (dev mode)</p>
+        {% if error %}
+            <div class="alert alert-warning">{{ error }}</div>
+        {% endif %}
         <form method="POST" action="/login">
             <div class="form-group">
                 <label for="email">Email Address</label>
-                <input type="email" id="email" name="email" required placeholder="you@company.com">
+                <input type="email" id="email" name="email" required placeholder="you@company.com" value="{{ email or '' }}">
             </div>
             <button type="submit" class="btn btn-primary" style="width: 100%;">Continue</button>
         </form>

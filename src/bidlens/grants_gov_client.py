@@ -9,6 +9,8 @@ from .config import GRANTS_GOV_SEARCH_URL
 
 logger = logging.getLogger(__name__)
 GRANTS_GOV_DETAIL_URL = "https://api.grants.gov/v1/api/fetchOpportunity"
+DEFAULT_GRANTS_POSTED_DAYS_BACK = 7
+DEFAULT_GRANTS_ROWS = 25
 
 
 class GrantsGovApiError(RuntimeError):
@@ -64,8 +66,8 @@ def _json_or_error(response: requests.Response) -> dict[str, Any]:
 
 def search_recent_opportunities(
     *,
-    days_back: int = 1,
-    rows: int = 25,
+    days_back: int = DEFAULT_GRANTS_POSTED_DAYS_BACK,
+    rows: int = DEFAULT_GRANTS_ROWS,
     start_record_num: int = 0,
 ) -> dict[str, Any]:
     # Grants.gov's public Search2 endpoint does not require authentication.

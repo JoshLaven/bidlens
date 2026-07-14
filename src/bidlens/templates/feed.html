@@ -13,14 +13,24 @@
 
 {{ queue_heading('The Feed', 'Process active opportunities, move the right ones forward, and keep the queue current.', export_url) }}
 {{ queue_search('/', 'feed-search-input', q, sort, direction, none, org_id_param, lane_id, stages_value) }}
-{{ queue_toolbar('/', 'feed', sort, direction, q, none, org_id_param, lane_id, active_lanes, stages_value, none, selected_stages, my_lanes) }}
+{{ queue_toolbar('/', 'feed', sort, direction, q, none, org_id_param, lane_id, active_lanes, stages_value, none, selected_stages, my_lanes, show_filters=(user.current_role == 'admin'), feed_sort_options=true) }}
 
 {% if not triage_enabled and user.current_role == 'admin' %}
   {% include "_source_controls.html" %}
 {% endif %}
 
 <div class="feed-queue-summary">
-  {{ queue_count(result_count, q) }}
+  <div class="feed-results-left">
+    <label class="feed-select-all">
+      <input
+        type="checkbox"
+        data-feed-select-all
+        {% if not opportunities %}disabled{% endif %}
+      >
+      <span>Select All</span>
+    </label>
+    {{ queue_count(result_count, q) }}
+  </div>
   <div class="feed-bulk-actions" data-feed-bulk-actions>
     <button
       type="button"
@@ -29,14 +39,6 @@
       disabled
     >
       Archive selected
-    </button>
-    <button
-      type="button"
-      class="btn btn-sm btn-outline-secondary"
-      data-archive-visible
-      {% if not opportunities %}disabled{% endif %}
-    >
-      Archive all visible
     </button>
   </div>
 </div>
@@ -65,7 +67,7 @@
     const checkboxes = feedArchiveCheckboxes();
     const selectedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
     const selectedButton = document.querySelector('[data-archive-selected]');
-    const visibleButton = document.querySelector('[data-archive-visible]');
+    const selectAll = document.querySelector('[data-feed-select-all]');
 
     if (selectedButton) {
       selectedButton.disabled = selectedCount === 0;
@@ -73,32 +75,21 @@
         ? `Archive selected (${selectedCount})`
         : 'Archive selected';
     }
-    if (visibleButton) {
-      visibleButton.disabled = checkboxes.length === 0;
+    if (selectAll) {
+      selectAll.disabled = checkboxes.length === 0;
+      selectAll.checked = checkboxes.length > 0 && selectedCount === checkboxes.length;
+      selectAll.indeterminate = selectedCount > 0 && selectedCount < checkboxes.length;
     }
   }
 
-  async function archiveFeedOpportunities(mode) {
+  async function archiveFeedOpportunities() {
     const checkboxes = feedArchiveCheckboxes();
-    const selected = mode === 'visible'
-      ? checkboxes
-      : checkboxes.filter((checkbox) => checkbox.checked);
+    const selected = checkboxes.filter((checkbox) => checkbox.checked);
     const oppIds = selected.map((checkbox) => Number(checkbox.value));
     if (!oppIds.length) return;
 
-    if (
-      mode === 'visible'
-      && !window.confirm(`Archive all ${oppIds.length} visible opportunities?`)
-    ) {
-      return;
-    }
-
-    const actionButtons = document.querySelectorAll(
-      '[data-archive-selected], [data-archive-visible]'
-    );
-    actionButtons.forEach((button) => {
-      button.disabled = true;
-    });
+    const actionButton = document.querySelector('[data-archive-selected]');
+    if (actionButton) actionButton.disabled = true;
 
     try {
       const response = await fetch('/api/votes/bulk-pass', {
@@ -128,11 +119,14 @@
   document.querySelectorAll('[data-feed-archive-checkbox]').forEach((checkbox) => {
     checkbox.addEventListener('change', updateFeedBulkActions);
   });
-  document.querySelector('[data-archive-selected]')?.addEventListener('click', () => {
-    archiveFeedOpportunities('selected');
+  document.querySelector('[data-feed-select-all]')?.addEventListener('change', (event) => {
+    feedArchiveCheckboxes().forEach((checkbox) => {
+      checkbox.checked = event.target.checked;
+    });
+    updateFeedBulkActions();
   });
-  document.querySelector('[data-archive-visible]')?.addEventListener('click', () => {
-    archiveFeedOpportunities('visible');
+  document.querySelector('[data-archive-selected]')?.addEventListener('click', () => {
+    archiveFeedOpportunities();
   });
   const bulkArchiveMessage = window.sessionStorage.getItem('bidlensBulkArchiveMessage');
   if (bulkArchiveMessage) {

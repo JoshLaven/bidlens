@@ -6,13 +6,16 @@ from . import models
 from .routes import sam
 from .scheduler import start_scheduler
 from .middleware import ClientRedirectMiddleware
-from .config import DATABASE_URL, DOTENV_PATH
+from .config import AUTO_CREATE_SCHEMA, DATABASE_URL, DOTENV_PATH, ENABLE_INTERNAL_SCHEDULER, safe_database_url
 
 
-print("DATABASE_URL =", DATABASE_URL)
+print("DATABASE_URL =", safe_database_url(DATABASE_URL))
 print("DOTENV_PATH =", DOTENV_PATH)
 
-Base.metadata.create_all(bind=engine)
+if AUTO_CREATE_SCHEMA:
+    Base.metadata.create_all(bind=engine)
+else:
+    print("AUTO_CREATE_SCHEMA disabled; skipping Base.metadata.create_all()")
 
 app = FastAPI(title="BidLens")
 app.add_middleware(ClientRedirectMiddleware)
@@ -35,6 +38,14 @@ app.include_router(integrations.router)
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
 @app.on_event("startup")
 def _startup():
-    start_scheduler()
+    if not ENABLE_INTERNAL_SCHEDULER:
+        print("ENABLE_INTERNAL_SCHEDULER disabled; APScheduler will not start in this process")
+        return
+    if getattr(app.state, "scheduler", None) is not None:
+        print("Internal scheduler already started; skipping duplicate startup")
+        return
+    app.state.scheduler = start_scheduler()

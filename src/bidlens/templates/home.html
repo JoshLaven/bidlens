@@ -1,288 +1,46 @@
 {% extends "base.html" %}
 {% block title %}Home - BidLens{% endblock %}
 {% block content %}
-{% set summary = home.workspace_summary %}
-{% set snapshot = home.operational_snapshot %}
-
-<div class="home-shell">
-  <header class="home-welcome">
-    <div>
-      <span class="home-eyebrow">Workspace · {{ summary.organization_name }}</span>
-      <h1>{{ summary.headline }}</h1>
-      <p>{{ summary.description }}</p>
-    </div>
-    {% if home.is_live %}
-      <dl class="home-workspace-summary" aria-label="Workspace summary">
-        <div>
-          <dt>{{ summary.opportunity_count }}</dt>
-          <dd>Opportunities</dd>
-        </div>
-        <div>
-          <dt>{{ summary.member_count }}</dt>
-          <dd>Team members</dd>
-        </div>
-      </dl>
-    {% endif %}
+<div class="home-shell home-shell--brief">
+  <header class="home-brief-header">
+    <span class="home-eyebrow">{{ home.snapshot_date.strftime("%b %d, %Y") }}</span>
+    <h1>Good Morning, {{ user.name or user.email }}</h1>
+    <p>Here's what changed since yesterday.</p>
   </header>
 
-  {% if request.query_params.get('profile_saved') %}
-    <div class="alert alert-success">
-      Organization updated. BidLens will use those identifiers to enrich Recent Work when matching award data is available.
-    </div>
-  {% endif %}
-
-  {% if home.daily_snapshot %}
-    {% set daily_snapshot = home.daily_snapshot %}
-    {% set sections = daily_snapshot.sections %}
-    <section class="home-section home-daily-snapshot" aria-labelledby="daily-snapshot-heading">
-      <div class="home-section-heading">
-        <div>
-          <span>Daily Snapshot</span>
-          <h2 id="daily-snapshot-heading">Daily Snapshot</h2>
-        </div>
-        <p>Stored factual activity for {{ daily_snapshot.snapshot_date.strftime("%b %d, %Y") }}.</p>
-      </div>
-
-      <div class="home-daily-snapshot-grid">
-        <article>
-          <h3>New Opportunities</h3>
-          <ul>
-            {% for item in sections.new_opportunities %}
-              <li>{{ item.title }}{% if item.agency %} · {{ item.agency }}{% endif %}</li>
-            {% else %}
-              <li>No new opportunities yesterday.</li>
-            {% endfor %}
-          </ul>
-        </article>
-        <article>
-          <h3>Updated Opportunities</h3>
-          <ul>
-            {% for item in sections.updated_opportunities %}
-              <li>{{ item.opportunity.title }}{% if item.changed_fields %} · {{ item.changed_fields|list|join(', ') }}{% endif %}</li>
-            {% else %}
-              <li>No updated opportunities yesterday.</li>
-            {% endfor %}
-          </ul>
-        </article>
-        <article>
-          <h3>Upcoming Deadlines</h3>
-          <ul>
-            {% for item in sections.upcoming_deadlines %}
-              <li>{{ item.title }}{% if item.response_deadline %} · due {{ item.response_deadline }}{% endif %}</li>
-            {% else %}
-              <li>No upcoming deadlines in the next 7 days.</li>
-            {% endfor %}
-          </ul>
-        </article>
-        <article>
-          <h3>Interested Activity</h3>
-          <ul>
-            {% for item in sections.interested_activity %}
-              {% set actor = item.user.name or item.user.email if item.user else 'Someone' %}
-              <li>{{ actor }} · {{ item.opportunity.title }}</li>
-            {% else %}
-              <li>No new interested activity yesterday.</li>
-            {% endfor %}
-          </ul>
-        </article>
-        <article>
-          <h3>Shortlist Changes</h3>
-          <ul>
-            {% for item in sections.shortlist_changes %}
-              <li>{{ item.opportunity.title }} · {{ item.from or 'None' }} to {{ item.to or 'None' }}</li>
-            {% else %}
-              <li>No shortlist changes yesterday.</li>
-            {% endfor %}
-          </ul>
-        </article>
-        <article>
-          <h3>Connector Issues</h3>
-          <ul>
-            {% for item in sections.connector_issues %}
-              <li>{{ item.source_label }} · {{ item.status }}{% if item.notes %} · {{ item.notes }}{% endif %}</li>
-            {% else %}
-              <li>No connector issues detected.</li>
-            {% endfor %}
-          </ul>
-        </article>
-      </div>
-    </section>
-  {% endif %}
-
-  {% macro operational_snapshot() %}
-    <section class="home-section" aria-labelledby="operational-snapshot-heading">
-      <div class="home-section-heading">
-        <div>
-          <span>Current state</span>
-          <h2 id="operational-snapshot-heading">Operational Snapshot</h2>
-        </div>
-        <p>A small read on intake, review work, and connector health.</p>
-      </div>
-
-      <div class="home-snapshot-grid">
-        {% for card in snapshot.cards %}
-          <a href="{{ card.url }}" class="home-snapshot-card home-snapshot-card--{{ card.tone }}">
-            <span>{{ card.title }}</span>
-            {% if card.key == "last-import" and card.value %}
-              <strong>{{ card.value.strftime("%b %d, %Y") }}</strong>
-            {% else %}
-              <strong>{{ card.value }}</strong>
-            {% endif %}
-            <small>{{ card.detail }}</small>
-          </a>
-        {% endfor %}
-      </div>
-    </section>
-  {% endmacro %}
-
-  {% macro next_steps() %}
-    <section class="home-section" aria-labelledby="recommendations-heading">
-      <div class="home-section-heading">
-        <div>
-          <span>Recommended actions</span>
-          <h2 id="recommendations-heading">Recommended Next Steps</h2>
-        </div>
-        <p>Only the actions that still move this workspace forward.</p>
-      </div>
-
-      {% if home.recommendations %}
-        <div class="home-next-steps">
-          {% for step in home.recommendations %}
-            <article class="home-next-step {{ 'home-next-step--current' if loop.first else '' }}">
-              <div class="home-next-step-marker" aria-hidden="true">{{ loop.index }}</div>
-              <div class="home-next-step-copy">
-                <div class="home-next-step-title">
-                  <h3>{{ step.title }}</h3>
-                  <span class="home-step-label home-step-label--{{ step.label|lower }}">{{ step.label }}</span>
-                </div>
-                <p>{{ step.description }}</p>
-              </div>
-              <a href="{{ step.cta_url }}" class="btn btn-sm btn-outline-secondary">{{ step.destination }}</a>
-            </article>
-          {% endfor %}
-        </div>
-      {% else %}
-        <div class="home-clear-state">
-          <span aria-hidden="true">✓</span>
-          <div>
-            <strong>No setup actions need attention.</strong>
-            <p>Your team can work from the Feed and return here for operational status.</p>
+  {% if home.has_updates %}
+    <div class="home-brief-sections">
+      {% for section in home.sections %}
+        <section class="home-brief-section" aria-labelledby="daily-brief-{{ section.key }}">
+          <div class="home-brief-section-heading">
+            <h2 id="daily-brief-{{ section.key }}">{{ section.title }}</h2>
+            <span>{{ section.count }}</span>
           </div>
-          <a href="/?org_id={{ summary.organization_id }}" class="btn btn-sm btn-primary">Open Feed</a>
-        </div>
-      {% endif %}
-    </section>
-  {% endmacro %}
-
-  {% macro completed_setup() %}
-    <section class="home-section" aria-labelledby="completed-heading">
-      <div class="home-section-heading">
-        <div>
-          <span>Completed</span>
-          <h2 id="completed-heading">Completed</h2>
-        </div>
-        <p>Setup work already handled for this organization.</p>
-      </div>
-
-      <div class="home-next-steps home-completed-list">
-        {% for item in home.completed %}
-          <article class="home-next-step home-completed-item">
-            <div class="home-next-step-marker home-completed-check" aria-hidden="true">✓</div>
-            <div class="home-next-step-copy">
-              <div class="home-next-step-title">
-                <h3>{{ item.title }}</h3>
-              </div>
-              {% if item.description %}
-                <p>{{ item.description }}</p>
-              {% endif %}
-            </div>
-            {% if item.completed_at %}
-              <time class="home-completed-date" datetime="{{ item.completed_at.isoformat() }}">{{ item.completed_at.strftime("%b %d, %Y") }}</time>
-            {% endif %}
-          </article>
-        {% endfor %}
-      </div>
-    </section>
-  {% endmacro %}
-
-  {% macro workspace_ready() %}
-    <section class="home-section" aria-labelledby="workspace-ready-heading" id="setup-history">
-      <div class="home-clear-state">
-        <span aria-hidden="true">✓</span>
-        <div>
-          <strong id="workspace-ready-heading">Workspace Ready</strong>
-          <p>Everything required to operate BidLens has been configured.</p>
-        </div>
-        <a href="#setup-history-details" class="btn btn-sm btn-outline-secondary">View Setup History</a>
-      </div>
-      <details class="home-setup-history" id="setup-history-details">
-        <summary>Setup History</summary>
-        <div class="home-setup-history-list">
-          {% for event in home.setup_history %}
-            <div>
-              <span>{{ event.title }}</span>
-              {% if event.occurred_at %}
-                <time datetime="{{ event.occurred_at.isoformat() }}">{{ event.occurred_at.strftime("%b %d, %Y") }}</time>
-              {% endif %}
-            </div>
-          {% else %}
-            {% for item in home.completed %}
-              <div>
-                <span>{{ item.title }}</span>
-                {% if item.completed_at %}
-                  <time datetime="{{ item.completed_at.isoformat() }}">{{ item.completed_at.strftime("%b %d, %Y") }}</time>
+          <ul class="home-brief-list">
+            {% for item in section.items %}
+              <li>
+                {% if item.destination_url %}
+                  <a href="{{ item.destination_url }}">
+                    <strong>{{ item.title }}</strong>
+                    {% if item.subtitle %}<span>{{ item.subtitle }}</span>{% endif %}
+                  </a>
+                {% else %}
+                  <div>
+                    <strong>{{ item.title }}</strong>
+                    {% if item.subtitle %}<span>{{ item.subtitle }}</span>{% endif %}
+                  </div>
                 {% endif %}
-              </div>
+              </li>
             {% endfor %}
-          {% endfor %}
-        </div>
-      </details>
-    </section>
-  {% endmacro %}
-
-  {% macro ready_to_go_live() %}
-    {% if home.can_go_live %}
-      <section class="home-section" aria-labelledby="go-live-heading">
-        <div class="home-go-live">
-          <div>
-            <span class="home-attention-kicker">Ready to Go Live</span>
-            <h2 id="go-live-heading">Ready to Go Live</h2>
-            <p>Your organization is ready to start using BidLens. You can continue adding integrations and refining your workspace over time.</p>
-          </div>
-          <form method="post" action="/home/go-live">
-            <button type="submit" class="btn btn-primary">Go Live</button>
-          </form>
-        </div>
-      </section>
-    {% endif %}
-  {% endmacro %}
-
-  {% if home.is_live %}
-    {{ operational_snapshot() }}
-    {% if home.attention_items %}
-      <section class="home-attention" aria-labelledby="attention-heading">
-        <div>
-          <span class="home-attention-kicker">Needs attention</span>
-          <h2 id="attention-heading">Connector issues</h2>
-        </div>
-        <div class="home-attention-list">
-          {% for item in home.attention_items %}
-            <article>
-              <div>
-                <strong>{{ item.title }}</strong>
-                <p>{{ item.description }}</p>
-              </div>
-              <a href="{{ item.cta_url }}">{{ item.cta_label }} →</a>
-            </article>
-          {% endfor %}
-        </div>
-      </section>
-    {% endif %}
-    {{ workspace_ready() }}
+          </ul>
+        </section>
+      {% endfor %}
+    </div>
   {% else %}
-    {{ next_steps() }}
-    {{ completed_setup() }}
-    {{ ready_to_go_live() }}
+    <section class="home-brief-empty" aria-labelledby="daily-brief-empty">
+      <h2 id="daily-brief-empty">Nothing changed yesterday.</h2>
+      <p>We'll let you know when something important happens.</p>
+    </section>
   {% endif %}
 </div>
 {% endblock %}

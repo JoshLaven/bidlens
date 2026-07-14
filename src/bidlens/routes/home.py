@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from ..auth import attach_request_user_context, get_current_user, is_platform_admin_email
 from ..database import get_db
 from ..models import Event, Organization
-from ..services.home import get_home_context
+from ..services.home import get_daily_brief_home_context, get_home_context
+from ..services.platform import post_authentication_destination_url
 
 
 router = APIRouter()
@@ -22,15 +23,51 @@ async def home_page(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse(url="/platform", status_code=303)
 
     attach_request_user_context(request, db, user)
+    destination_url = post_authentication_destination_url(
+        db,
+        user,
+        organization_id=user.current_organization_id,
+    )
+    if destination_url.startswith("/organization-setup"):
+        return RedirectResponse(url=destination_url, status_code=303)
+
+    context = get_daily_brief_home_context(
+        db,
+        organization_id=user.current_organization_id,
+        user_id=user.id,
+    )
+    return templates.TemplateResponse("home.html", {
+        "request": request,
+        "user": user,
+        "active_page": "home",
+        "home": context,
+    })
+
+
+@router.get("/organization-setup")
+async def organization_setup_page(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    if is_platform_admin_email(user.email):
+        return RedirectResponse(url="/platform", status_code=303)
+
+    attach_request_user_context(request, db, user)
     if getattr(user, "current_role", "member") != "admin":
-        return RedirectResponse(url="/", status_code=303)
+        return RedirectResponse(url="/home", status_code=303)
 
     context = get_home_context(
         db,
         organization_id=user.current_organization_id,
         user_id=user.id,
     )
-    return templates.TemplateResponse("home.html", {
+    if context["is_live"]:
+        return RedirectResponse(
+            url=f"/home?org_id={user.current_organization_id}",
+            status_code=303,
+        )
+
+    return templates.TemplateResponse("organization_setup.html", {
         "request": request,
         "user": user,
         "active_page": "home",

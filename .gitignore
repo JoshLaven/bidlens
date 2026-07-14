@@ -15,6 +15,7 @@ wheels/
 
 # Environment
 .env
+.env.railway.local
 
 # IDE
 .idea/

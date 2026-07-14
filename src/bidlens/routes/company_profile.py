@@ -287,7 +287,7 @@ async def company_profile_save(
         }.items()
         if value
     })
-    return RedirectResponse(url=f"/home?{query}", status_code=303)
+    return RedirectResponse(url=f"/organization-setup?{query}", status_code=303)
 
 
 @router.post("/company-profile/save")

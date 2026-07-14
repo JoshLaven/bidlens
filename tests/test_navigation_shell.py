@@ -1,9 +1,11 @@
+import asyncio
 import unittest
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from bidlens.routes.settings import _workspace_management_sections
+from bidlens.routes import settings
 
 
 class _Url:
@@ -30,8 +32,10 @@ class NavigationShellTests(unittest.TestCase):
             name="Test User",
             email="test@example.com",
             current_role=role,
+            current_organization_id=7,
             current_organization_name="Test Workspace",
             current_organization_is_live=True,
+            organization_id=7,
             triage_unreviewed_count=4,
             is_platform_admin=platform,
             organization=None,
@@ -71,11 +75,10 @@ class NavigationShellTests(unittest.TestCase):
         self.assertNotIn("Workspace Management", html)
 
     def test_admin_sidebar_includes_admin_destinations(self):
-        html = self.env.get_template("administration.html").render(
-            request=_Request("/administration"),
+        html = self.env.from_string("{% extends 'base.html' %}{% block content %}{% endblock %}").render(
+            request=_Request("/opportunity-discovery"),
             user=self._user(role="admin", platform=True),
-            active_page="administration",
-            sections=_workspace_management_sections(_Request("/administration"), 7),
+            active_page="imports",
         )
 
         self.assertIn(">Home<", html)
@@ -83,18 +86,82 @@ class NavigationShellTests(unittest.TestCase):
         self.assertIn("Triage <em>(Admin only)</em>", html)
         self.assertIn('primary-sidebar-link--management active', html)
         self.assertIn(">Workspace Management<", html)
-        self.assertIn("/administration?org_id=7", html)
+        self.assertIn("<details class=\"primary-sidebar-management\" open>", html)
+        self.assertIn("/company-profile?org_id=7", html)
+        self.assertIn("/admin/organizations/7/users?org_id=7", html)
+        self.assertIn("/opportunity-discovery?org_id=7", html)
+        self.assertIn("/integrations?org_id=7", html)
+        self.assertIn("/pursuit-lanes?org_id=7", html)
+        self.assertIn("/settings?org_id=7", html)
+        self.assertIn("/imports/history?org_id=7", html)
+        self.assertIn('Opportunity Discovery</a>', html)
+        self.assertIn('class="active" aria-current="page">Opportunity Discovery</a>', html)
         self.assertIn("/platform", html)
         self.assertIn(">My Settings<", html)
         self.assertIn(">Logout<", html)
 
-    def test_workspace_management_sections_preserve_org_context(self):
-        sections = _workspace_management_sections(_Request("/administration"), 7)
-        urls = {section["key"]: section["url"] for section in sections}
+    def test_pre_live_admin_gets_onboarding_shell_without_app_navigation(self):
+        user = self._user(role="admin")
+        user.current_organization_is_live = False
 
-        self.assertEqual(urls["organization"], "/company-profile?org_id=7")
-        self.assertEqual(urls["members"], "/admin/organizations/7/users?org_id=7")
-        self.assertEqual(urls["setup-history"], "/home?org_id=7#setup-history")
+        html = self.env.get_template("organization_setup.html").render(
+            request=_Request("/organization-setup"),
+            user=user,
+            active_page="home",
+            home={
+                "workspace_summary": {
+                    "organization_id": 7,
+                    "organization_name": "Test Workspace",
+                    "headline": "Welcome to BidLens.",
+                    "description": "Let’s get your organization ready.",
+                },
+                "operational_snapshot": {},
+                "recommendations": [],
+                "completed": [],
+                "can_go_live": False,
+            },
+        )
+
+        self.assertIn('class="primary-sidebar primary-sidebar--onboarding"', html)
+        self.assertIn("Organization Setup", html)
+        self.assertIn('href="/organization-setup?org_id=7"', html)
+        self.assertIn("Test Workspace", html)
+        self.assertNotIn("Open Feed", html)
+        self.assertNotIn('href="/?org_id=7"', html)
+        self.assertNotIn(">Home<", html)
+        self.assertNotIn(">Feed<", html)
+        self.assertNotIn(">My Shortlist<", html)
+        self.assertNotIn("Triage <em>(Admin only)</em>", html)
+        self.assertNotIn(">Archive<", html)
+        self.assertNotIn(">Workspace Management<", html)
+        self.assertNotIn(">My Settings<", html)
+        self.assertIn(">Logout<", html)
+
+    def test_live_admin_keeps_full_application_sidebar(self):
+        html = self.env.from_string("{% extends 'base.html' %}{% block content %}{% endblock %}").render(
+            request=_Request("/home"),
+            user=self._user(role="admin"),
+            active_page="home",
+        )
+
+        self.assertNotIn("primary-sidebar--onboarding", html)
+        self.assertIn(">Home<", html)
+        self.assertIn(">Feed<", html)
+        self.assertIn(">My Shortlist<", html)
+        self.assertIn("Triage <em>(Admin only)</em>", html)
+        self.assertIn(">Archive<", html)
+        self.assertIn(">Workspace Management<", html)
+
+    def test_administration_redirects_to_organization(self):
+        user = self._user(role="admin")
+        with patch.object(settings, "require_user", return_value=user):
+            response = asyncio.run(settings.administration_page(
+                _Request("/administration", query="org_id=7"),
+                db=MagicMock(),
+            ))
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/company-profile?org_id=7")
 
 
 if __name__ == "__main__":

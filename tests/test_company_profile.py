@@ -11,6 +11,7 @@ from bidlens.models import CompanyProfile, Organization, OrganizationMembership,
 from bidlens.routes.company_profile import (
     active_company_profile,
     archive_duplicate_active_profiles,
+    company_profile_page,
     company_profile_save,
     upsert_company_profile,
 )
@@ -120,9 +121,26 @@ class CompanyProfileTests(unittest.TestCase):
 
         active = active_company_profile(self.db, self.org.id)
         self.assertEqual(response.status_code, 303)
-        self.assertEqual(response.headers["location"], f"/home?org_id={self.org.id}&profile_saved=1")
+        self.assertEqual(response.headers["location"], f"/organization-setup?org_id={self.org.id}&profile_saved=1")
         self.assertIsNotNone(active)
         self.assertEqual(active.website_url, "https://profile.example.com")
+
+    def test_pre_live_admin_can_access_company_profile_setup_step(self):
+        request = SimpleNamespace(query_params={}, url=SimpleNamespace(path="/company-profile"))
+        setattr(self.user, "current_organization_id", self.org.id)
+        setattr(self.user, "current_role", "admin")
+        setattr(self.user, "current_organization_is_live", False)
+
+        with (
+            patch("bidlens.routes.company_profile.get_current_user", return_value=self.user),
+            patch("bidlens.routes.company_profile.templates.TemplateResponse", return_value={"ok": True}) as template_response,
+            patch("bidlens.routes.company_profile.get_sidebar", return_value={}),
+        ):
+            response = asyncio.run(company_profile_page(request, self.db))
+
+        self.assertEqual(response, {"ok": True})
+        template_response.assert_called_once()
+        self.assertEqual(template_response.call_args.args[0], "company_profile.html")
 
 
 if __name__ == "__main__":

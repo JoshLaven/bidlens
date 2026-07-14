@@ -375,6 +375,15 @@ def build_snapshot_payload(
     start_at, end_before = _day_window(activity_day)
     organization_id = workspace.organization_id
 
+    my_lane_context = _my_lane_context(
+        db,
+        organization_id=organization_id,
+        user_id=user_id,
+        start_at=start_at,
+        end_before=end_before,
+        snapshot_date=snapshot_date,
+    )
+
     return {
         "version": SNAPSHOT_VERSION,
         "workspace": {
@@ -390,14 +399,10 @@ def build_snapshot_payload(
             "end": end_before.isoformat(),
             "basis": "calendar_day",
         },
-        "my_lanes": _my_lane_context(
-            db,
-            organization_id=organization_id,
-            user_id=user_id,
-            start_at=start_at,
-            end_before=end_before,
-            snapshot_date=snapshot_date,
-        ),
+        "my_shortlist": [],
+        "team_signals": [],
+        "my_lanes": [],
+        "my_lane_context": my_lane_context,
         "new_opportunities": _new_opportunities(
             db,
             organization_id=organization_id,

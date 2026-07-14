@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Operations - BidLens{% endblock %}
+
+{% block content %}
+<div class="platform-shell">
+  <header class="platform-hero platform-hero--compact">
+    <div>
+      <span class="platform-eyebrow">Internal Platform</span>
+      <h1>Operations</h1>
+      <p>Review scheduled and externally triggered job runs across customer workspaces.</p>
+    </div>
+  </header>
+
+  <section class="platform-card" aria-labelledby="operations-filters-heading">
+    <div class="platform-section-heading">
+      <div>
+        <span>Job History</span>
+        <h2 id="operations-filters-heading">Operational Runs</h2>
+      </div>
+      <p>{{ total_count }} run{{ '' if total_count == 1 else 's' }} found.</p>
+    </div>
+
+    <form method="get" action="/platform/operations" class="operations-filters">
+      <label>
+        <span>Organization</span>
+        <select name="organization_id">
+          <option value="">All organizations</option>
+          {% for org in filter_options.organizations %}
+            <option value="{{ org.id }}" {% if filters.organization_id == org.id|string %}selected{% endif %}>{{ org.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Job</span>
+        <select name="job_type">
+          <option value="">All jobs</option>
+          {% for option in filter_options.job_types %}
+            <option value="{{ option.value }}" {% if filters.job_type == option.value %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Status</span>
+        <select name="status">
+          <option value="">All statuses</option>
+          {% for option in filter_options.statuses %}
+            <option value="{{ option.value }}" {% if filters.status == option.value %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>From</span>
+        <input type="date" name="date_from" value="{{ filters.date_from }}">
+      </label>
+      <label>
+        <span>To</span>
+        <input type="date" name="date_to" value="{{ filters.date_to }}">
+      </label>
+      <div class="operations-filter-actions">
+        <button type="submit" class="btn btn-secondary">Apply</button>
+        {% if has_filters %}
+          <a href="/platform/operations" class="btn btn-secondary">Clear</a>
+        {% endif %}
+      </div>
+    </form>
+  </section>
+
+  <section class="platform-card" aria-labelledby="operations-list-heading">
+    <div class="platform-section-heading">
+      <div>
+        <span>Recent Runs</span>
+        <h2 id="operations-list-heading">Job Runs</h2>
+      </div>
+      <p>Most recent runs appear first.</p>
+    </div>
+
+    {% if runs %}
+      <div class="operations-table-wrap">
+        <table class="operations-table">
+          <thead>
+            <tr>
+              <th>Organization</th>
+              <th>Job</th>
+              <th>Trigger</th>
+              <th>Started</th>
+              <th>Duration</th>
+              <th>Status</th>
+              <th>Summary</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in runs %}
+              <tr>
+                <td>
+                  <strong>{{ row.organization_name }}</strong>
+                </td>
+                <td>{{ row.job_label }}</td>
+                <td>{{ row.trigger_label }}</td>
+                <td>{{ row.started_label }}</td>
+                <td>{{ row.duration_label }}</td>
+                <td>
+                  <span class="status-pill status-pill--{{ row.status_class }}">{{ row.status_label }}</span>
+                </td>
+                <td class="operations-summary">{{ row.summary }}</td>
+                <td><a href="/platform/operations/{{ row.run.id }}">Details</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="operations-pagination">
+        <span>Page {{ page }} of {{ total_pages }}</span>
+        <div>
+          {% if prev_url %}<a class="btn btn-secondary" href="{{ prev_url }}">Previous</a>{% endif %}
+          {% if next_url %}<a class="btn btn-secondary" href="{{ next_url }}">Next</a>{% endif %}
+        </div>
+      </div>
+    {% else %}
+      {% if has_filters %}
+        <div class="platform-empty">No job runs match the selected filters.</div>
+      {% else %}
+        <div class="platform-empty">No operational runs have been recorded yet.</div>
+      {% endif %}
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

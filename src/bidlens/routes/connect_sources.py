@@ -9,13 +9,15 @@ from sqlalchemy.orm import Session
 
 from ..auth import attach_request_user_context, get_current_user
 from ..database import get_db
-from ..models import Event, OrgProfile, SamSourceConfig
+from ..grants_gov_client import DEFAULT_GRANTS_POSTED_DAYS_BACK, DEFAULT_GRANTS_ROWS
+from ..models import Event, GrantsSourceConfig, OrgProfile, SamSourceConfig
 from ..services.sam_source_config import (
     SAM_NOTICE_TYPES,
     SamConfigValidationError,
     config_form_values,
     validate_sam_config_input,
 )
+from ..services.platform import post_setup_completion_url
 from ..services.salesforce import SalesforceService
 
 
@@ -37,8 +39,29 @@ def _user_org_id(user) -> int:
     return getattr(user, "current_organization_id", None) or user.organization_id
 
 
-def _org_query(request: Request, org_id: int) -> str:
-    return urlencode({"org_id": request.query_params.get("org_id") or str(org_id)})
+def _opportunity_discovery_url(
+    request: Request,
+    org_id: int,
+    *,
+    saved: str | None = None,
+    fragment: str | None = None,
+) -> str:
+    params = {"org_id": request.query_params.get("org_id") or str(org_id)}
+    if saved:
+        params["saved"] = saved
+    url = f"/opportunity-discovery?{urlencode(params)}"
+    if fragment:
+        url = f"{url}#{fragment}"
+    return url
+
+
+def _post_source_setup_url(request: Request, db: Session, user, org_id: int, *, saved: str, fragment: str) -> str:
+    return post_setup_completion_url(
+        db,
+        user,
+        organization_id=org_id,
+        live_url=_opportunity_discovery_url(request, org_id, saved=saved, fragment=fragment),
+    )
 
 
 def _source_context(db: Session, org_id: int) -> dict:
@@ -49,12 +72,11 @@ def _source_context(db: Session, org_id: int) -> dict:
         .all()
     )
     profile = db.query(OrgProfile).filter(OrgProfile.org_id == org_id).first()
-    grants_enabled = (
-        db.query(Event.id)
+    grants_config = (
+        db.query(GrantsSourceConfig)
         .filter(
-            Event.org_id == org_id,
-            Event.event_type == "opportunity_source_enabled",
-            Event.payload["source"].as_string() == "grants.gov",
+            GrantsSourceConfig.organization_id == org_id,
+            GrantsSourceConfig.enabled.is_(True),
         )
         .first()
     )
@@ -65,7 +87,8 @@ def _source_context(db: Session, org_id: int) -> dict:
             "description": "Discover federal contract notices and solicitations from SAM.gov saved searches.",
         },
         "grants": {
-            "connected": bool(grants_enabled),
+            "connected": bool(grants_config),
+            "config": grants_config,
             "description": "Discover federal grant opportunities from Grants.gov using BidLens defaults.",
         },
         "govwin": {
@@ -82,13 +105,7 @@ async def connect_sources_page(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse(url="/login", status_code=303)
 
     org_id = _user_org_id(user)
-    return templates.TemplateResponse("connect_sources.html", {
-        "request": request,
-        "user": user,
-        "active_page": "connect_sources",
-        "sources": _source_context(db, org_id),
-        "saved_source": request.query_params.get("saved"),
-    })
+    return RedirectResponse(url=_opportunity_discovery_url(request, org_id), status_code=303)
 
 
 @router.get("/outbound-integrations")
@@ -148,6 +165,13 @@ async def enable_grants_source(request: Request, db: Session = Depends(get_db)):
         .first()
     )
     if not already_enabled:
+        config = db.query(GrantsSourceConfig).filter(GrantsSourceConfig.organization_id == org_id).first()
+        if config is None:
+            config = GrantsSourceConfig(organization_id=org_id)
+            db.add(config)
+        config.enabled = True
+        config.posted_days_back = DEFAULT_GRANTS_POSTED_DAYS_BACK
+        config.rows = DEFAULT_GRANTS_ROWS
         db.add(Event(
             org_id=org_id,
             user_id=user.id,
@@ -158,8 +182,8 @@ async def enable_grants_source(request: Request, db: Session = Depends(get_db)):
                 "source": "grants.gov",
                 "configuration_flow": "one_click_enable",
                 "default_configuration": {
-                    "days_back": 1,
-                    "rows": 25,
+                    "days_back": DEFAULT_GRANTS_POSTED_DAYS_BACK,
+                    "rows": DEFAULT_GRANTS_ROWS,
                     "authentication": "public_api",
                 },
             },
@@ -176,9 +200,24 @@ async def enable_grants_source(request: Request, db: Session = Depends(get_db)):
             },
         ))
         db.commit()
+    else:
+        config = db.query(GrantsSourceConfig).filter(GrantsSourceConfig.organization_id == org_id).first()
+        if config is None:
+            config = GrantsSourceConfig(
+                organization_id=org_id,
+                posted_days_back=DEFAULT_GRANTS_POSTED_DAYS_BACK,
+                rows=DEFAULT_GRANTS_ROWS,
+            )
+            db.add(config)
+        config.enabled = True
+        config.posted_days_back = DEFAULT_GRANTS_POSTED_DAYS_BACK
+        config.rows = DEFAULT_GRANTS_ROWS
+        db.commit()
 
-    query = _org_query(request, org_id)
-    return RedirectResponse(url=f"/connect-sources?{query}&saved=grants", status_code=303)
+    return RedirectResponse(
+        url=_post_source_setup_url(request, db, user, org_id, saved="grants", fragment="grants-gov"),
+        status_code=303,
+    )
 
 
 @router.post("/connect-sources/sam")
@@ -252,5 +291,7 @@ async def save_connect_sam(
     ))
     db.commit()
 
-    query = _org_query(request, org_id)
-    return RedirectResponse(url=f"/connect-sources?{query}&saved=sam", status_code=303)
+    return RedirectResponse(
+        url=_post_source_setup_url(request, db, user, org_id, saved="sam", fragment="sam-gov"),
+        status_code=303,
+    )

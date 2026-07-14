@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Operation Detail - BidLens{% endblock %}
+
+{% block content %}
+<div class="platform-shell">
+  <header class="platform-hero platform-hero--compact">
+    <div>
+      <span class="platform-eyebrow">Internal Platform</span>
+      <h1>{{ row.job_label }}</h1>
+      <p>{{ row.organization_name }} · {{ row.started_label }}</p>
+    </div>
+  </header>
+
+  <section class="platform-card" aria-labelledby="operation-detail-heading">
+    <div class="platform-section-heading">
+      <div>
+        <span>Run Detail</span>
+        <h2 id="operation-detail-heading">Outcome</h2>
+      </div>
+      <a href="/platform/operations" class="btn btn-secondary">Back to Operations</a>
+    </div>
+
+    <dl class="operation-detail-grid">
+      <div>
+        <dt>Organization</dt>
+        <dd>{{ row.organization_name }}</dd>
+      </div>
+      <div>
+        <dt>Job</dt>
+        <dd>{{ row.job_label }}</dd>
+      </div>
+      <div>
+        <dt>Trigger</dt>
+        <dd>{{ row.trigger_label }}</dd>
+      </div>
+      <div>
+        <dt>Status</dt>
+        <dd><span class="status-pill status-pill--{{ row.status_class }}">{{ row.status_label }}</span></dd>
+      </div>
+      <div>
+        <dt>Scheduled For</dt>
+        <dd>{{ row.scheduled_for_label }}</dd>
+      </div>
+      <div>
+        <dt>Started</dt>
+        <dd>{{ row.started_label }}</dd>
+      </div>
+      <div>
+        <dt>Finished</dt>
+        <dd>{{ row.finished_label }}</dd>
+      </div>
+      <div>
+        <dt>Duration</dt>
+        <dd>{{ row.duration_label }}</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="platform-card" aria-labelledby="operation-summary-heading">
+    <div class="platform-section-heading">
+      <div>
+        <span>Summary</span>
+        <h2 id="operation-summary-heading">Run Notes</h2>
+      </div>
+    </div>
+    <p class="operation-summary-text">{{ row.summary }}</p>
+
+    {% if row.run.error_type or row.run.error_message %}
+      <dl class="operation-error-block">
+        {% if row.run.error_type %}
+          <div>
+            <dt>Error Type</dt>
+            <dd>{{ row.run.error_type }}</dd>
+          </div>
+        {% endif %}
+        {% if row.run.error_message %}
+          <div>
+            <dt>Error Message</dt>
+            <dd>{{ row.run.error_message }}</dd>
+          </div>
+        {% endif %}
+      </dl>
+    {% endif %}
+  </section>
+
+  <section class="platform-card" aria-labelledby="operation-details-heading">
+    <div class="platform-section-heading">
+      <div>
+        <span>Aggregate Details</span>
+        <h2 id="operation-details-heading">Work Performed</h2>
+      </div>
+    </div>
+    {% if row.details %}
+      <dl class="operation-metrics">
+        {% for item in row.details %}
+          <div>
+            <dt>{{ item.label }}</dt>
+            <dd>{{ item.value }}</dd>
+          </div>
+        {% endfor %}
+      </dl>
+    {% else %}
+      <div class="platform-empty">No aggregate details were recorded for this run.</div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

@@ -33,6 +33,7 @@ def _ensure_column(inspector, table_name: str, column: sa.Column) -> None:
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
+    true_literal = "TRUE" if bind.dialect.name == "postgresql" else "1"
 
     if not _table_exists(inspector, "organizations"):
         op.create_table(
@@ -98,9 +99,9 @@ def upgrade() -> None:
 
     op.execute(
         sa.text(
-            """
+            f"""
             INSERT INTO organizations (name, slug, email_domain, plan, is_active, created_at)
-            SELECT 'Default Workspace', 'default-workspace', NULL, 'free', 1, CURRENT_TIMESTAMP
+            SELECT 'Default Workspace', 'default-workspace', NULL, 'free', {true_literal}, CURRENT_TIMESTAMP
             WHERE NOT EXISTS (SELECT 1 FROM organizations WHERE slug = 'default-workspace')
             """
         )

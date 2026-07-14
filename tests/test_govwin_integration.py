@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from bidlens.database import Base
 from bidlens.models import (
+    GrantsSourceConfig,
     IngestionRun,
     IngestionRunDetail,
     Opportunity,
@@ -185,6 +186,12 @@ class GovWinIntegrationRouteTests(unittest.TestCase):
         self.db.add(other_org)
         self.db.flush()
         self.db.add_all([
+            GrantsSourceConfig(
+                organization_id=self.org.id,
+                enabled=True,
+                posted_days_back=7,
+                rows=25,
+            ),
             SamSourceConfig(
                 organization_id=self.org.id,
                 name="Health Search",

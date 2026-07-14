@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% set hide_context_sidebar = true %}
+{% block title %}My Lanes - BidLens{% endblock %}
+{% block content %}
+<div class="personal-settings-page">
+  <a href="/my-settings{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="back-link">← My Settings</a>
+
+  <div class="page-header">
+    <h1>My Lanes</h1>
+    <p class="page-subtitle">Choose the pursuit lanes you want quick access to and included in your Daily Brief.</p>
+  </div>
+
+  {% if saved %}
+    <div class="alert alert-success">My Lanes updated.</div>
+  {% endif %}
+
+  {% if lanes %}
+    <form method="POST" action="/my-settings/my-lanes{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="my-lanes-settings-form">
+      <div class="my-lanes-settings-list">
+        {% for lane in lanes %}
+          <label class="my-lanes-settings-option">
+            <input type="checkbox" name="lane_ids" value="{{ lane.id }}" {% if lane.id in my_lane_ids %}checked{% endif %}>
+            <span class="my-lanes-settings-state">
+              <strong>{{ "Selected" if lane.id in my_lane_ids else "Not Selected" }}</strong>
+            </span>
+            <span class="my-lanes-settings-copy">
+              <strong>{{ lane.name }}</strong>
+              {% if lane.description %}
+                <small>{{ lane.description }}</small>
+              {% else %}
+                <small>Quick access shortcut for this pursuit lane.</small>
+              {% endif %}
+            </span>
+          </label>
+        {% endfor %}
+      </div>
+
+      <div class="my-lanes-settings-actions">
+        <button type="submit" class="btn btn-primary">Save My Lanes</button>
+        {% if my_lanes %}
+          <span>{{ my_lanes|length }} selected</span>
+        {% else %}
+          <span>No My Lanes selected yet.</span>
+        {% endif %}
+      </div>
+    </form>
+  {% else %}
+    <div class="empty-state empty-state--compact">
+      <h2>No pursuit lanes are available yet.</h2>
+      <p>Workspace Admins create Pursuit Lanes for the workspace. Once lanes exist, you can choose your personal shortcuts here.</p>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

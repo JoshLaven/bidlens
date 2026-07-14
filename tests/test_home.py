@@ -21,8 +21,9 @@ from bidlens.models import (
     User,
     Workspace,
 )
-from bidlens.routes.home import go_live
-from bidlens.services.home import get_home_context
+from bidlens.routes.home import go_live, home_page, organization_setup_page
+from bidlens.routes import opportunities
+from bidlens.services.home import get_daily_brief_home_context, get_home_context
 
 
 class HomeContextTests(unittest.TestCase):
@@ -99,12 +100,13 @@ class HomeContextTests(unittest.TestCase):
 
         self.assertEqual(
             list(steps),
-            ["company-profile", "opportunity-source", "invite-team", "business-systems", "pursuit-lanes"],
+            ["company-profile", "opportunity-source", "invite-team", "business-systems", "feed-rules", "pursuit-lanes"],
         )
         self.assertEqual(steps["company-profile"]["label"], "Required")
         self.assertEqual(steps["business-systems"]["label"], "Optional")
-        self.assertEqual(steps["opportunity-source"]["cta_url"], f"/connect-sources?org_id={self.org.id}")
+        self.assertEqual(steps["opportunity-source"]["cta_url"], f"/opportunity-discovery?org_id={self.org.id}")
         self.assertEqual(steps["business-systems"]["cta_url"], f"/outbound-integrations?org_id={self.org.id}")
+        self.assertEqual(steps["feed-rules"]["cta_url"], f"/settings?org_id={self.org.id}")
         self.assertNotIn("first-import", steps)
         self.assertNotIn("first-review", steps)
         self.assertFalse(context["workspace_summary"]["required_setup_complete"])
@@ -211,6 +213,128 @@ class HomeContextTests(unittest.TestCase):
             "Stored new opportunity",
         )
 
+    def test_daily_brief_context_uses_only_populated_v1_sections(self):
+        workspace = Workspace(
+            organization_id=self.org.id,
+            name="Home Workspace",
+            slug="home-workspace",
+        )
+        self.db.add(workspace)
+        self.db.flush()
+        self.db.add(DailySnapshot(
+            workspace_id=workspace.id,
+            user_id=self.admin.id,
+            snapshot_date=self.now.date(),
+            status="completed",
+            snapshot_json={
+                "my_shortlist": [
+                    {
+                        "title": "NIH Survey Support",
+                        "subtitle": "Amendment 2 posted",
+                        "destination_url": "/opportunity/123",
+                    }
+                ],
+                "team_signals": [],
+                "my_lanes": [],
+                "new_opportunities": [{"title": "Stored new opportunity"}],
+            },
+        ))
+        self.db.commit()
+
+        context = get_daily_brief_home_context(
+            self.db,
+            self.org.id,
+            self.admin.id,
+            now=self.now,
+        )
+
+        self.assertTrue(context["has_updates"])
+        self.assertEqual([section["key"] for section in context["sections"]], ["my_shortlist"])
+        self.assertEqual(context["sections"][0]["count"], 1)
+        self.assertEqual(context["sections"][0]["items"][0]["destination_url"], "/opportunity/123")
+
+    def test_home_page_is_available_to_members(self):
+        member = User(email="member-home@test.local", organization_id=self.org.id)
+        self.db.add(member)
+        self.db.flush()
+        self.db.add(OrganizationMembership(
+            organization_id=self.org.id,
+            user_id=member.id,
+            role="member",
+        ))
+        self.db.commit()
+        setattr(member, "current_organization_id", self.org.id)
+        setattr(member, "current_role", "member")
+
+        with (
+            patch("bidlens.routes.home.get_current_user", return_value=member),
+            patch("bidlens.routes.home.attach_request_user_context", return_value=member),
+            patch("bidlens.routes.home.templates.TemplateResponse", return_value={"ok": True}) as template_response,
+        ):
+            response = asyncio.run(home_page(SimpleNamespace(), self.db))
+
+        self.assertEqual(response, {"ok": True})
+        template_response.assert_called_once()
+        self.assertEqual(template_response.call_args.args[0], "home.html")
+
+    def test_home_page_redirects_pre_live_admin_to_organization_setup(self):
+        setattr(self.admin, "current_organization_id", self.org.id)
+        setattr(self.admin, "current_role", "admin")
+        setattr(self.admin, "current_organization_is_live", False)
+
+        with (
+            patch("bidlens.routes.home.get_current_user", return_value=self.admin),
+            patch("bidlens.routes.home.attach_request_user_context", return_value=self.admin),
+        ):
+            response = asyncio.run(home_page(SimpleNamespace(), self.db))
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], f"/organization-setup?org_id={self.org.id}")
+
+    def test_feed_redirects_pre_live_admin_to_organization_setup(self):
+        setattr(self.admin, "current_organization_id", self.org.id)
+        setattr(self.admin, "current_role", "admin")
+        setattr(self.admin, "current_organization_is_live", False)
+
+        with patch("bidlens.routes.opportunities.require_user", return_value=self.admin):
+            response = asyncio.run(opportunities.feed(SimpleNamespace(), db=self.db))
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], f"/organization-setup?org_id={self.org.id}")
+
+    def test_organization_setup_page_renders_pre_live_admin_checklist(self):
+        setattr(self.admin, "current_organization_id", self.org.id)
+        setattr(self.admin, "current_role", "admin")
+
+        with (
+            patch("bidlens.routes.home.get_current_user", return_value=self.admin),
+            patch("bidlens.routes.home.attach_request_user_context", return_value=self.admin),
+            patch("bidlens.routes.home.templates.TemplateResponse", return_value={"ok": True}) as template_response,
+        ):
+            response = asyncio.run(organization_setup_page(SimpleNamespace(), self.db))
+
+        self.assertEqual(response, {"ok": True})
+        template_response.assert_called_once()
+        self.assertEqual(template_response.call_args.args[0], "organization_setup.html")
+        context = template_response.call_args.args[1]
+        self.assertFalse(context["home"]["is_live"])
+        self.assertIn("next_steps", context["home"])
+
+    def test_organization_setup_page_redirects_live_workspace_to_home(self):
+        self.org.is_live = True
+        self.db.commit()
+        setattr(self.admin, "current_organization_id", self.org.id)
+        setattr(self.admin, "current_role", "admin")
+
+        with (
+            patch("bidlens.routes.home.get_current_user", return_value=self.admin),
+            patch("bidlens.routes.home.attach_request_user_context", return_value=self.admin),
+        ):
+            response = asyncio.run(organization_setup_page(SimpleNamespace(), self.db))
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], f"/home?org_id={self.org.id}")
+
     def test_go_live_route_sets_org_live_and_records_event(self):
         self._profile()
         self._source()
@@ -247,6 +371,13 @@ class HomeContextTests(unittest.TestCase):
                 organization_id=self.org.id,
                 user_id=second_user.id,
                 role="member",
+            ),
+            Event(
+                org_id=self.org.id,
+                user_id=self.admin.id,
+                opp_id=None,
+                event_type="feed_rules_configured",
+                payload={"source": "test"},
             ),
             PursuitLane(
                 organization_id=self.org.id,
@@ -328,6 +459,25 @@ class HomeContextTests(unittest.TestCase):
         self.assertNotIn("opportunity-source", step_keys)
         self.assertTrue(context["workspace_summary"]["required_setup_complete"])
         self.assertEqual(context["operational_snapshot"]["sources_enabled"], 1)
+
+    def test_feed_rules_are_recommended_until_configured(self):
+        self._profile()
+        self._source()
+
+        before = self._context()
+        self.db.add(Event(
+            org_id=self.org.id,
+            user_id=self.admin.id,
+            opp_id=None,
+            event_type="feed_rules_configured",
+            payload={"source": "test"},
+        ))
+        self.db.commit()
+        after = self._context()
+
+        self.assertIn("feed-rules", [step["key"] for step in before["next_steps"]])
+        self.assertNotIn("feed-rules", [step["key"] for step in after["next_steps"]])
+        self.assertIn("Feed rules configured", [item["title"] for item in after["completed"]])
 
 
 if __name__ == "__main__":

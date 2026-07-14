@@ -296,3 +296,81 @@ def accept_workspace_invitation(db: Session, *, token: str) -> WorkspaceInvitati
     db.commit()
     db.refresh(invitation)
     return invitation
+
+
+def organization_setup_url(organization_id: int) -> str:
+    return f"/organization-setup?org_id={organization_id}"
+
+
+def pre_live_admin_setup_url(
+    db: Session,
+    user: User,
+    *,
+    organization_id: int | None = None,
+) -> str | None:
+    organization_id = organization_id or user.organization_id
+    if not organization_id:
+        return None
+
+    organization = db.query(Organization).filter(Organization.id == organization_id).first()
+    if not organization or organization.is_live:
+        return None
+
+    membership = (
+        db.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.organization_id == organization_id,
+            OrganizationMembership.user_id == user.id,
+        )
+        .first()
+    )
+    role = (membership.role if membership else "member").strip().lower()
+    if role == "admin":
+        return organization_setup_url(organization_id)
+    return None
+
+
+def post_setup_completion_url(
+    db: Session,
+    user: User,
+    *,
+    organization_id: int | None = None,
+    live_url: str,
+) -> str:
+    setup_url = pre_live_admin_setup_url(db, user, organization_id=organization_id)
+    return setup_url or live_url
+
+
+def post_authentication_destination_url(
+    db: Session,
+    user: User,
+    *,
+    organization_id: int | None = None,
+) -> str:
+    """Return the canonical destination after a workspace user is authenticated."""
+    organization_id = organization_id or user.organization_id
+    if not organization_id:
+        return "/home"
+
+    setup_url = pre_live_admin_setup_url(db, user, organization_id=organization_id)
+    if setup_url:
+        return setup_url
+    return f"/home?org_id={organization_id}"
+
+
+def post_invitation_acceptance_url(db: Session, invitation: WorkspaceInvitation) -> str:
+    """Return the canonical destination after an accepted workspace invitation."""
+    user = db.query(User).filter(User.email == invitation.email).first()
+    if user:
+        return post_authentication_destination_url(
+            db,
+            user,
+            organization_id=invitation.organization_id,
+        )
+
+    organization_id = invitation.organization_id
+    role = (invitation.role or "member").strip().lower()
+    organization = db.query(Organization).filter(Organization.id == organization_id).first()
+    if role == "admin" and organization and not organization.is_live:
+        return organization_setup_url(organization_id)
+    return f"/home?org_id={organization_id}"

@@ -18,10 +18,13 @@
 <body>
     {% set nav_org_id = request.query_params.get('org_id') if request is defined and request.query_params is defined else none %}
     {% set nav_org_q = '?org_id=' ~ nav_org_id if nav_org_id and nav_org_id.isdigit() else '' %}
+    {% set workspace_nav_org_id = nav_org_id if nav_org_id and nav_org_id.isdigit() else user.current_organization_id if user and user.current_organization_id is defined else user.organization_id if user else none %}
+    {% set workspace_nav_org_q = nav_org_q if nav_org_q else '?org_id=' ~ workspace_nav_org_id if workspace_nav_org_id else '' %}
     {% set request_path = request.url.path if request is defined and request.url is defined else '' %}
-    {% set platform_mode = user and active_page == 'platform' and user.is_platform_admin is defined and user.is_platform_admin %}
+    {% set platform_mode = user and active_page in ['platform', 'platform_operations'] and user.is_platform_admin is defined and user.is_platform_admin %}
     {% set is_workspace_admin = user and user.current_role == 'admin' %}
     {% set is_platform_owner = user and user.is_platform_admin is defined and user.is_platform_admin %}
+    {% set onboarding_shell = user and is_workspace_admin and not platform_mode and user.current_organization_is_live is defined and not user.current_organization_is_live %}
     {% set primary_active = active_page %}
     {% if request_path.startswith('/opportunity/') or request_path == '/calendar' %}
       {% set primary_active = 'feed' %}
@@ -35,7 +38,7 @@
       {% set primary_active = 'feed' %}
     {% endif %}
     {% set workspace_management_pages = [
-      'administration',
+      'workspace_members',
       'company_profile',
       'connect_sources',
       'outbound_integrations',
@@ -44,15 +47,43 @@
       'pursuit_lanes',
       'settings'
     ] %}
-    <div class="app-shell{% if not user %} app-shell--public{% endif %}">
+    {% set workspace_management_active = active_page in workspace_management_pages
+      or request_path.startswith('/admin/organizations/')
+      or request_path.startswith('/admin/sources/')
+      or request_path.startswith('/admin/source-updates')
+      or request_path.startswith('/admin/market-activity') %}
+    {% set workspace_management_child = none %}
+    {% if request_path.startswith('/company-profile') %}
+      {% set workspace_management_child = 'organization' %}
+    {% elif request_path.startswith('/admin/organizations/') %}
+      {% set workspace_management_child = 'members' %}
+    {% elif request_path.startswith('/opportunity-discovery') or request_path.startswith('/imports/govwin') or request_path.startswith('/admin/sources/') or request_path.startswith('/connect-sources') %}
+      {% set workspace_management_child = 'discovery' %}
+    {% elif request_path.startswith('/integrations') or request_path.startswith('/outbound-integrations') or request_path.startswith('/settings/salesforce') %}
+      {% set workspace_management_child = 'business_systems' %}
+    {% elif request_path.startswith('/pursuit-lanes') %}
+      {% set workspace_management_child = 'pursuit_lanes' %}
+    {% elif request_path.startswith('/settings') %}
+      {% set workspace_management_child = 'feed_rules' %}
+    {% elif request_path.startswith('/imports/history') or request_path.startswith('/admin/source-updates') or request_path.startswith('/admin/market-activity') %}
+      {% set workspace_management_child = 'history' %}
+    {% endif %}
+    <div class="app-shell{% if not user %} app-shell--public{% endif %}{% if onboarding_shell %} app-shell--onboarding{% endif %}">
       {% if user %}
-        <aside class="primary-sidebar" aria-label="Primary">
+        <aside class="primary-sidebar{% if onboarding_shell %} primary-sidebar--onboarding{% endif %}" aria-label="{{ 'Organization setup' if onboarding_shell else 'Primary' }}">
           <div class="primary-sidebar-brand">
-            <a href="{{ '/platform' if platform_mode else ('/home' ~ nav_org_q if is_workspace_admin else '/' ~ nav_org_q) }}" class="logo">BidLens</a>
+            <a href="{{ '/organization-setup' ~ nav_org_q if onboarding_shell else '/platform' if platform_mode else ('/home' ~ nav_org_q if is_workspace_admin else '/' ~ nav_org_q) }}" class="logo">BidLens</a>
             <span>{{ 'Platform' if platform_mode else 'Opportunity Intelligence' }}</span>
           </div>
 
-          {% if not platform_mode %}
+          {% if onboarding_shell %}
+            <div class="primary-sidebar-onboarding">
+              <a href="/organization-setup{{ nav_org_q }}">Organization Setup</a>
+              <a href="/organization-setup{{ nav_org_q }}">
+                <strong>{{ user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else 'Workspace' }}</strong>
+              </a>
+            </div>
+          {% elif not platform_mode %}
             <nav class="primary-sidebar-nav" aria-label="Primary navigation">
               <a href="/home{{ nav_org_q }}" class="primary-sidebar-link {{ 'active' if primary_active == 'home' else '' }}" aria-current="{{ 'page' if primary_active == 'home' else 'false' }}">
                 <span aria-hidden="true">⌂</span>
@@ -84,17 +115,33 @@
 
               {% if is_workspace_admin %}
                 <div class="primary-sidebar-divider primary-sidebar-divider--management" aria-hidden="true"></div>
-                <a href="/administration{{ nav_org_q }}" class="primary-sidebar-link primary-sidebar-link--management {{ 'active' if active_page in workspace_management_pages else '' }}" aria-current="{{ 'page' if active_page in workspace_management_pages else 'false' }}">
-                  <span aria-hidden="true">⚙︎</span>
-                  <strong>Workspace Management</strong>
-                </a>
+                <details class="primary-sidebar-management" {% if workspace_management_active %}open{% endif %}>
+                  <summary class="primary-sidebar-link primary-sidebar-link--management {{ 'active' if workspace_management_active else '' }}" aria-current="{{ 'page' if workspace_management_active else 'false' }}">
+                    <span aria-hidden="true">⚙︎</span>
+                    <strong>Workspace Management</strong>
+                    <small class="primary-sidebar-caret" aria-hidden="true">⌄</small>
+                  </summary>
+                  <div class="primary-sidebar-subnav" aria-label="Workspace Management">
+                    <a href="/company-profile{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'organization' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'organization' else 'false' }}">Organization</a>
+                    <a href="/admin/organizations/{{ workspace_nav_org_id }}/users{{ workspace_nav_org_q }}" class="{{ 'active' if workspace_management_child == 'members' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'members' else 'false' }}">Members</a>
+                    <a href="/opportunity-discovery{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'discovery' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'discovery' else 'false' }}">Opportunity Discovery</a>
+                    <a href="/integrations{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'business_systems' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'business_systems' else 'false' }}">Business Systems</a>
+                    <a href="/pursuit-lanes{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'pursuit_lanes' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'pursuit_lanes' else 'false' }}">Pursuit Lanes</a>
+                    <a href="/settings{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'feed_rules' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'feed_rules' else 'false' }}">Feed Rules</a>
+                    <a href="/imports/history{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'history' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'history' else 'false' }}">History</a>
+                  </div>
+                </details>
               {% endif %}
             </nav>
           {% else %}
             <nav class="primary-sidebar-nav" aria-label="Platform navigation">
-              <a href="/platform" class="primary-sidebar-link active" aria-current="page">
+              <a href="/platform" class="primary-sidebar-link {{ 'active' if active_page == 'platform' else '' }}" aria-current="{{ 'page' if active_page == 'platform' else 'false' }}">
                 <span aria-hidden="true">◆</span>
                 <strong>Platform</strong>
+              </a>
+              <a href="/platform/operations" class="primary-sidebar-link {{ 'active' if active_page == 'platform_operations' else '' }}" aria-current="{{ 'page' if active_page == 'platform_operations' else 'false' }}">
+                <span aria-hidden="true">◷</span>
+                <strong>Operations</strong>
               </a>
             </nav>
           {% endif %}
@@ -110,11 +157,11 @@
                   <strong>{{ user.name or user.email }}</strong>
                   <span>{{ 'BidLens Platform' if platform_mode else user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else user.organization.name if user.organization else 'Workspace' }}</span>
                 </div>
-                {% if not platform_mode %}
+                {% if not platform_mode and not onboarding_shell %}
                   <a href="/my-settings{{ nav_org_q }}" class="{{ 'active' if active_page == 'my_settings' else '' }}">My Settings</a>
                 {% endif %}
                 {% if is_platform_owner %}
-                  <a href="/platform" class="{{ 'active' if active_page == 'platform' else '' }}">Platform</a>
+                  <a href="/platform" class="{{ 'active' if active_page in ['platform', 'platform_operations'] else '' }}">Platform</a>
                 {% endif %}
                 <a href="/logout">Logout</a>
               </div>
@@ -360,7 +407,7 @@
       renderSidebarSection('sidebar-my-shortlisted-body', sidebar.my_shortlisted || [], 'Shortlisted opportunities will appear here.', '/my-shortlist');
     }
 
-    function beginOptimisticShortlist(card, isAdminCrmAction) {
+    function beginOptimisticShortlist(card, showSalesforcePending) {
       const container = document.getElementById('sidebar-my-shortlisted-body');
       if (!container || !card) {
         return {
@@ -408,7 +455,7 @@
       due.textContent = card.dataset.shortlistDueLabel || '—';
       meta.appendChild(due);
 
-      if (isAdminCrmAction) {
+      if (showSalesforcePending) {
         const pending = document.createElement('span');
         pending.className = 'side-salesforce-status side-salesforce-status--pending';
         pending.textContent = 'Creating in Salesforce…';
@@ -473,12 +520,11 @@
 
     function setPursueButtonState(button, selected) {
       if (!button) return;
-      const isAdminCrmAction = button.hasAttribute('data-admin-crm-action');
       const isDetailAction = button.classList.contains('detail-interest-action');
       button.className = `btn btn-sm opp-card-button opp-card-button--primary ${selected ? 'btn-success' : 'btn-primary'}${isDetailAction ? ' detail-interest-action' : ''}`;
       button.innerHTML = selected
-        ? (isAdminCrmAction ? '&#10003; Pushed to CRM' : '&#10003; Interested')
-        : (isAdminCrmAction ? 'Push to CRM' : 'Interested');
+        ? '&#10003; Interested'
+        : 'Interested';
     }
 
     function updateOpportunityCard(oppId, vote, data) {
@@ -794,9 +840,7 @@
         if (actionButton?.disabled || card?.dataset.votePending === 'true') {
           return;
         }
-        const isAdminCrmAction = Boolean(
-          vote === 'PURSUE' && actionButton?.hasAttribute('data-admin-crm-action')
-        );
+        const isSalesforceAwareAction = vote === 'PURSUE';
         const isNewPursue = Boolean(
           vote === 'PURSUE'
           && card
@@ -812,7 +856,7 @@
             actionButton,
             optimisticShouldRemove
           );
-          optimisticShortlist = beginOptimisticShortlist(card, isAdminCrmAction);
+          optimisticShortlist = beginOptimisticShortlist(card, isSalesforceAwareAction);
         } else if (actionButton) {
           actionButton.disabled = true;
           actionButton.setAttribute('aria-busy', 'true');
@@ -834,7 +878,9 @@
         }
         const effectiveVote = data.vote || null;
         const salesforceFailed = Boolean(
-          isAdminCrmAction && data.salesforce_outcome === 'unavailable'
+          isSalesforceAwareAction
+          && effectiveVote === 'PURSUE'
+          && ['failed', 'not_configured', 'unavailable'].includes(data.salesforce_outcome)
         );
         if (optimisticShortlist && effectiveVote === 'PURSUE') {
           const persistedShortlistItem = (data.sidebar?.my_shortlisted || [])
@@ -879,22 +925,21 @@
         } else if (vote === 'PURSUE' && data.in_my_shortlist) {
           if (
             currentListView !== 'feed'
-            && isAdminCrmAction
-            && ['linked', 'created', 'already_linked'].includes(data.salesforce_outcome)
+            && ['matched_existing', 'created', 'already_linked', 'linked'].includes(data.salesforce_outcome)
           ) {
             showToastWithLink(
-              data.salesforce_message || 'Pushed to CRM',
+              data.salesforce_message || 'Synced to Salesforce',
               'Open in Salesforce',
               data.salesforce_opportunity_url,
               'success'
             );
           } else if (currentListView !== 'feed') {
-            showToast(isAdminCrmAction ? 'Pushed to CRM' : 'Marked interested', 'success');
+            showToast('Marked interested', 'success');
           }
         } else {
           const message =
             vote === 'PURSUE'
-              ? (isAdminCrmAction ? 'CRM interest removed' : 'Interest removed')
+              ? 'Interest removed'
               : data.toggled_off
                 ? 'Restored to Feed'
               : currentListView === 'my_shortlist'

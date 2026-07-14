@@ -12,10 +12,30 @@
 
 {{ queue_heading('My Shortlist', 'Opportunities you marked as important or promoted to Salesforce.', export_url) }}
 {{ queue_search('/my-shortlist', 'shortlist-search-input', q, sort, direction, none, org_id_param, lane_id, stages_value) }}
-{{ queue_toolbar('/my-shortlist', 'shortlist', sort, direction, q, none, org_id_param, lane_id, active_lanes, stages_value, none, selected_stages, my_lanes) }}
+{{ queue_toolbar('/my-shortlist', 'shortlist', sort, direction, q, none, org_id_param, lane_id, active_lanes, stages_value, none, selected_stages, my_lanes, show_filters=(user.current_role == 'admin'), feed_sort_options=true) }}
 
 <div class="feed-queue-summary">
-  {{ queue_count(result_count, q) }}
+  <div class="feed-results-left">
+    <label class="feed-select-all">
+      <input
+        type="checkbox"
+        data-shortlist-select-all
+        {% if not opportunities %}disabled{% endif %}
+      >
+      <span>Select All</span>
+    </label>
+    {{ queue_count(result_count, q) }}
+  </div>
+  <div class="feed-bulk-actions" data-shortlist-bulk-actions>
+    <button
+      type="button"
+      class="btn btn-sm btn-outline-secondary"
+      data-shortlist-archive-selected
+      disabled
+    >
+      Archive selected
+    </button>
+  </div>
 </div>
 
 <div id="opportunity-list" data-list-view="my_shortlist">
@@ -30,5 +50,84 @@
     <p>Click <strong>Interested</strong> on an opportunity to add it here right away.</p>
 </div>
 {{ queue_pagination('/my-shortlist', page, total_pages, result_count, page_size, sort, direction, q, none, org_id_param, lane_id, stages_value) }}
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script>
+  function shortlistArchiveCheckboxes() {
+    return Array.from(document.querySelectorAll('[data-shortlist-archive-checkbox]'));
+  }
+
+  function updateShortlistBulkActions() {
+    const checkboxes = shortlistArchiveCheckboxes();
+    const selectedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+    const selectedButton = document.querySelector('[data-shortlist-archive-selected]');
+    const selectAll = document.querySelector('[data-shortlist-select-all]');
+
+    if (selectedButton) {
+      selectedButton.disabled = selectedCount === 0;
+      selectedButton.textContent = selectedCount
+        ? `Archive selected (${selectedCount})`
+        : 'Archive selected';
+    }
+    if (selectAll) {
+      selectAll.disabled = checkboxes.length === 0;
+      selectAll.checked = checkboxes.length > 0 && selectedCount === checkboxes.length;
+      selectAll.indeterminate = selectedCount > 0 && selectedCount < checkboxes.length;
+    }
+  }
+
+  async function archiveShortlistOpportunities() {
+    const selected = shortlistArchiveCheckboxes().filter((checkbox) => checkbox.checked);
+    const oppIds = selected.map((checkbox) => Number(checkbox.value));
+    if (!oppIds.length) return;
+
+    const actionButton = document.querySelector('[data-shortlist-archive-selected]');
+    if (actionButton) actionButton.disabled = true;
+
+    try {
+      const response = await fetch('/api/votes/bulk-pass', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          opp_ids: oppIds,
+          ui_version: 'v1'
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        showToast(data.detail || 'Unable to archive opportunities', 'error');
+        return;
+      }
+
+      const message = `${data.archived_count} ${data.archived_count === 1 ? 'opportunity' : 'opportunities'} archived`;
+      window.sessionStorage.setItem('bidlensShortlistBulkArchiveMessage', message);
+      window.location.reload();
+    } catch (error) {
+      showToast('Unable to archive opportunities', 'error');
+    } finally {
+      updateShortlistBulkActions();
+    }
+  }
+
+  document.querySelectorAll('[data-shortlist-archive-checkbox]').forEach((checkbox) => {
+    checkbox.addEventListener('change', updateShortlistBulkActions);
+  });
+  document.querySelector('[data-shortlist-select-all]')?.addEventListener('change', (event) => {
+    shortlistArchiveCheckboxes().forEach((checkbox) => {
+      checkbox.checked = event.target.checked;
+    });
+    updateShortlistBulkActions();
+  });
+  document.querySelector('[data-shortlist-archive-selected]')?.addEventListener('click', () => {
+    archiveShortlistOpportunities();
+  });
+  const shortlistBulkArchiveMessage = window.sessionStorage.getItem('bidlensShortlistBulkArchiveMessage');
+  if (shortlistBulkArchiveMessage) {
+    window.sessionStorage.removeItem('bidlensShortlistBulkArchiveMessage');
+    showToast(shortlistBulkArchiveMessage, 'success');
+  }
+  updateShortlistBulkActions();
+</script>
 {% endblock %}
 {% include "_archive_modal.html" %}

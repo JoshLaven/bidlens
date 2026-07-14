@@ -1,4 +1,6 @@
+import asyncio
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from sqlalchemy import create_engine
@@ -6,13 +8,20 @@ from sqlalchemy.orm import sessionmaker
 
 from bidlens.auth import is_platform_admin_email, platform_admin_emails
 from bidlens.database import Base
-from bidlens.models import Event, Organization, OrganizationMembership, User, WorkspaceInvitation
+from fastapi import HTTPException
+
+from bidlens.models import Event, Organization, OrganizationMembership, User, Workspace, WorkspaceInvitation
+from bidlens.routes import auth as auth_routes
+from bidlens.routes import platform as platform_routes
 from bidlens.services.platform import (
     PROFESSIONAL_INCLUDED_USERS,
     ProvisionWorkspaceInput,
     accept_workspace_invitation,
+    post_authentication_destination_url,
+    post_invitation_acceptance_url,
     provision_workspace,
 )
+from bidlens.tenancy import duplicate_domain_diagnostics, organization_for_email_domain
 
 
 class PlatformProvisioningTests(unittest.TestCase):
@@ -128,6 +137,197 @@ class PlatformProvisioningTests(unittest.TestCase):
         self.assertEqual(recreated_owner.name, "Morgan Missing")
         self.assertEqual(membership.role, "admin")
 
+    def test_workspace_owner_acceptance_routes_to_setup_until_go_live(self):
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Setup Route Customer",
+                owner_name="Riley Owner",
+                owner_email="riley@example.com",
+            ),
+            base_url="https://bidlens.test",
+        )
+
+        accepted = accept_workspace_invitation(self.db, token=result.invitation.token)
+
+        self.assertEqual(
+            post_invitation_acceptance_url(self.db, accepted),
+            f"/organization-setup?org_id={result.organization.id}",
+        )
+
+    def test_workspace_owner_acceptance_routes_to_home_after_go_live(self):
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Live Route Customer",
+                owner_name="Logan Owner",
+                owner_email="logan@example.com",
+            ),
+            base_url="https://bidlens.test",
+        )
+        result.organization.is_live = True
+        self.db.commit()
+
+        accepted = accept_workspace_invitation(self.db, token=result.invitation.token)
+
+        self.assertEqual(
+            post_invitation_acceptance_url(self.db, accepted),
+            f"/home?org_id={result.organization.id}",
+        )
+
+    def test_member_acceptance_routes_to_home_even_before_go_live(self):
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Member Route Customer",
+                owner_name="Avery Owner",
+                owner_email="avery.member-route@example.com",
+            ),
+            base_url="https://bidlens.test",
+        )
+        invitation = WorkspaceInvitation(
+            organization_id=result.organization.id,
+            workspace_id=result.workspace.id,
+            email="member@example.com",
+            name="Member Person",
+            role="member",
+            token="member-token",
+            status="pending",
+        )
+        self.db.add(invitation)
+        self.db.commit()
+
+        accepted = accept_workspace_invitation(self.db, token=invitation.token)
+
+        self.assertEqual(
+            post_invitation_acceptance_url(self.db, accepted),
+            f"/home?org_id={result.organization.id}",
+        )
+
+    def test_accept_invitation_route_uses_canonical_post_acceptance_destination(self):
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Route Handler Customer",
+                owner_name="Jordan Owner",
+                owner_email="jordan@example.com",
+            ),
+            base_url="https://bidlens.test",
+        )
+
+        response = asyncio.run(platform_routes.accept_invitation(
+            result.invitation.token,
+            SimpleNamespace(),
+            db=self.db,
+        ))
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(
+            response.headers["location"],
+            f"/organization-setup?org_id={result.organization.id}",
+        )
+
+    def test_pre_live_owner_login_routes_to_organization_setup(self):
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Owner Login Customer",
+                owner_name="Pat Owner",
+                owner_email="pat@owner-login.test",
+            ),
+            base_url="https://bidlens.test",
+        )
+
+        response = asyncio.run(auth_routes.login(
+            SimpleNamespace(),
+            email=result.owner.email,
+            db=self.db,
+        ))
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(
+            response.headers["location"],
+            f"/organization-setup?org_id={result.organization.id}",
+        )
+
+    def test_pre_live_workspace_admin_login_routes_to_organization_setup(self):
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Admin Login Customer",
+                owner_name="Casey Owner",
+                owner_email="casey@admin-login.test",
+            ),
+            base_url="https://bidlens.test",
+        )
+        admin = User(email="teammate@admin-login.test", organization_id=result.organization.id)
+        self.db.add(admin)
+        self.db.flush()
+        self.db.add(OrganizationMembership(
+            organization_id=result.organization.id,
+            user_id=admin.id,
+            role="admin",
+        ))
+        self.db.commit()
+
+        response = asyncio.run(auth_routes.login(
+            SimpleNamespace(),
+            email=admin.email,
+            db=self.db,
+        ))
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(
+            response.headers["location"],
+            f"/organization-setup?org_id={result.organization.id}",
+        )
+
+    def test_live_workspace_admin_login_routes_to_home(self):
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Live Login Customer",
+                owner_name="Robin Owner",
+                owner_email="robin@live-login.test",
+            ),
+            base_url="https://bidlens.test",
+        )
+        result.organization.is_live = True
+        self.db.commit()
+
+        response = asyncio.run(auth_routes.login(
+            SimpleNamespace(),
+            email=result.owner.email,
+            db=self.db,
+        ))
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(
+            response.headers["location"],
+            f"/home?org_id={result.organization.id}",
+        )
+
+    def test_invitation_acceptance_and_post_auth_use_same_destination(self):
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Canonical Route Customer",
+                owner_name="Taylor Owner",
+                owner_email="taylor@canonical-route.test",
+            ),
+            base_url="https://bidlens.test",
+        )
+        accepted = accept_workspace_invitation(self.db, token=result.invitation.token)
+
+        self.assertEqual(
+            post_invitation_acceptance_url(self.db, accepted),
+            post_authentication_destination_url(
+                self.db,
+                result.owner,
+                organization_id=result.organization.id,
+            ),
+        )
+
     def test_platform_owner_email_env_identifies_platform_admin(self):
         with patch.dict(
             "os.environ",
@@ -140,6 +340,80 @@ class PlatformProvisioningTests(unittest.TestCase):
             self.assertIn("josh@bidlens.test", platform_admin_emails())
             self.assertTrue(is_platform_admin_email("josh@bidlens.test"))
             self.assertFalse(is_platform_admin_email("workspace-owner@example.com"))
+
+    def test_email_domain_resolution_prefers_workspace_backed_organization(self):
+        orphan = Organization(
+            name="Orphaned Office",
+            slug="orphaned-office",
+            email_domain="theoffice.com",
+        )
+        provisioned = Organization(
+            name="The Office",
+            slug="the-office",
+            email_domain="theoffice.com",
+        )
+        self.db.add_all([orphan, provisioned])
+        self.db.flush()
+        self.db.add(Workspace(
+            organization_id=provisioned.id,
+            name="The Office Workspace",
+            slug="the-office",
+        ))
+        self.db.commit()
+
+        resolved = organization_for_email_domain(self.db, "jim@theoffice.com")
+
+        self.assertEqual(resolved.id, provisioned.id)
+
+    def test_email_domain_resolution_fails_for_orphaned_duplicate_domain(self):
+        self.db.add_all([
+            Organization(name="First Office", slug="first-office", email_domain="dupe.test"),
+            Organization(name="Second Office", slug="second-office", email_domain="dupe.test"),
+        ])
+        self.db.commit()
+
+        with self.assertRaises(HTTPException) as raised:
+            organization_for_email_domain(self.db, "user@dupe.test")
+
+        self.assertEqual(raised.exception.status_code, 409)
+
+    def test_duplicate_domain_diagnostic_marks_orphaned_organizations(self):
+        orphan = Organization(
+            name="Orphaned Office",
+            slug="orphaned-office",
+            email_domain="theoffice.com",
+        )
+        provisioned = Organization(
+            name="The Office",
+            slug="the-office",
+            email_domain="theoffice.com",
+        )
+        self.db.add_all([orphan, provisioned])
+        self.db.flush()
+        self.db.add(Workspace(
+            organization_id=provisioned.id,
+            name="The Office Workspace",
+            slug="the-office",
+        ))
+        self.db.commit()
+
+        diagnostics = duplicate_domain_diagnostics(self.db)
+
+        self.assertEqual(len(diagnostics), 1)
+        self.assertEqual(diagnostics[0]["email_domain"], "theoffice.com")
+        self.assertEqual(diagnostics[0]["orphaned_organization_ids"], [orphan.id])
+        self.assertEqual(diagnostics[0]["workspace_organization_ids"], [provisioned.id])
+
+    def test_normal_login_does_not_self_provision_customer_organization(self):
+        response = asyncio.run(auth_routes.login(
+            SimpleNamespace(),
+            email="newperson@notprovisioned.test",
+            db=self.db,
+        ))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.db.query(Organization).count(), 0)
+        self.assertEqual(self.db.query(User).count(), 0)
 
 
 if __name__ == "__main__":

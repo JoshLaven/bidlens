@@ -184,7 +184,7 @@
   </section>
 
   <div class="company-profile-actions company-profile-actions--footer">
-    <a href="/home{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-outline-secondary">Back to Organization Setup</a>
+    <a href="/organization-setup{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-outline-secondary">Back to Organization Setup</a>
   </div>
 </div>
 {% endblock %}

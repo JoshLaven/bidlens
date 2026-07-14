@@ -1,10 +1,10 @@
 from datetime import datetime, date
-from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Text, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Text, ForeignKey, Enum, Index
 from sqlalchemy.orm import relationship
 import enum
 from .database import Base
 from sqlalchemy import UniqueConstraint
-from sqlalchemy import JSON, func
+from sqlalchemy import JSON, false, func, true
 from sqlalchemy import BigInteger
 import uuid
 from sqlalchemy import TypeDecorator
@@ -102,7 +102,7 @@ class Opportunity(Base):
 
     # Local v1 CRM promotion marker. This is intentionally not an external CRM
     # integration; it records that BidLens users promoted the opportunity.
-    crm_pushed = Column(Boolean, nullable=False, default=False, server_default="0", index=True)
+    crm_pushed = Column(Boolean, nullable=False, default=False, server_default=false(), index=True)
     crm_pushed_at = Column(DateTime, nullable=True)
     crm_pushed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     salesforce_opportunity_id = Column(String, nullable=True, index=True)
@@ -276,6 +276,32 @@ class IngestionRunDetail(Base):
     ingestion_run = relationship("IngestionRun", back_populates="details")
 
 
+class JobRun(Base):
+    __tablename__ = "job_runs"
+    __table_args__ = (
+        Index("ix_job_runs_org_started_at", "organization_id", "started_at"),
+        Index("ix_job_runs_job_type_started_at", "job_type", "started_at"),
+        Index("ix_job_runs_status_started_at", "status", "started_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    job_type = Column(String, nullable=False, index=True)
+    trigger_type = Column(String, nullable=False, default="system", server_default="system", index=True)
+    status = Column(String, nullable=False, default="running", server_default="running", index=True)
+    scheduled_for = Column(DateTime(timezone=True), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=func.now())
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    summary = Column(Text, nullable=True)
+    details_json = Column(JSON, nullable=False, default=dict)
+    error_type = Column(String, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    organization = relationship("Organization")
+
+
 class Vote(Base):
     __tablename__ = "votes"
     __table_args__ = (UniqueConstraint("org_id", "opp_id", "user_id", name="uq_vote"),)
@@ -408,7 +434,7 @@ class PursuitLane(Base):
     naics = Column(JSON, nullable=False, default=list)
     keywords = Column(JSON, nullable=False, default=list)
     set_asides = Column(JSON, nullable=False, default=list)
-    is_active = Column(Boolean, nullable=False, default=True, server_default="1")
+    is_active = Column(Boolean, nullable=False, default=True, server_default=true())
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -470,7 +496,7 @@ class OrgProfile(Base):
     digest_max_items = Column(Integer, nullable=False, default=20)
     digest_recipients = Column(Text, nullable=True)  # comma-separated emails
     digest_time_local = Column(String, nullable=True)  # "07:00" for now
-    triage_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
+    triage_enabled = Column(Boolean, nullable=False, default=False, server_default=false())
     govwin_credentials_encrypted = Column(Text, nullable=True)
     govwin_connection_status = Column(String, nullable=True)
     govwin_last_tested_at = Column(DateTime(timezone=True), nullable=True)
@@ -497,8 +523,23 @@ class SamSourceConfig(Base):
     posted_days_back = Column(Integer, nullable=False, default=30, server_default="30")
     due_days_from = Column(Integer, nullable=True)
     due_days_to = Column(Integer, nullable=True)
-    active_only = Column(Boolean, nullable=False, default=True, server_default="1")
+    active_only = Column(Boolean, nullable=False, default=True, server_default=true())
     max_records = Column(Integer, nullable=False, default=100, server_default="100")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class GrantsSourceConfig(Base):
+    __tablename__ = "grants_source_configs"
+    __table_args__ = (
+        UniqueConstraint("organization_id", name="uq_grants_source_config_org"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    enabled = Column(Boolean, nullable=False, default=True, server_default=true(), index=True)
+    posted_days_back = Column(Integer, nullable=False, default=7, server_default="7")
+    rows = Column(Integer, nullable=False, default=25, server_default="25")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

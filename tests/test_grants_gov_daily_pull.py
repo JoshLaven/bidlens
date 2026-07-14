@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from bidlens.database import Base
-from bidlens.grants_gov_client import search_recent_opportunities
+from bidlens.grants_gov_client import GrantsGovApiError, search_recent_opportunities
 from bidlens.ingest_grants_gov import ingest_grants_gov
 from bidlens.models import Opportunity, OpportunityHistoryEvent, Organization
 from bidlens.routes import opportunities
@@ -40,7 +40,7 @@ class GrantsGovDailyPullTests(unittest.TestCase):
         }
 
     @patch("bidlens.grants_gov_client._post_search")
-    def test_search_uses_one_day_posted_date_window_and_record_offset(self, post_search):
+    def test_search_uses_seven_day_posted_date_window_and_record_offset(self, post_search):
         response = Mock()
         response.raise_for_status.return_value = None
         response.json.return_value = {"data": {"hitCount": 0, "oppHits": []}}
@@ -49,7 +49,7 @@ class GrantsGovDailyPullTests(unittest.TestCase):
         search_recent_opportunities(rows=25, start_record_num=50)
 
         payload = post_search.call_args.args[0]
-        self.assertEqual(payload["dateRange"], "1")
+        self.assertEqual(payload["dateRange"], "7")
         self.assertEqual(payload["startRecordNum"], 50)
         self.assertEqual(payload["rows"], 25)
         self.assertEqual(payload["oppStatuses"], "forecasted|posted")
@@ -89,7 +89,7 @@ class GrantsGovDailyPullTests(unittest.TestCase):
         )
 
         self.assertEqual(result["status"], "success")
-        self.assertEqual(result["date_range_days"], 1)
+        self.assertEqual(result["date_range_days"], 7)
         self.assertEqual(result["pages_pulled"], 2)
         self.assertEqual(result["received"], 3)
         self.assertEqual(result["created"], 3)
@@ -102,7 +102,7 @@ class GrantsGovDailyPullTests(unittest.TestCase):
 
     @patch("bidlens.ingest_grants_gov.fetch_opportunity_detail")
     @patch("bidlens.ingest_grants_gov.search_recent_opportunities")
-    def test_zero_result_day_is_successful(self, search, fetch_detail):
+    def test_zero_result_day_is_recorded_as_no_records(self, search, fetch_detail):
         search.return_value = {
             "data": {
                 "hitCount": 0,
@@ -113,11 +113,30 @@ class GrantsGovDailyPullTests(unittest.TestCase):
 
         result = ingest_grants_gov(self.db, organization_id=self.org.id)
 
-        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["status"], "no_records")
         self.assertEqual(result["received"], 0)
         self.assertEqual(result["created"], 0)
         self.assertEqual(result["pages_pulled"], 1)
+        self.assertIn("no records returned", result["message"])
         fetch_detail.assert_not_called()
+
+    @patch("bidlens.ingest_grants_gov.fetch_opportunity_detail")
+    @patch("bidlens.ingest_grants_gov.search_recent_opportunities")
+    def test_detail_errors_mark_pull_partial_success(self, search, fetch_detail):
+        search.return_value = {
+            "data": {
+                "hitCount": 1,
+                "oppHits": [self._record("grant-detail-warning", "Detail warning grant")],
+            }
+        }
+        fetch_detail.side_effect = GrantsGovApiError("detail unavailable")
+
+        result = ingest_grants_gov(self.db, organization_id=self.org.id)
+
+        self.assertEqual(result["status"], "partial_success")
+        self.assertEqual(result["detail_errors"], 1)
+        self.assertEqual(result["created"], 1)
+        self.assertIn("detail lookup errors", result["message"])
 
     @patch("bidlens.ingest_grants_gov.fetch_opportunity_detail", return_value={})
     @patch("bidlens.ingest_grants_gov.search_recent_opportunities")

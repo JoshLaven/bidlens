@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from ..auth import attach_request_user_context, get_current_user
 from ..database import get_db
 from ..models import OrganizationMembership, OpportunityPursuitLaneMatch, PursuitLane, User
+from ..services.platform import post_setup_completion_url
 from ..services.pursuit_lanes import (
     parse_list,
     refresh_lane_matches,
@@ -50,9 +51,17 @@ def _can_manage_lanes(db: Session, user: User) -> bool:
     return bool(membership)
 
 
-def _redirect(request: Request) -> RedirectResponse:
+def _redirect(request: Request, db: Session | None = None, user: User | None = None) -> RedirectResponse:
     suffix = f"?{request.url.query}" if request.url.query else ""
-    return RedirectResponse(url=f"/pursuit-lanes{suffix}", status_code=303)
+    live_url = f"/pursuit-lanes{suffix}"
+    if db is not None and user is not None:
+        live_url = post_setup_completion_url(
+            db,
+            user,
+            organization_id=_user_org_id(user),
+            live_url=live_url,
+        )
+    return RedirectResponse(url=live_url, status_code=303)
 
 
 @router.get("/pursuit-lanes")
@@ -115,7 +124,7 @@ async def create_pursuit_lane(
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     if not _can_manage_lanes(db, user):
-        return _redirect(request)
+        return _redirect(request, db, user)
 
     lane_name = name.strip()
     if not lane_name:
@@ -136,7 +145,7 @@ async def create_pursuit_lane(
     db.flush()
     refresh_lane_matches(db, org_id, lane)
     db.commit()
-    return _redirect(request)
+    return _redirect(request, db, user)
 
 
 @router.post("/pursuit-lanes/{lane_id}")
@@ -156,7 +165,7 @@ async def update_pursuit_lane(
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     if not _can_manage_lanes(db, user):
-        return _redirect(request)
+        return _redirect(request, db, user)
 
     org_id = _user_org_id(user)
     lane = (
@@ -165,7 +174,7 @@ async def update_pursuit_lane(
         .first()
     )
     if not lane:
-        return _redirect(request)
+        return _redirect(request, db, user)
 
     lane_name = name.strip()
     if lane_name:
@@ -178,7 +187,7 @@ async def update_pursuit_lane(
     lane.is_active = bool(is_active)
     refresh_lane_matches(db, org_id, lane)
     db.commit()
-    return _redirect(request)
+    return _redirect(request, db, user)
 
 
 @router.post("/pursuit-lanes/my-lanes")
@@ -191,7 +200,7 @@ async def update_my_lanes(
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     if not _can_manage_lanes(db, user):
-        return _redirect(request)
+        return _redirect(request, db, user)
 
     set_user_my_lanes(
         db,
@@ -200,7 +209,7 @@ async def update_my_lanes(
         lane_ids=lane_ids,
     )
     db.commit()
-    return _redirect(request)
+    return _redirect(request, db, user)
 
 
 @router.post("/pursuit-lanes/rematch")
@@ -211,4 +220,4 @@ async def rematch_pursuit_lanes(request: Request, db: Session = Depends(get_db))
     if _can_manage_lanes(db, user):
         refresh_org_lane_matches(db, _user_org_id(user))
         db.commit()
-    return _redirect(request)
+    return _redirect(request, db, user)

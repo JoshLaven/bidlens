@@ -41,6 +41,7 @@ SETUP_EVENT_TITLES = {
     "first_successful_import": "First successful import",
     "users_invited": "Users invited",
     "salesforce_connected": "CRM connected",
+    "feed_rules_configured": "Feed rules configured",
     "pursuit_lanes_configured": "Pursuit lanes configured",
     "workspace_went_live": "Workspace went live",
 }
@@ -210,6 +211,14 @@ def _setup_history_from_events(db: Session, organization_id: int) -> list[dict[s
     ]
 
 
+def _has_setup_event(db: Session, organization_id: int, event_type: str) -> bool:
+    return bool(
+        db.query(Event.id)
+        .filter(Event.org_id == organization_id, Event.event_type == event_type)
+        .first()
+    )
+
+
 def _stored_daily_snapshot_context(
     db: Session,
     *,
@@ -247,6 +256,9 @@ def _stored_daily_snapshot_context(
         "status": snapshot.status,
         "snapshot_json": payload,
         "sections": {
+            "my_shortlist": payload.get("my_shortlist") or [],
+            "team_signals": payload.get("team_signals") or [],
+            "my_lanes": payload.get("my_lanes") or [],
             "new_opportunities": payload.get("new_opportunities") or [],
             "updated_opportunities": payload.get("updated_opportunities") or [],
             "upcoming_deadlines": payload.get("upcoming_deadlines") or [],
@@ -254,6 +266,57 @@ def _stored_daily_snapshot_context(
             "shortlist_changes": payload.get("shortlist_changes") or [],
             "connector_issues": payload.get("connector_issues") or [],
         },
+    }
+
+
+def _daily_brief_item(raw_item: Any) -> dict[str, str]:
+    if not isinstance(raw_item, dict):
+        return {"title": str(raw_item), "subtitle": "", "destination_url": ""}
+    return {
+        "title": str(raw_item.get("title") or "Untitled update"),
+        "subtitle": str(raw_item.get("subtitle") or ""),
+        "destination_url": str(raw_item.get("destination_url") or ""),
+    }
+
+
+def get_daily_brief_home_context(
+    db: Session,
+    organization_id: int,
+    user_id: int,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Return the stored Daily Snapshot sections Home is allowed to render."""
+    now = now or datetime.now(timezone.utc)
+    snapshot = _stored_daily_snapshot_context(
+        db,
+        organization_id=organization_id,
+        user_id=user_id,
+        today=now,
+    )
+    payload = snapshot["snapshot_json"] if snapshot else {}
+    section_defs = [
+        ("my_shortlist", "My Shortlist"),
+        ("team_signals", "Team Signals"),
+        ("my_lanes", "My Lanes"),
+    ]
+    sections = []
+    for key, title in section_defs:
+        items = [_daily_brief_item(item) for item in (payload.get(key) or [])]
+        if not items:
+            continue
+        sections.append({
+            "key": key,
+            "title": title,
+            "count": len(items),
+            "items": items,
+        })
+
+    return {
+        "snapshot": snapshot,
+        "snapshot_date": snapshot["snapshot_date"] if snapshot else now.date(),
+        "sections": sections,
+        "has_updates": bool(sections),
     }
 
 
@@ -378,7 +441,7 @@ def get_home_context(
             label="Required",
             description="Tell BidLens where to discover opportunities for this workspace.",
             cta_label="Opportunity Discovery",
-            cta_url=_workspace_url("/connect-sources", organization_id),
+            cta_url=_workspace_url("/opportunity-discovery", organization_id),
             priority=20,
         ))
     else:
@@ -420,6 +483,22 @@ def get_home_context(
         completed.append(_completed_item(
             key="business-systems",
             title="Business systems connected",
+        ))
+
+    if not _has_setup_event(db, organization_id, "feed_rules_configured"):
+        recommendations.append(_recommendation(
+            key="feed-rules",
+            title="Configure Feed Rules",
+            label="Recommended",
+            description="Set the workspace defaults BidLens uses to match and route incoming opportunities.",
+            cta_label="Feed Rules",
+            cta_url=_workspace_url("/settings", organization_id),
+            priority=45,
+        ))
+    else:
+        completed.append(_completed_item(
+            key="feed-rules",
+            title="Feed rules configured",
         ))
 
     if lane_count == 0:

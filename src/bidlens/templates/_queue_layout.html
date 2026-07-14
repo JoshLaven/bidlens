@@ -125,74 +125,89 @@
   </script>
 {% endmacro %}
 
-{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none, my_lanes=none) %}
-  <div class="queue-toolbar" aria-label="Queue organization controls">
-    {% if selected_stages is not none %}
-      {{ stage_filter_chips(route, selected_stages, stages_value, sort, direction, q, org_id, lane_id, sources_value) }}
-    {% endif %}
-
-    {% if current_tab %}
-      <div class="tabs queue-toolbar-tabs">
-        <a href="{{ route }}?tab=solicitations&sort={{ sort }}&direction={{ direction }}{% if lane_id %}&lane_id={{ lane_id }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">RFPs / Forecasts</a>
-        <a href="{{ route }}?tab=rfi&sort={{ sort }}&direction={{ direction }}{% if lane_id %}&lane_id={{ lane_id }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
-      </div>
-    {% endif %}
-
-    <form method="GET" action="{{ route }}" class="queue-sort-form">
+{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none, my_lanes=none, show_filters=true, feed_sort_options=false) %}
+  {% set show_filter_controls = show_filters and (selected_stages is not none or active_lanes or my_lanes) %}
+  <div class="queue-toolbar{% if not show_filter_controls %} queue-toolbar--sort-only{% endif %}" aria-label="Queue organization controls">
+    <div class="queue-toolbar-column queue-toolbar-column--sort">
+      <span class="queue-toolbar-heading">Sort By</span>
       {% if current_tab %}
-        <input type="hidden" name="tab" value="{{ current_tab }}">
+        <div class="tabs queue-toolbar-tabs">
+          <a href="{{ route }}?tab=solicitations&sort={{ sort }}&direction={{ direction }}{% if lane_id %}&lane_id={{ lane_id }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">RFPs / Forecasts</a>
+          <a href="{{ route }}?tab=rfi&sort={{ sort }}&direction={{ direction }}{% if lane_id %}&lane_id={{ lane_id }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
+        </div>
       {% endif %}
-      <input type="hidden" name="q" value="{{ q }}">
-      {% if lane_id %}
-        <input type="hidden" name="lane_id" value="{{ lane_id }}">
-      {% endif %}
-      {% if org_id %}
-        <input type="hidden" name="org_id" value="{{ org_id }}">
-      {% endif %}
-      {% if stages_value is not none %}<input type="hidden" name="stages" value="{{ stages_value }}">{% endif %}
-      {% if sources_value is not none %}<input type="hidden" name="sources" value="{{ sources_value }}">{% endif %}
-      <label for="{{ id_prefix }}-sort">Sort by</label>
-      <select id="{{ id_prefix }}-sort" name="sort" onchange="this.form.submit()">
-        <option value="imported" {{ 'selected' if sort == 'imported' else '' }}>Imported</option>
-        <option value="due" {{ 'selected' if sort == 'due' else '' }}>Due Date</option>
-        <option value="agency" {{ 'selected' if sort == 'agency' else '' }}>Agency</option>
-        <option value="title" {{ 'selected' if sort == 'title' else '' }}>Title</option>
-      </select>
-      <label class="sr-only" for="{{ id_prefix }}-sort-direction">Sort direction</label>
-      <select id="{{ id_prefix }}-sort-direction" name="direction" onchange="this.form.submit()">
-        <option value="desc" {{ 'selected' if direction == 'desc' else '' }}>Descending</option>
-        <option value="asc" {{ 'selected' if direction == 'asc' else '' }}>Ascending</option>
-      </select>
-    </form>
-  </div>
 
-  {% if active_lanes or my_lanes %}
-    {% set my_lane_ids = my_lanes|map(attribute='id')|list if my_lanes else [] %}
-    <div class="queue-lane-row" aria-label="Pursuit lane filter">
-      <div class="queue-lane-group">
-        <span class="feed-toolbar-label">Feed</span>
-        <a href="{{ route }}?{% if current_tab %}tab={{ current_tab }}&{% endif %}sort={{ sort }}&direction={{ direction }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}{% if stages_value is not none %}&stages={{ stages_value }}{% endif %}{% if sources_value is not none %}&sources={{ sources_value }}{% endif %}" class="btn btn-sm {{ 'btn-primary' if not lane_id else 'btn-outline-secondary' }}">All Opportunities</a>
-      </div>
-      {% if my_lanes %}
-        <div class="queue-lane-group">
-          <span class="feed-toolbar-label">My Lanes</span>
-          {% for lane in my_lanes %}
-            <a href="{{ route }}?{% if current_tab %}tab={{ current_tab }}&{% endif %}sort={{ sort }}&direction={{ direction }}&lane_id={{ lane.id }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}{% if stages_value is not none %}&stages={{ stages_value }}{% endif %}{% if sources_value is not none %}&sources={{ sources_value }}{% endif %}" class="btn btn-sm queue-lane-shortcut {{ 'btn-primary' if lane_id == lane.id else 'btn-outline-secondary' }}"><span aria-hidden="true">★</span>{{ lane.name }}</a>
-          {% endfor %}
-        </div>
-      {% endif %}
-      {% if active_lanes %}
-        <div class="queue-lane-group">
-          <span class="feed-toolbar-label">All Lanes</span>
-          {% for lane in active_lanes %}
-            {% if lane.id not in my_lane_ids %}
-              <a href="{{ route }}?{% if current_tab %}tab={{ current_tab }}&{% endif %}sort={{ sort }}&direction={{ direction }}&lane_id={{ lane.id }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}{% if stages_value is not none %}&stages={{ stages_value }}{% endif %}{% if sources_value is not none %}&sources={{ sources_value }}{% endif %}" class="btn btn-sm {{ 'btn-primary' if lane_id == lane.id else 'btn-outline-secondary' }}">{{ lane.name }}</a>
-            {% endif %}
-          {% endfor %}
-        </div>
-      {% endif %}
+      <form method="GET" action="{{ route }}" class="queue-sort-form">
+        {% if current_tab %}
+          <input type="hidden" name="tab" value="{{ current_tab }}">
+        {% endif %}
+        <input type="hidden" name="q" value="{{ q }}">
+        <input type="hidden" name="direction" value="{{ direction }}">
+        {% if org_id %}
+          <input type="hidden" name="org_id" value="{{ org_id }}">
+        {% endif %}
+        {% if lane_id %}<input type="hidden" name="lane_id" value="{{ lane_id }}">{% endif %}
+        {% if stages_value is not none %}<input type="hidden" name="stages" value="{{ stages_value }}">{% endif %}
+        {% if sources_value is not none %}<input type="hidden" name="sources" value="{{ sources_value }}">{% endif %}
+        <label class="sr-only" for="{{ id_prefix }}-sort">Sort by</label>
+        <select id="{{ id_prefix }}-sort" name="sort" onchange="this.form.submit()">
+          <option value="imported" {{ 'selected' if sort == 'imported' else '' }}>Imported</option>
+          <option value="due" {{ 'selected' if sort == 'due' else '' }}>Due Date</option>
+          {% if not feed_sort_options %}
+            <option value="agency" {{ 'selected' if sort == 'agency' else '' }}>Agency</option>
+            <option value="title" {{ 'selected' if sort == 'title' else '' }}>Title</option>
+          {% endif %}
+        </select>
+      </form>
+      {% set next_direction = 'asc' if direction == 'desc' else 'desc' %}
+      <a
+        class="queue-sort-direction-toggle"
+        href="{{ route }}?sort={{ sort }}&direction={{ next_direction }}{% if current_tab %}&tab={{ current_tab }}{% endif %}{% if lane_id %}&lane_id={{ lane_id }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}{% if stages_value is not none %}&stages={{ stages_value }}{% endif %}{% if sources_value is not none %}&sources={{ sources_value }}{% endif %}"
+        title="{{ 'Sort ascending' if direction == 'desc' else 'Sort descending' }}"
+        aria-label="{{ 'Sort ascending' if direction == 'desc' else 'Sort descending' }}"
+      >{{ '↓' if direction == 'desc' else '↑' }}</a>
     </div>
-  {% endif %}
+
+    {% if show_filter_controls %}
+      <div class="queue-toolbar-column queue-toolbar-column--filters">
+        <span class="queue-toolbar-heading">Filters</span>
+        {% if selected_stages is not none %}
+          {{ stage_filter_chips(route, selected_stages, stages_value, sort, direction, q, org_id, lane_id, sources_value) }}
+        {% endif %}
+        {% if active_lanes or my_lanes %}
+          {% set my_lane_ids = my_lanes|map(attribute='id')|list if my_lanes else [] %}
+          {% set selected_lane = lane_id|string if lane_id else '' %}
+          <form method="GET" action="{{ route }}" class="queue-lane-filter-form">
+            {% if current_tab %}
+              <input type="hidden" name="tab" value="{{ current_tab }}">
+            {% endif %}
+            <input type="hidden" name="q" value="{{ q }}">
+            <input type="hidden" name="sort" value="{{ sort }}">
+            <input type="hidden" name="direction" value="{{ direction }}">
+            {% if org_id %}
+              <input type="hidden" name="org_id" value="{{ org_id }}">
+            {% endif %}
+            {% if stages_value is not none %}<input type="hidden" name="stages" value="{{ stages_value }}">{% endif %}
+            {% if sources_value is not none %}<input type="hidden" name="sources" value="{{ sources_value }}">{% endif %}
+            <label for="{{ id_prefix }}-lane">Lane</label>
+            <select id="{{ id_prefix }}-lane" name="lane_id" onchange="this.form.submit()">
+              <option value="" {{ 'selected' if not selected_lane else '' }}>All Opportunities</option>
+              {% if my_lanes %}
+                <option value="my_lanes" {{ 'selected' if selected_lane == 'my_lanes' else '' }}>★ My Lanes</option>
+              {% endif %}
+              {% if active_lanes %}
+                <optgroup label="All Workspace Lanes">
+                  {% for lane in active_lanes %}
+                    <option value="{{ lane.id }}" {{ 'selected' if selected_lane == (lane.id|string) else '' }}>{{ '★ ' if lane.id in my_lane_ids else '' }}{{ lane.name }}</option>
+                  {% endfor %}
+                </optgroup>
+              {% endif %}
+            </select>
+          </form>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
 {% endmacro %}
 
 {% macro queue_count(result_count, q=none) %}

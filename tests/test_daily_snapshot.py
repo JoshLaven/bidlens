@@ -223,10 +223,13 @@ class DailySnapshotTests(unittest.TestCase):
         payload = snapshot.snapshot_json
 
         self.assertEqual([item["source_record_id"] for item in payload["new_opportunities"]], ["MY-LANE", "ORG-WIDE"])
-        self.assertEqual(payload["my_lanes"][0]["name"], "Healthcare")
-        self.assertEqual(payload["my_lanes"][0]["new_opportunity_count"], 1)
-        self.assertEqual(payload["my_lanes"][0]["updated_opportunity_count"], 1)
-        self.assertEqual(payload["my_lanes"][0]["upcoming_deadline_count"], 1)
+        self.assertEqual(payload["my_shortlist"], [])
+        self.assertEqual(payload["team_signals"], [])
+        self.assertEqual(payload["my_lanes"], [])
+        self.assertEqual(payload["my_lane_context"][0]["name"], "Healthcare")
+        self.assertEqual(payload["my_lane_context"][0]["new_opportunity_count"], 1)
+        self.assertEqual(payload["my_lane_context"][0]["updated_opportunity_count"], 1)
+        self.assertEqual(payload["my_lane_context"][0]["upcoming_deadline_count"], 1)
         self.assertEqual(other.source_record_id, "ORG-WIDE")
 
     def test_create_daily_snapshot_returns_existing_snapshot_without_regenerating(self):

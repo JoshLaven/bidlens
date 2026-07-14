@@ -4,21 +4,25 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Any, Optional
 from ..database import get_db
-from ..auth import get_current_user
+from ..auth import attach_request_user_context, get_current_user
 from ..state_machine import OppState
 from ..services import transition_state, cast_vote, push_opportunity_to_crm
 from ..services.opportunity_history import (
-    EVENT_SALESFORCE_SYNCHRONIZED,
     mark_history_read,
     record_history_event,
 )
 from ..services.salesforce import (
-    PROSPECT_FEED_STATUS,
     SalesforceApiError,
     SalesforceConfigError,
     SalesforceService,
     generate_pkce_pair,
 )
+from ..services.salesforce_promotion import (
+    SalesforceCreateValidationError,
+    ensure_opportunity_in_salesforce,
+    record_salesforce_sync_failure,
+)
+from ..services.platform import post_setup_completion_url
 from ..models import CompanyProfile, Opportunity, OpportunityBrief, Organization, OrganizationMembership
 from ..tenancy import current_org_id
 from sqlalchemy import and_, or_
@@ -32,13 +36,6 @@ import secrets
 from .. import config
 from ..services import get_vote_counts, get_vote_user_maps
 from ..sam_client import _is_url_like
-from ..services.research.brief_generator import (
-    build_brief_request_payload,
-    build_opportunity_source_text,
-    generate_local_brief,
-    generate_llm_brief,
-)
-from ..services.research.document_fetcher import fetch_opportunity_attachment_metadata
 router = APIRouter(prefix="/api", tags=["api"])
 logger = logging.getLogger(__name__)
 _SALESFORCE_OAUTH_PKCE: dict[str, str] = {}
@@ -210,6 +207,9 @@ def _merge_n8n_source_metadata(n8n_data: dict[str, Any], brief_payload: dict[str
 
 
 def _build_n8n_payload(opp: Opportunity, brief_payload: dict[str, Any]) -> dict[str, Any]:
+    from ..services.research.brief_generator import build_opportunity_source_text
+    from ..services.research.document_fetcher import fetch_opportunity_attachment_metadata
+
     agency_parts = [part.strip().replace("_", " ") for part in (opp.agency or "").split(".") if part.strip()]
     department = agency_parts[0] if len(agency_parts) > 1 else None
     subagency = agency_parts[-1] if len(agency_parts) > 1 else None
@@ -329,236 +329,6 @@ def _salesforce_redirect_uri(request: Request) -> str:
     if config.SALESFORCE_REDIRECT_URI:
         return config.SALESFORCE_REDIRECT_URI
     return str(request.url_for("salesforce_oauth_callback"))
-
-
-def _salesforce_opportunity_name(opp: Opportunity) -> str:
-    name = (opp.title or f"BidLens Opportunity {opp.id}").strip()
-    if len(name) <= 120:
-        return name
-    return f"{name[:117]}..."
-
-
-def _salesforce_payload_summary(payload: dict[str, Any]) -> dict[str, Any]:
-    summary = dict(payload)
-    if summary.get("Description"):
-        description = str(summary["Description"])
-        summary["Description"] = description[:500] + ("..." if len(description) > 500 else "")
-        summary["description_included"] = True
-    return summary
-
-
-def _record_salesforce_opportunity_reference(
-    db: Session,
-    *,
-    opp: Opportunity,
-    salesforce_opp_id: str,
-    salesforce_opp_url: str,
-    action: str,
-) -> None:
-    opp.salesforce_opportunity_id = salesforce_opp_id
-    opp.salesforce_opportunity_url = salesforce_opp_url
-    opp.salesforce_synced_at = datetime.utcnow()
-    opp.salesforce_action = action
-    db.commit()
-
-
-def _record_salesforce_synchronized_history(
-    db: Session,
-    *,
-    opp: Opportunity,
-    salesforce_opp_id: str,
-    action: str,
-) -> None:
-    record_history_event(
-        db,
-        opportunity=opp,
-        event_type=EVENT_SALESFORCE_SYNCHRONIZED,
-        source="salesforce",
-        event_data={
-            "salesforce_opportunity_id": salesforce_opp_id,
-            "action": action,
-        },
-    )
-    db.commit()
-
-
-def _select_intake_source_value(values: list[str]) -> str | None:
-    if "BidLens" in values:
-        return "BidLens"
-    return values[0] if values else None
-
-
-class SalesforceCreateValidationError(ValueError):
-    def __init__(self, detail: dict[str, Any]):
-        super().__init__(str(detail.get("message") or "Salesforce create validation failed"))
-        self.detail = detail
-
-
-def _salesforce_create_payload(
-    service: SalesforceService,
-    opp: Opportunity,
-) -> tuple[dict[str, Any], str, list[str]]:
-    close_date = opp.response_deadline or (date.today() + timedelta(days=30))
-    payload: dict[str, Any] = {
-        "Name": _salesforce_opportunity_name(opp),
-        "StageName": "Prospecting",
-        "CloseDate": close_date.isoformat(),
-        "External_Source_ID_c__c": (opp.source_record_id or "").strip(),
-        "Intake_Status__c": PROSPECT_FEED_STATUS,
-    }
-    description = _best_description_text(opp)
-    if description:
-        payload["Description"] = description[:32000]
-
-    required_fields = service.required_createable_opportunity_fields()
-    valid_stage_names = service.stage_name_values()
-    intake_source_values = service.opportunity_picklist_values("Intake_Source_c__c")
-    selected_intake_source = _select_intake_source_value(intake_source_values)
-    if "Prospecting" not in valid_stage_names:
-        raise SalesforceCreateValidationError({
-            "message": "Salesforce StageName 'Prospecting' is not valid in this org.",
-            "valid_stage_names": valid_stage_names,
-            "created": False,
-        })
-    if not selected_intake_source:
-        raise SalesforceCreateValidationError({
-            "message": "Salesforce Intake_Source_c__c has no active picklist values.",
-            "intake_source_values": intake_source_values,
-            "created": False,
-        })
-    payload["Intake_Source_c__c"] = selected_intake_source
-
-    provided_fields = set(payload)
-    missing_required_fields = [
-        field
-        for field in required_fields
-        if field.get("name") and field["name"] not in provided_fields
-    ]
-    if missing_required_fields:
-        raise SalesforceCreateValidationError({
-            "message": "Salesforce Opportunity has required createable fields outside this POC payload.",
-            "missing_required_fields": missing_required_fields,
-            "required_fields": required_fields,
-            "created": False,
-        })
-    return payload, selected_intake_source, intake_source_values
-
-
-def _promote_interested_opportunity_to_salesforce(
-    db: Session,
-    *,
-    user,
-    opp: Opportunity,
-    ui_version: str,
-    service: SalesforceService | None = None,
-) -> dict[str, Any]:
-    source_record_id = (opp.source_record_id or "").strip()
-    if not source_record_id:
-        raise ValueError("Opportunity is missing source_record_id")
-
-    service = service or SalesforceService()
-    if not service.is_authorized():
-        raise SalesforceConfigError("Salesforce is not connected.")
-
-    sf_opp = None
-    if opp.salesforce_opportunity_id:
-        salesforce_opp_id = opp.salesforce_opportunity_id
-        service.update_intake_status(salesforce_opp_id, PROSPECT_FEED_STATUS)
-        salesforce_url = (
-            opp.salesforce_opportunity_url
-            or service.opportunity_record_url(salesforce_opp_id)
-        )
-        _record_salesforce_opportunity_reference(
-            db,
-            opp=opp,
-            salesforce_opp_id=salesforce_opp_id,
-            salesforce_opp_url=salesforce_url,
-            action="pushed",
-        )
-        push_opportunity_to_crm(
-            db,
-            org_id=_user_org_id(user),
-            user_id=user.id,
-            opp_id=opp.id,
-            ui_version=ui_version,
-        )
-        _record_salesforce_synchronized_history(
-            db,
-            opp=opp,
-            salesforce_opp_id=salesforce_opp_id,
-            action="updated",
-        )
-        return {
-            "outcome": "linked",
-            "message": "Pushed to CRM · Updated in Salesforce",
-            "salesforce_opportunity_id": salesforce_opp_id,
-            "salesforce_opportunity_url": salesforce_url,
-        }
-
-    sf_opp = service.find_opportunity_by_external_source_id(source_record_id)
-    if sf_opp:
-        service.update_intake_status(sf_opp.id, PROSPECT_FEED_STATUS)
-        salesforce_url = service.opportunity_record_url(sf_opp.id)
-        _record_salesforce_opportunity_reference(
-            db,
-            opp=opp,
-            salesforce_opp_id=sf_opp.id,
-            salesforce_opp_url=salesforce_url,
-            action="pushed",
-        )
-        push_opportunity_to_crm(
-            db,
-            org_id=_user_org_id(user),
-            user_id=user.id,
-            opp_id=opp.id,
-            ui_version=ui_version,
-        )
-        _record_salesforce_synchronized_history(
-            db,
-            opp=opp,
-            salesforce_opp_id=sf_opp.id,
-            action="updated",
-        )
-        return {
-            "outcome": "linked",
-            "message": "Pushed to CRM · Updated in Salesforce",
-            "salesforce_opportunity_id": sf_opp.id,
-            "salesforce_opportunity_url": salesforce_url,
-        }
-
-    payload, selected_intake_source, _intake_source_values = _salesforce_create_payload(
-        service,
-        opp,
-    )
-    salesforce_opp_id = service.create_opportunity(payload)
-    salesforce_url = service.opportunity_record_url(salesforce_opp_id)
-    _record_salesforce_opportunity_reference(
-        db,
-        opp=opp,
-        salesforce_opp_id=salesforce_opp_id,
-        salesforce_opp_url=salesforce_url,
-        action="created",
-    )
-    push_opportunity_to_crm(
-        db,
-        org_id=_user_org_id(user),
-        user_id=user.id,
-        opp_id=opp.id,
-        ui_version=ui_version,
-    )
-    _record_salesforce_synchronized_history(
-        db,
-        opp=opp,
-        salesforce_opp_id=salesforce_opp_id,
-        action="created",
-    )
-    return {
-        "outcome": "created",
-        "message": "Pushed to CRM · Created in Salesforce",
-        "salesforce_opportunity_id": salesforce_opp_id,
-        "salesforce_opportunity_url": salesforce_url,
-        "selected_intake_source": selected_intake_source,
-    }
 
 
 def _clean_optional_text(value: str | None) -> str | None:
@@ -922,6 +692,32 @@ def _crm_workflow_response_payload(db: Session, user, opp_id: int) -> dict[str, 
     }
 
 
+def _empty_salesforce_result() -> dict[str, Any]:
+    return {
+        "salesforce_outcome": "not_requested",
+        "salesforce_message": None,
+        "salesforce_warning": None,
+        "salesforce_error": None,
+        "salesforce_opportunity_id": None,
+        "salesforce_opportunity_url": None,
+        "salesforce_action": None,
+        "salesforce_status": None,
+    }
+
+
+def _salesforce_failure_result(opp: Opportunity, *, not_configured: bool = False) -> dict[str, Any]:
+    return {
+        "salesforce_outcome": "not_configured" if not_configured else "failed",
+        "salesforce_message": "Salesforce sync was not completed",
+        "salesforce_warning": "Salesforce sync was not completed. The opportunity remains in My Shortlist.",
+        "salesforce_error": "Salesforce sync could not be completed.",
+        "salesforce_opportunity_id": opp.salesforce_opportunity_id,
+        "salesforce_opportunity_url": opp.salesforce_opportunity_url,
+        "salesforce_action": opp.salesforce_action,
+        "salesforce_status": "Salesforce sync failed",
+    }
+
+
 @router.post("/vote")
 def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
@@ -938,17 +734,9 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
             vote=payload.vote,
             ui_version=payload.ui_version,
         )
-        salesforce_result = {
-            "outcome": "not_requested",
-            "message": None,
-            "salesforce_opportunity_id": None,
-            "salesforce_opportunity_url": None,
-        }
-        is_admin_crm_action = (
-            result["vote"] == "PURSUE"
-            and _current_user_role(db, user) == "admin"
-        )
-        if is_admin_crm_action:
+        salesforce_result = _empty_salesforce_result()
+        should_sync_salesforce = result["vote"] == "PURSUE"
+        if should_sync_salesforce:
             opp = (
                 db.query(Opportunity)
                 .filter(
@@ -958,14 +746,20 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
                 .one()
             )
             try:
-                salesforce_result = _promote_interested_opportunity_to_salesforce(
+                salesforce_result = ensure_opportunity_in_salesforce(
                     db,
-                    user=user,
-                    opp=opp,
+                    organization_id=_user_org_id(user),
+                    user_id=user.id,
+                    opportunity=opp,
                     ui_version=payload.ui_version,
-                )
+                    service=SalesforceService(),
+                ).as_response_payload()
             except Exception as exc:
                 db.rollback()
+                try:
+                    record_salesforce_sync_failure(db, opportunity=opp, error=exc)
+                except Exception:
+                    db.rollback()
                 logger.warning(
                     "Interested Salesforce promotion failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s user_id=%s error=%s",
                     opp.id,
@@ -974,14 +768,10 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
                     user.id,
                     str(exc),
                 )
-                salesforce_result = {
-                    "outcome": "unavailable",
-                    "message": "Push failed · Salesforce unavailable",
-                    "warning": "Salesforce sync was not completed. The opportunity remains in My Shortlist.",
-                    "error": str(exc),
-                    "salesforce_opportunity_id": opp.salesforce_opportunity_id,
-                    "salesforce_opportunity_url": opp.salesforce_opportunity_url,
-                }
+                salesforce_result = _salesforce_failure_result(
+                    opp,
+                    not_configured=isinstance(exc, SalesforceConfigError),
+                )
         workflow_payload = _crm_workflow_response_payload(db, user, payload.opp_id)
 
         return {
@@ -994,13 +784,16 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
             "pursue_users": workflow_payload["pursue_users"],
             "pass_users": workflow_payload["pass_users"],
             "sidebar": workflow_payload["sidebar"],
-            "salesforce_outcome": salesforce_result["outcome"],
-            "salesforce_message": salesforce_result.get("message"),
-            "salesforce_warning": salesforce_result.get("warning"),
-            "salesforce_error": salesforce_result.get("error"),
+            "salesforce_outcome": salesforce_result["salesforce_outcome"],
+            "salesforce_message": salesforce_result.get("salesforce_message"),
+            "salesforce_warning": salesforce_result.get("salesforce_warning"),
+            "salesforce_error": salesforce_result.get("salesforce_error"),
             "salesforce_opportunity_id": salesforce_result.get("salesforce_opportunity_id"),
             "salesforce_opportunity_url": salesforce_result.get("salesforce_opportunity_url"),
-            "admin_crm_action": is_admin_crm_action,
+            "salesforce_action": salesforce_result.get("salesforce_action"),
+            "salesforce_status": salesforce_result.get("salesforce_status"),
+            "crm_action": should_sync_salesforce,
+            "admin_crm_action": False,
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1101,7 +894,13 @@ def salesforce_oauth_start(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/salesforce/oauth/callback", name="salesforce_oauth_callback")
-def salesforce_oauth_callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None):
+def salesforce_oauth_callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    db: Session = Depends(get_db),
+):
     if error:
         raise HTTPException(status_code=400, detail=f"Salesforce OAuth failed: {error}")
     if not code or not state or state not in _SALESFORCE_OAUTH_PKCE:
@@ -1115,6 +914,18 @@ def salesforce_oauth_callback(request: Request, code: str | None = None, state: 
         raise HTTPException(status_code=500, detail=str(exc))
     except SalesforceApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+
+    user = get_current_user(request, db)
+    if user:
+        attach_request_user_context(request, db, user)
+        setup_destination = post_setup_completion_url(
+            db,
+            user,
+            organization_id=getattr(user, "current_organization_id", None),
+            live_url="/integrations#salesforce",
+        )
+        if setup_destination.startswith("/organization-setup"):
+            return RedirectResponse(url=setup_destination, status_code=303)
 
     return HTMLResponse(
         "<h1>Salesforce connected</h1>"
@@ -1260,7 +1071,7 @@ def bulk_set_qualification_status(
 
 @router.post("/opps/{opp_id}/push-to-crm")
 def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depends(get_db)):
-    user = require_user(request, db)
+    user = require_admin(request, db)
     org_id = _user_org_id(user)
     opp = db.query(Opportunity).filter(
         Opportunity.id == opp_id,
@@ -1275,97 +1086,52 @@ def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depe
         )
         raise HTTPException(status_code=404, detail="Opportunity not found")
 
-    source_record_id = (opp.source_record_id or "").strip()
-    external_source_key = opp.external_source_key
-    if not source_record_id:
-        logger.info(
-            "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s success=false error=%s",
-            opp.id,
-            source_record_id,
-            external_source_key,
-            "Opportunity is missing source_record_id",
-        )
-        raise HTTPException(status_code=400, detail="Opportunity is missing source_record_id")
-    if opp.qualification_status != QUALIFICATION_QUALIFIED:
-        raise HTTPException(status_code=400, detail="Opportunity must be qualified before CRM actions")
-    if opp.decision_state == "ARCHIVED":
-        raise HTTPException(status_code=400, detail="Cannot push archived opportunities to CRM")
-
-    service = SalesforceService()
-    salesforce_opp_id = None
     try:
-        sf_opp = service.find_opportunity_by_external_source_id(source_record_id)
-        if not sf_opp:
-            message = (
-                "No matching Salesforce Opportunity found for "
-                f"External_Source_ID_c__c={source_record_id}"
-            )
-            logger.info(
-                "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s salesforce_opp_id=%s success=false error=%s",
-                opp.id,
-                source_record_id,
-                external_source_key,
-                None,
-                message,
-            )
-            raise HTTPException(status_code=404, detail=message)
-
-        salesforce_opp_id = sf_opp.id
-        previous_status = sf_opp.intake_status
-        service.update_intake_status(sf_opp.id, PROSPECT_FEED_STATUS)
-        salesforce_opp_url = service.opportunity_record_url(sf_opp.id)
-        _record_salesforce_opportunity_reference(
+        result = ensure_opportunity_in_salesforce(
             db,
-            opp=opp,
-            salesforce_opp_id=sf_opp.id,
-            salesforce_opp_url=salesforce_opp_url,
-            action="pushed",
-        )
-        push_opportunity_to_crm(
-            db,
-            org_id=org_id,
+            organization_id=org_id,
             user_id=user.id,
-            opp_id=opp.id,
+            opportunity=opp,
             ui_version="v1",
-        )
-        _record_salesforce_synchronized_history(
-            db,
-            opp=opp,
-            salesforce_opp_id=sf_opp.id,
-            action="updated",
+            service=SalesforceService(),
         )
         workflow_payload = _crm_workflow_response_payload(db, user, opp.id)
         logger.info(
             "Salesforce CRM push succeeded bidlens_opp_id=%s source_record_id=%s external_source_key=%s salesforce_opp_id=%s success=true",
             opp.id,
-            source_record_id,
-            external_source_key,
-            sf_opp.id,
+            opp.source_record_id,
+            opp.external_source_key,
+            result.salesforce_opportunity_id,
         )
         return {
             "success": True,
             "bidlens_opportunity_id": opp.id,
-            "source_record_id": source_record_id,
-            "external_source_key": external_source_key,
-            "salesforce_opportunity_id": sf_opp.id,
-            "salesforce_opportunity_url": salesforce_opp_url,
+            "source_record_id": opp.source_record_id,
+            "external_source_key": opp.external_source_key,
+            "salesforce_opportunity_id": result.salesforce_opportunity_id,
+            "salesforce_opportunity_url": result.salesforce_opportunity_url,
             "salesforce_linked": True,
-            "salesforce_action": "pushed",
-            "salesforce_status": "Pushed to Salesforce",
-            "salesforce_opportunity_name": sf_opp.name,
-            "previous_intake_status": previous_status,
-            "new_intake_status": PROSPECT_FEED_STATUS,
+            "salesforce_outcome": result.outcome,
+            "salesforce_action": result.salesforce_action,
+            "salesforce_status": result.salesforce_status,
+            "salesforce_opportunity_name": result.salesforce_opportunity_name,
+            "previous_intake_status": result.previous_intake_status,
+            "new_intake_status": result.new_intake_status,
             **workflow_payload,
         }
+    except SalesforceCreateValidationError as exc:
+        raise HTTPException(status_code=400, detail=exc.detail) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except HTTPException:
         raise
     except SalesforceConfigError as exc:
         logger.info(
             "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s salesforce_opp_id=%s success=false error=%s",
             opp.id,
-            source_record_id,
-            external_source_key,
-            salesforce_opp_id,
+            opp.source_record_id,
+            opp.external_source_key,
+            opp.salesforce_opportunity_id,
             str(exc),
         )
         raise HTTPException(status_code=500, detail=str(exc))
@@ -1373,9 +1139,9 @@ def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depe
         logger.info(
             "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s salesforce_opp_id=%s success=false error=%s",
             opp.id,
-            source_record_id,
-            external_source_key,
-            salesforce_opp_id,
+            opp.source_record_id,
+            opp.external_source_key,
+            opp.salesforce_opportunity_id,
             str(exc),
         )
         raise HTTPException(status_code=502, detail=str(exc))
@@ -1383,9 +1149,9 @@ def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depe
         logger.info(
             "Salesforce CRM push failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s salesforce_opp_id=%s success=false error=%s",
             opp.id,
-            source_record_id,
-            external_source_key,
-            salesforce_opp_id,
+            opp.source_record_id,
+            opp.external_source_key,
+            opp.salesforce_opportunity_id,
             str(exc),
         )
         raise HTTPException(status_code=502, detail="Salesforce request failed")
@@ -1393,7 +1159,7 @@ def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depe
 
 @router.post("/opps/{opp_id}/create-in-crm")
 def api_create_opp_in_salesforce(opp_id: int, request: Request, db: Session = Depends(get_db)):
-    user = require_user(request, db)
+    user = require_admin(request, db)
     org_id = _user_org_id(user)
     opp = db.query(Opportunity).filter(
         Opportunity.id == opp_id,
@@ -1402,75 +1168,44 @@ def api_create_opp_in_salesforce(opp_id: int, request: Request, db: Session = De
     if not opp:
         raise HTTPException(status_code=404, detail="Opportunity not found")
 
-    source_record_id = (opp.source_record_id or "").strip()
-    if not source_record_id:
-        raise HTTPException(status_code=400, detail="Opportunity is missing source_record_id")
-    if opp.qualification_status != QUALIFICATION_QUALIFIED:
-        raise HTTPException(status_code=400, detail="Opportunity must be qualified before CRM actions")
-    if opp.decision_state == "ARCHIVED":
-        raise HTTPException(status_code=400, detail="Cannot create archived opportunities in CRM")
-
-    service = SalesforceService()
     try:
-        if not service.is_authorized():
-            raise HTTPException(
-                status_code=401,
-                detail="Salesforce is not authorized yet. Visit /api/salesforce/oauth/start first.",
-            )
-
-        try:
-            payload, selected_intake_source, intake_source_values = (
-                _salesforce_create_payload(service, opp)
-            )
-        except SalesforceCreateValidationError as exc:
-            raise HTTPException(status_code=400, detail=exc.detail) from exc
-
-        salesforce_opp_id = service.create_opportunity(payload)
-        salesforce_opp_url = service.opportunity_record_url(salesforce_opp_id)
-        _record_salesforce_opportunity_reference(
+        result = ensure_opportunity_in_salesforce(
             db,
-            opp=opp,
-            salesforce_opp_id=salesforce_opp_id,
-            salesforce_opp_url=salesforce_opp_url,
-            action="created",
-        )
-        push_opportunity_to_crm(
-            db,
-            org_id=org_id,
+            organization_id=org_id,
             user_id=user.id,
-            opp_id=opp.id,
+            opportunity=opp,
             ui_version="v1",
-        )
-        _record_salesforce_synchronized_history(
-            db,
-            opp=opp,
-            salesforce_opp_id=salesforce_opp_id,
-            action="created",
+            service=SalesforceService(),
         )
         workflow_payload = _crm_workflow_response_payload(db, user, opp.id)
         logger.info(
             "Salesforce Opportunity create succeeded bidlens_opp_id=%s source_record_id=%s external_source_key=%s salesforce_opp_id=%s success=true",
             opp.id,
-            source_record_id,
+            opp.source_record_id,
             opp.external_source_key,
-            salesforce_opp_id,
+            result.salesforce_opportunity_id,
         )
         return {
             "success": True,
-            "created": True,
+            "created": result.outcome == "created",
             "bidlens_opportunity_id": opp.id,
-            "source_record_id": source_record_id,
+            "source_record_id": opp.source_record_id,
             "external_source_key": opp.external_source_key,
-            "salesforce_opportunity_id": salesforce_opp_id,
-            "salesforce_opportunity_url": salesforce_opp_url,
+            "salesforce_opportunity_id": result.salesforce_opportunity_id,
+            "salesforce_opportunity_url": result.salesforce_opportunity_url,
             "salesforce_linked": True,
-            "salesforce_action": "created",
-            "salesforce_status": "Created in Salesforce",
-            "selected_intake_source": selected_intake_source,
-            "intake_source_values": intake_source_values,
-            "created_payload_summary": _salesforce_payload_summary(payload),
+            "salesforce_outcome": result.outcome,
+            "salesforce_action": result.salesforce_action,
+            "salesforce_status": result.salesforce_status,
+            "selected_intake_source": result.selected_intake_source,
+            "intake_source_values": result.intake_source_values,
+            "created_payload_summary": result.created_payload_summary,
             **workflow_payload,
         }
+    except SalesforceCreateValidationError as exc:
+        raise HTTPException(status_code=400, detail=exc.detail) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except HTTPException:
         raise
     except SalesforceConfigError as exc:
@@ -1479,7 +1214,7 @@ def api_create_opp_in_salesforce(opp_id: int, request: Request, db: Session = De
         logger.info(
             "Salesforce Opportunity create failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s success=false error=%s",
             opp.id,
-            source_record_id,
+            opp.source_record_id,
             opp.external_source_key,
             str(exc),
         )
@@ -1488,7 +1223,7 @@ def api_create_opp_in_salesforce(opp_id: int, request: Request, db: Session = De
         logger.info(
             "Salesforce Opportunity create failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s success=false error=%s",
             opp.id,
-            source_record_id,
+            opp.source_record_id,
             opp.external_source_key,
             str(exc),
         )
@@ -1728,6 +1463,12 @@ def generate_brief(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    from ..services.research.brief_generator import (
+        build_brief_request_payload,
+        generate_local_brief,
+        generate_llm_brief,
+    )
+
     user = require_user(request, db)
     logger.info("Generate brief requested opp_id=%s user_id=%s", opp_id, getattr(user, "id", None))
 
@@ -1881,6 +1622,8 @@ def generate_brief(
     
 @router.get("/opps/{opp_id}")
 def get_opp_for_enrichment(opp_id: int, request: Request, db: Session = Depends(get_db)):
+    from ..services.research.brief_generator import build_brief_request_payload
+
     caller = require_user_or_automation(request, db)
     org_id = _caller_org_id(caller, request, db)
     o = db.query(Opportunity).filter(

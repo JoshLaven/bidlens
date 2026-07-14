@@ -8,7 +8,13 @@ import requests
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .grants_gov_client import GrantsGovApiError, fetch_opportunity_detail, search_recent_opportunities
+from .grants_gov_client import (
+    DEFAULT_GRANTS_POSTED_DAYS_BACK,
+    DEFAULT_GRANTS_ROWS,
+    GrantsGovApiError,
+    fetch_opportunity_detail,
+    search_recent_opportunities,
+)
 from .models import Opportunity, OpportunityHistoryEvent
 from .services.ingestion_details import build_error_detail, build_invalid_detail, build_upsert_detail
 from .services.opportunity_history import (
@@ -555,14 +561,23 @@ def _fetch_daily_search_results(*, days_back: int, rows: int) -> tuple[list[dict
     return records, pages_pulled
 
 
-def ingest_grants_gov(db: Session, *, organization_id: int, days_back: int = 1, rows: int = 25) -> dict[str, Any]:
+def ingest_grants_gov(
+    db: Session,
+    *,
+    organization_id: int,
+    days_back: int = DEFAULT_GRANTS_POSTED_DAYS_BACK,
+    rows: int = DEFAULT_GRANTS_ROWS,
+    run_type: str = "Manual",
+) -> dict[str, Any]:
     records, pages_pulled = _fetch_daily_search_results(days_back=days_back, rows=rows)
     result = {
         "status": "success",
         "organization_id": organization_id,
+        "run_type": run_type,
         "received": len(records),
         "pages_pulled": pages_pulled,
         "date_range_days": days_back,
+        "requested_date_window": f"{days_back} days",
         "created": 0,
         "updated": 0,
         "unchanged": 0,
@@ -637,10 +652,24 @@ def ingest_grants_gov(db: Session, *, organization_id: int, days_back: int = 1, 
         db,
         organization_id=organization_id,
     )
+    if result["detail_errors"]:
+        result["status"] = "partial_success"
+    elif result["received"] == 0:
+        result["status"] = "no_records"
     db.commit()
-    result["message"] = (
-        f"Grants.gov pull completed: {result['received']} received, {result['created']} created, "
-        f"{result['updated']} updated, {result['unchanged']} unchanged, "
-        f"{result['skipped']} skipped, {result['errors']} errors."
-    )
+    if result["status"] == "no_records":
+        result["message"] = (
+            f"Completed — no records returned for the requested {days_back}-day Grants.gov posted-date window."
+        )
+    else:
+        detail_note = (
+            f", {result['detail_errors']} detail lookup errors"
+            if result["detail_errors"]
+            else ""
+        )
+        result["message"] = (
+            f"Grants.gov pull completed: {result['received']} received, {result['created']} created, "
+            f"{result['updated']} updated, {result['unchanged']} unchanged, "
+            f"{result['skipped']} skipped, {result['errors']} errors{detail_note}."
+        )
     return result

@@ -2,11 +2,9 @@
 {% set hide_context_sidebar = true %}
 {% block title %}Opportunity Lookup - BidLens{% endblock %}
 {% block content %}
-{% set admin_nav_active = 'opportunity_lookup' %}
 {% set lookup_org_id = request.query_params.get("org_id") %}
 {% set lookup_org_q = "?org_id=" ~ lookup_org_id if lookup_org_id else "" %}
 <div class="admin-page-layout">
-  {% include "_admin_nav.html" %}
   <div class="admin-page-content">
     <div class="page-header admin-page-header">
       <div>

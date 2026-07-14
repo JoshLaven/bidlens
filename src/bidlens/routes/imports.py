@@ -15,6 +15,7 @@ from ..models import (
     IngestionRunDetail,
     Opportunity,
     OpportunityUpdateEvent,
+    GrantsSourceConfig,
     OrganizationMembership,
     SamSourceConfig,
     User,
@@ -274,17 +275,50 @@ def _intake_context(request: Request, db: Session, user, result=None, error: str
         .filter(SamSourceConfig.organization_id == org_id)
         .first()
     )
+    context["sam_configs"] = (
+        db.query(SamSourceConfig)
+        .filter(SamSourceConfig.organization_id == org_id)
+        .order_by(SamSourceConfig.name.asc(), SamSourceConfig.id.asc())
+        .all()
+    )
+    context["grants_config"] = (
+        db.query(GrantsSourceConfig)
+        .filter(GrantsSourceConfig.organization_id == org_id)
+        .first()
+    )
     return context
 
 
-@router.get("/imports/govwin")
-async def govwin_import_page(request: Request, db: Session = Depends(get_db)):
-    user = require_user(request, db)
+def _opportunity_discovery_url(request: Request, *, org_id: int | None = None, fragment: str | None = None) -> str:
+    query_params = dict(request.query_params)
+    if org_id and not query_params.get("org_id"):
+        query_params["org_id"] = str(org_id)
+    query = urlencode({key: value for key, value in query_params.items() if value})
+    url = f"/opportunity-discovery{f'?{query}' if query else ''}"
+    if fragment:
+        url = f"{url}#{fragment}"
+    return url
+
+
+@router.get("/opportunity-discovery")
+async def opportunity_discovery_page(request: Request, db: Session = Depends(get_db)):
+    user = require_admin(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
     context = _intake_context(request, db, user)
     return templates.TemplateResponse("govwin_import.html", context)
+
+
+@router.get("/imports/govwin")
+async def govwin_import_page(request: Request, db: Session = Depends(get_db)):
+    user = require_admin(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    return RedirectResponse(
+        url=_opportunity_discovery_url(request, org_id=_user_org_id(user), fragment="manual-import"),
+        status_code=303,
+    )
 
 
 def _sam_config_context(
@@ -880,7 +914,7 @@ async def govwin_import_upload(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    user = require_user(request, db)
+    user = require_admin(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 

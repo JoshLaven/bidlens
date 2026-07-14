@@ -31,6 +31,7 @@ from ..services.opportunity_stages import (
     normalize_display_stage,
 )
 from ..services.pursuit_lanes import user_my_lanes
+from ..services.platform import pre_live_admin_setup_url
 from sqlalchemy import and_, or_, select
 from dataclasses import dataclass
 from typing import Optional
@@ -181,6 +182,17 @@ def require_user(request: Request, db: Session):
         return None
     attach_request_user_context(request, db, user)
     return user
+
+
+def _pre_live_product_redirect(db: Session, user) -> RedirectResponse | None:
+    setup_url = pre_live_admin_setup_url(
+        db,
+        user,
+        organization_id=_user_org_id(user),
+    )
+    if setup_url:
+        return RedirectResponse(url=setup_url, status_code=303)
+    return None
 
 
 def _user_org_id(user) -> int:
@@ -519,7 +531,7 @@ def _export_view_query(
     date_to: str = "",
     show_passed: str = "",
     show_past_due: str = "",
-    lane_id: int | None = None,
+    lane_id: str | None = None,
     search: str = "",
     stages=None,
 ):
@@ -745,8 +757,6 @@ def _feed_query(db: Session, user, tab: str | None = None):
         .filter(Opportunity.organization_id == _user_org_id(user))
         .filter(Opportunity.decision_state != "ARCHIVED")
         .filter(Opportunity.qualification_status == QUALIFICATION_QUALIFIED)
-        .filter(Opportunity.crm_pushed.is_(False))
-        .filter(Opportunity.salesforce_opportunity_id.is_(None))
     )
     interested_opp_ids = (
         select(Vote.opp_id)
@@ -1138,15 +1148,37 @@ def _active_lanes(db: Session, user) -> list[PursuitLane]:
     )
 
 
-def _apply_lane_filter(query, db: Session, user, *, lane_id: int | None = None):
+def _apply_lane_filter(query, db: Session, user, *, lane_id: str | int | None = None):
     if not lane_id:
+        return query
+
+    org_id = _user_org_id(user)
+    if str(lane_id) == "my_lanes":
+        my_lane_ids = [
+            lane.id
+            for lane in user_my_lanes(db, organization_id=org_id, user_id=user.id)
+        ]
+        if not my_lane_ids:
+            return query.filter(False)
+        matched_opp_ids = (
+            select(OpportunityPursuitLaneMatch.opportunity_id)
+            .where(
+                OpportunityPursuitLaneMatch.organization_id == org_id,
+                OpportunityPursuitLaneMatch.pursuit_lane_id.in_(my_lane_ids),
+            )
+        )
+        return query.filter(Opportunity.id.in_(matched_opp_ids))
+
+    try:
+        selected_lane_id = int(lane_id)
+    except (TypeError, ValueError):
         return query
 
     lane = (
         db.query(PursuitLane.id)
         .filter(
-            PursuitLane.id == lane_id,
-            PursuitLane.organization_id == _user_org_id(user),
+            PursuitLane.id == selected_lane_id,
+            PursuitLane.organization_id == org_id,
             PursuitLane.is_active.is_(True),
         )
         .first()
@@ -1157,8 +1189,8 @@ def _apply_lane_filter(query, db: Session, user, *, lane_id: int | None = None):
     matched_opp_ids = (
         select(OpportunityPursuitLaneMatch.opportunity_id)
         .where(
-            OpportunityPursuitLaneMatch.organization_id == _user_org_id(user),
-            OpportunityPursuitLaneMatch.pursuit_lane_id == lane_id,
+            OpportunityPursuitLaneMatch.organization_id == org_id,
+            OpportunityPursuitLaneMatch.pursuit_lane_id == selected_lane_id,
         )
     )
     return query.filter(Opportunity.id.in_(matched_opp_ids))
@@ -1351,7 +1383,7 @@ async def feed(
     date_to: str = "",
     show_passed: str = "",
     show_past_due: str = "",
-    lane_id: int | None = None,
+    lane_id: str | None = None,
     q: str = "",
     stages: str | None = None,
     stage: str | None = None,
@@ -1361,6 +1393,9 @@ async def feed(
     user = require_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
+    pre_live_redirect = _pre_live_product_redirect(db, user)
+    if pre_live_redirect:
+        return pre_live_redirect
 
     search_query = q
     selected_sort = _normalize_feed_sort(sort)
@@ -1426,6 +1461,9 @@ async def triage_queue(
     user = require_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
+    pre_live_redirect = _pre_live_product_redirect(db, user)
+    if pre_live_redirect:
+        return pre_live_redirect
     if not _is_admin(user):
         return RedirectResponse(url="/", status_code=303)
 
@@ -1505,6 +1543,9 @@ async def shortlist(
     user = require_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
+    pre_live_redirect = _pre_live_product_redirect(db, user)
+    if pre_live_redirect:
+        return pre_live_redirect
 
     q = _team_interest_query(db, user, tab)
     q = _apply_past_due_filter(q, show_past_due=show_past_due)
@@ -1549,13 +1590,16 @@ async def my_shortlist(
     q: str = "",
     stages: str | None = None,
     stage: str | None = None,
-    lane_id: int | None = None,
+    lane_id: str | None = None,
     page: int = 1,
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
+    pre_live_redirect = _pre_live_product_redirect(db, user)
+    if pre_live_redirect:
+        return pre_live_redirect
 
     selected_sort = _normalize_feed_sort(sort)
     selected_direction = _normalize_sort_direction(direction)
@@ -1613,6 +1657,9 @@ async def archive(
     user = require_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
+    pre_live_redirect = _pre_live_product_redirect(db, user)
+    if pre_live_redirect:
+        return pre_live_redirect
 
     selected_sort = _normalize_feed_sort(sort)
     selected_direction = _normalize_sort_direction(direction)
@@ -1653,7 +1700,7 @@ async def export_opportunities_csv(
     date_to: str = "",
     show_passed: str = "",
     show_past_due: str = "",
-    lane_id: int | None = None,
+    lane_id: str | None = None,
     q: str = "",
     stages: str | None = None,
     db: Session = Depends(get_db),

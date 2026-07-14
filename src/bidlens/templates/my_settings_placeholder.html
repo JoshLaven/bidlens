@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% set hide_context_sidebar = true %}
+{% block title %}{{ title }} - BidLens{% endblock %}
+{% block content %}
+<div class="personal-settings-page">
+  <a href="/my-settings{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="back-link">← My Settings</a>
+
+  <div class="page-header">
+    <h1>{{ title }}</h1>
+    <p class="page-subtitle">{{ description }}</p>
+  </div>
+
+  <div class="empty-state empty-state--compact">
+    <h2>Coming soon.</h2>
+    <p>This area is not configurable yet.</p>
+  </div>
+</div>
+{% endblock %}

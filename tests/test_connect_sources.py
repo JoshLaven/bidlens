@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from bidlens.database import Base
-from bidlens.models import Event, Organization, OrganizationMembership, SamSourceConfig, User
+from bidlens.models import Event, GrantsSourceConfig, Organization, OrganizationMembership, SamSourceConfig, User
 from bidlens.routes.connect_sources import _source_context, enable_grants_source, save_connect_sam
 
 
@@ -36,7 +36,7 @@ class ConnectSourcesTests(unittest.TestCase):
         self.db.close()
         self.engine.dispose()
 
-    def test_sam_setup_creates_source_and_returns_to_connect_sources(self):
+    def test_sam_setup_creates_source_and_returns_to_organization_setup_pre_live(self):
         request = SimpleNamespace(query_params={})
 
         with patch("bidlens.routes.connect_sources.require_admin", return_value=self.admin):
@@ -62,12 +62,12 @@ class ConnectSourcesTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 303)
-        self.assertEqual(response.headers["location"], f"/connect-sources?org_id={self.org.id}&saved=sam")
+        self.assertEqual(response.headers["location"], f"/organization-setup?org_id={self.org.id}")
         self.assertEqual(config.naics_codes, ["541611", "541990"])
         self.assertEqual(config.notice_types, ["Solicitation", "Sources Sought"])
         self.assertEqual(event.payload["source"], "sam.gov")
 
-    def test_grants_enable_is_one_click_and_marks_source_connected(self):
+    def test_grants_enable_is_one_click_and_returns_to_organization_setup_pre_live(self):
         request = SimpleNamespace(query_params={})
 
         with patch("bidlens.routes.connect_sources.require_admin", return_value=self.admin):
@@ -82,13 +82,31 @@ class ConnectSourcesTests(unittest.TestCase):
             .all()
         )
         context = _source_context(self.db, self.org.id)
+        config = (
+            self.db.query(GrantsSourceConfig)
+            .filter(GrantsSourceConfig.organization_id == self.org.id)
+            .one()
+        )
 
         self.assertEqual(response.status_code, 303)
-        self.assertEqual(response.headers["location"], f"/connect-sources?org_id={self.org.id}&saved=grants")
+        self.assertEqual(response.headers["location"], f"/organization-setup?org_id={self.org.id}")
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].payload["source"], "grants.gov")
         self.assertEqual(events[0].payload["configuration_flow"], "one_click_enable")
+        self.assertTrue(config.enabled)
+        self.assertEqual(config.posted_days_back, 7)
         self.assertTrue(context["grants"]["connected"])
+
+    def test_grants_enable_live_workspace_stays_on_opportunity_discovery(self):
+        self.org.is_live = True
+        self.db.commit()
+        request = SimpleNamespace(query_params={})
+
+        with patch("bidlens.routes.connect_sources.require_admin", return_value=self.admin):
+            response = asyncio.run(enable_grants_source(request, db=self.db))
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], f"/opportunity-discovery?org_id={self.org.id}&saved=grants#grants-gov")
 
     def test_grants_enable_is_idempotent(self):
         request = SimpleNamespace(query_params={})

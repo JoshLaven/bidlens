@@ -14,7 +14,12 @@ from sqlalchemy.orm import Session
 from ..auth import attach_request_user_context, get_current_user
 from ..database import get_db
 from ..models import Event, Organization, OrganizationMembership, Plan, User, Workspace, WorkspaceInvitation
-from ..services.platform import PROFESSIONAL_PLAN_CODE, get_or_create_plan, unique_workspace_slug
+from ..services.platform import (
+    PROFESSIONAL_PLAN_CODE,
+    get_or_create_plan,
+    post_setup_completion_url,
+    unique_workspace_slug,
+)
 from ..tenancy import (
     current_organization,
     ensure_email_domain_membership,
@@ -64,6 +69,26 @@ def _invitation_token(db: Session) -> str:
 
 def _org_suffix(request: Request, organization_id: int) -> str:
     return "?" + urlencode({"org_id": request.query_params.get("org_id") or str(organization_id)})
+
+
+def _members_redirect_url(
+    request: Request,
+    db: Session,
+    user: User,
+    organization_id: int,
+    *,
+    message: str,
+) -> str:
+    live_url = (
+        f"/admin/organizations/{organization_id}/users"
+        f"{_org_suffix(request, organization_id)}&message={message}"
+    )
+    return post_setup_completion_url(
+        db,
+        user,
+        organization_id=organization_id,
+        live_url=live_url,
+    )
 
 
 def _workspace_for_org(db: Session, org: Organization) -> Workspace:
@@ -243,7 +268,7 @@ def _members_context(
     return {
         "request": request,
         "user": user,
-        "active_page": "administration",
+        "active_page": "workspace_members",
         "organization": org,
         "workspace": workspace,
         "pending_invitations": [
@@ -404,7 +429,13 @@ def create_organization_invitations(
         )
     db.commit()
     return RedirectResponse(
-        url=f"/admin/organizations/{organization_id}/users{_org_suffix(request, organization_id)}&message={created}%20invitation{'s' if created != 1 else ''}%20created",
+        url=_members_redirect_url(
+            request,
+            db,
+            user,
+            organization_id,
+            message=f"{created}%20invitation{'s' if created != 1 else ''}%20created",
+        ),
         status_code=303,
     )
 
@@ -468,7 +499,13 @@ async def bulk_create_organization_invitations(
         )
     db.commit()
     return RedirectResponse(
-        url=f"/admin/organizations/{organization_id}/users{_org_suffix(request, organization_id)}&message={created}%20invitation{'s' if created != 1 else ''}%20created",
+        url=_members_redirect_url(
+            request,
+            db,
+            user,
+            organization_id,
+            message=f"{created}%20invitation{'s' if created != 1 else ''}%20created",
+        ),
         status_code=303,
     )
 
@@ -480,7 +517,7 @@ def delete_organization_invitation(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    _current_org_or_404(request, db, organization_id)
+    user, _org = _current_org_or_404(request, db, organization_id)
     invitation = (
         db.query(WorkspaceInvitation)
         .filter(
@@ -495,7 +532,13 @@ def delete_organization_invitation(
     invitation.status = "deleted"
     db.commit()
     return RedirectResponse(
-        url=f"/admin/organizations/{organization_id}/users{_org_suffix(request, organization_id)}&message=Invitation%20deleted",
+        url=_members_redirect_url(
+            request,
+            db,
+            user,
+            organization_id,
+            message="Invitation%20deleted",
+        ),
         status_code=303,
     )
 

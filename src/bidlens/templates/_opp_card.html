@@ -29,7 +29,7 @@
 {% set source_value = opp.source or '' %}
 {% set source_label = 'SAM' if source_value == 'sam' else 'GovWin' if source_value == 'govwin_export' else 'Grants.gov' if source_value == 'grants_gov' else source_value %}
 {% set opportunity_type_label = opp.normalized_opportunity_type or 'RFP' %}
-{% set opportunity_stage_class = opportunity_type_label|lower %}
+{% set primary_pursuit_lane = pursuit_lanes[0] if pursuit_lanes else none %}
 <div
   id="opp-card-{{ opp.id }}"
   class="opp-card{% if view != 'archive' %}{% if opp.user_vote == 'PURSUE' %} opp-card--pursue{% elif opp.user_vote == 'PASS' %} opp-card--pass{% endif %}{% endif %}{% if view == 'archive' %} opp-card--archived{% endif %}"
@@ -38,13 +38,13 @@
   data-shortlist-title="{{ opp.title }}"
   data-shortlist-due-label="{% if opp.response_deadline and opp.days_until_due is defined %}Due {{ opp.response_deadline.strftime('%b') }} {{ opp.response_deadline.day }} ({{ opp.days_until_due }}D){% elif opp.response_deadline %}Due {{ opp.response_deadline.strftime('%b') }} {{ opp.response_deadline.day }}{% else %}No deadline{% endif %}"
 >
-  {% if view in ['feed', 'triage'] %}
+  {% if view in ['feed', 'triage', 'my_shortlist'] %}
     <label class="opp-card-select" title="Select opportunity">
       <input
         type="checkbox"
         value="{{ opp.id }}"
-        {% if view == 'feed' %}data-feed-archive-checkbox{% else %}data-triage-checkbox{% endif %}
-        aria-label="Select {{ opp.title }} for bulk {{ 'archive' if view == 'feed' else 'triage' }}"
+        {% if view == 'feed' %}data-feed-archive-checkbox{% elif view == 'my_shortlist' %}data-shortlist-archive-checkbox{% else %}data-triage-checkbox{% endif %}
+        aria-label="Select {{ opp.title }} for bulk {{ 'triage' if view == 'triage' else 'archive' }}"
       >
       <span class="sr-only">Select {{ opp.title }}</span>
     </label>
@@ -82,25 +82,23 @@
           </div>
         </div>
       </div>
-      <div class="opp-card-meta-line">
+      <div class="opp-card-meta-line opp-card-meta-line--collapsed">
         <div class="opp-card-agency" title="{{ agency_display }}">{{ agency_display|truncate(60, False, '…') }}</div>
-        <span class="opportunity-type-pill opportunity-type-pill--{{ opportunity_stage_class }}">{{ opportunity_type_label }}</span>
-        {% if source_value %}
-          <span class="source-pill" title="Source: {{ source_value }}">{{ source_label }}</span>
-        {% endif %}
-        <span class="opp-card-meta-divider" aria-hidden="true">&bull;</span>
-        <span class="opp-card-due-meta {{ 'due-past' if opp.days_until_due is defined and opp.days_until_due < 0 else 'due-urgent' if opp.days_until_due is defined and opp.days_until_due <= 7 else 'due-soon' if opp.days_until_due is defined and opp.days_until_due <= 14 else '' }}">
-          {% if opp.response_deadline %}
-            Due {{ opp.response_deadline.strftime('%b') }} {{ opp.response_deadline.day }}
-            {% if opp.days_until_due is defined and opp.days_until_due >= 0 %}
-              <span>&bull; {{ opp.days_until_due }} days</span>
-            {% elif opp.days_until_due is defined %}
-              <span>&bull; Past due</span>
+        <div class="opp-card-metadata-row">
+          <span class="opp-card-due-meta">
+            {% if opp.response_deadline %}
+              Due {{ opp.response_deadline.strftime('%b') }} {{ opp.response_deadline.day }}
+            {% else %}
+              No deadline
             {% endif %}
-          {% else %}
-            No deadline
+          </span>
+          {% if primary_pursuit_lane %}
+            {% set lane_reasons = primary_pursuit_lane.reasons or [] %}
+            {% set lane_title = 'Matched pursuit lane' ~ (': ' ~ (lane_reasons|join('; ')) if lane_reasons else '') %}
+            <span class="opp-card-meta-divider" aria-hidden="true">&bull;</span>
+            <span class="pursuit-lane-pill" title="{{ lane_title }}">{{ primary_pursuit_lane.name }}</span>
           {% endif %}
-        </span>
+        </div>
         {% if view == 'my_shortlist' %}
           <span class="opp-card-crm-inline" data-salesforce-link-container {% if not has_salesforce_linkage %}hidden{% endif %}>
             <span data-salesforce-status>{{ salesforce_status }}</span>
@@ -196,13 +194,8 @@
               class="btn btn-sm opp-card-button opp-card-button--primary {{ 'btn-success' if opp.user_vote == 'PURSUE' else 'btn-primary' }}"
               data-vote-button="PURSUE"
               data-action-opp-id="{{ opp.id }}"
-              {% if show_admin_crm_actions %}data-admin-crm-action{% endif %}
               onclick="voteOpp('{{ opp.id }}', 'PURSUE')">
-        {% if show_admin_crm_actions %}
-          {% if opp.user_vote == 'PURSUE' %}&#10003; Pushed to CRM{% else %}Push to CRM{% endif %}
-        {% else %}
-          {% if opp.user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}
-        {% endif %}
+        {% if opp.user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}
       </button>
       <div class="opp-card-actions-secondary{% if view == 'feed' %} opp-card-actions-secondary--feed{% endif %}">
         {% if view not in ['feed', 'my_shortlist'] %}

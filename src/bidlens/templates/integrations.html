@@ -1,245 +1,30 @@
 {% extends "base.html" %}
 {% set hide_context_sidebar = true %}
-{% block title %}Configuration Center - BidLens{% endblock %}
+{% block title %}Business Systems - BidLens{% endblock %}
 {% block content %}
-{% set admin_nav_active = 'integrations' %}
 {% set org_id = request.query_params.get('org_id') %}
 {% set org_q = '?org_id=' ~ org_id if org_id else '' %}
-{% set org_amp = '&org_id=' ~ org_id if org_id else '' %}
 
 <div class="admin-page-layout">
-  {% include "_admin_nav.html" %}
   <div class="admin-page-content">
     <div class="page-header admin-page-header configuration-center-header">
       <div>
-        <span class="configuration-center-eyebrow">Admin Configuration Center</span>
-        <h1>Connectors &amp; Operations</h1>
-        <p class="page-subtitle">See how this workspace is configured, what each connector is doing, and whether it needs attention.</p>
+        <span class="configuration-center-eyebrow">Workspace Management</span>
+        <h1>Business Systems</h1>
+        <p class="page-subtitle">Manage outbound systems BidLens connects to for workspace operations.</p>
       </div>
-      <a href="/imports/history{{ org_q }}" class="btn btn-outline-secondary">View Pull History</a>
+      <a href="/opportunity-discovery{{ org_q }}" class="btn btn-outline-secondary">Opportunity Discovery</a>
     </div>
 
-    <div id="configuration-center-result" class="feed-sam-pull-result" hidden></div>
-
-    <section class="configuration-health-summary" aria-labelledby="overall-connector-health">
-      <div>
-        <span>Operations snapshot</span>
-        <h2 id="overall-connector-health">Overall Connector Health</h2>
-        <p>Current confidence based on configuration, recent imports, retry state, and available connector validation.</p>
-      </div>
-      <dl>
-        <div><dt>{{ center.overall_health.total }}</dt><dd>Connectors</dd></div>
-        <div class="is-healthy"><dt>{{ center.overall_health.healthy }}</dt><dd>Healthy</dd></div>
-        {% if center.overall_health.paused %}
-          <div class="is-paused"><dt>{{ center.overall_health.paused }}</dt><dd>Paused</dd></div>
-        {% endif %}
-        <div class="is-attention"><dt>{{ center.overall_health.attention }}</dt><dd>Needs Attention</dd></div>
-      </dl>
-    </section>
-
-    <section class="configuration-center-section" aria-labelledby="source-connectors-heading">
+    <section class="configuration-center-section" aria-labelledby="source-management-link">
       <div class="configuration-center-section-heading">
         <div>
-          <span>Inbound connectors</span>
-          <h2 id="source-connectors-heading">Opportunity Sources</h2>
+          <span>Inbound opportunity sources</span>
+          <h2 id="source-management-link">Opportunity Discovery moved to its own destination</h2>
         </div>
-        <p>Source connectors define what enters BidLens and provide operational visibility into each import path.</p>
+        <p>SAM.gov, Grants.gov, GovWin intake, manual imports, and source history are managed from Opportunity Discovery.</p>
       </div>
-
-      <div class="configuration-center-grid">
-        <article class="configuration-connector-card">
-          <header class="configuration-connector-header">
-            <div>
-              <span class="configuration-connector-kicker">Federal contracts</span>
-              <h3>SAM.gov</h3>
-              <p>Saved-search intake for federal notices and solicitations.</p>
-            </div>
-            <span class="configuration-health configuration-health--{{ center.sam.health.level }}">
-              <i aria-hidden="true"></i>{{ center.sam.health.label }}
-            </span>
-          </header>
-
-          <div class="configuration-connector-sections">
-            <section>
-              <h4>Connection Status</h4>
-              <dl class="configuration-data-list">
-                <div><dt>Access</dt><dd>{{ 'SAM.gov API key configured' if center.sam.connected else 'SAM.gov API key missing' }}</dd></div>
-              </dl>
-            </section>
-            <section>
-              <h4>Current Configuration</h4>
-              <dl class="configuration-data-list">
-                <div>
-                  <dt>Saved searches</dt>
-                  <dd>
-                    {% if center.sam.configs %}
-                      {{ center.sam.configs|length }} — {{ center.sam.configs|map(attribute='name')|join(', ') }}
-                    {% else %}
-                      Not configured
-                    {% endif %}
-                  </dd>
-                </div>
-                <div><dt>NAICS codes</dt><dd>{{ center.sam.naics_count }} configured</dd></div>
-                <div><dt>Notice types</dt><dd>{{ center.sam.notice_types|join(', ') if center.sam.notice_types else 'Default discovery notice types' }}</dd></div>
-                <div><dt>Import schedule</dt><dd>{{ center.sam.schedule }}</dd></div>
-              </dl>
-            </section>
-            <section>
-              <h4>Connector Health</h4>
-              <div class="configuration-health-message configuration-health-message--{{ center.sam.health.level }}">
-                <strong>{{ center.sam.health.label }}</strong>
-                <p>{{ center.sam.health.summary }}</p>
-                {% if center.sam.latest and center.sam.latest.retry_after_at %}
-                  <span>Retry: {{ center.sam.latest.retry_after_at.strftime('%b %d, %Y %I:%M %p') }}</span>
-                {% endif %}
-              </div>
-              <ul class="configuration-health-checks">
-                {% for check in center.sam.health.checks %}
-                  <li class="configuration-health-check configuration-health-check--{{ check.state }}">
-                    <span aria-hidden="true"></span>
-                    <div><strong>{{ check.label }}</strong>{% if check.detail %}<small>{{ check.detail }}</small>{% endif %}</div>
-                  </li>
-                {% endfor %}
-              </ul>
-            </section>
-          </div>
-
-          <footer class="configuration-connector-actions">
-            <span>Available Actions</span>
-            <div>
-              <a href="/admin/sources/sam{{ org_q }}" class="btn btn-sm btn-outline-secondary">Configure</a>
-              {% if center.sam.default_config and center.sam.connected %}
-                <button
-                  type="button"
-                  class="btn btn-sm btn-primary"
-                  data-source-run="/sam/pull-now?search_id={{ center.sam.default_config.id }}{{ org_amp }}"
-                  data-source-name="SAM.gov"
-                >Run Now</button>
-              {% endif %}
-              <a href="/imports/history{{ org_q }}" class="btn btn-sm btn-outline-secondary">View Import History</a>
-            </div>
-          </footer>
-        </article>
-
-        <article class="configuration-connector-card">
-          <header class="configuration-connector-header">
-            <div>
-              <span class="configuration-connector-kicker">Federal funding</span>
-              <h3>Grants.gov</h3>
-              <p>Public change-feed intake for forecasted and posted grant opportunities.</p>
-            </div>
-            <span class="configuration-health configuration-health--{{ center.grants.health.level }}">
-              <i aria-hidden="true"></i>{{ center.grants.health.label }}
-            </span>
-          </header>
-
-          <div class="configuration-connector-sections">
-            <section>
-              <h4>Connection Status</h4>
-              <dl class="configuration-data-list">
-                <div><dt>Access</dt><dd>Grants.gov public Search and Detail APIs</dd></div>
-              </dl>
-            </section>
-            <section>
-              <h4>Current Configuration</h4>
-              <dl class="configuration-data-list">
-                <div><dt>Date window</dt><dd>{{ center.grants.date_window }}</dd></div>
-                <div><dt>Statuses included</dt><dd>{{ center.grants.statuses|join(', ') }}</dd></div>
-                <div><dt>Schedule</dt><dd>{{ center.grants.schedule }}</dd></div>
-                <div><dt>Pagination</dt><dd>All matching daily results</dd></div>
-              </dl>
-            </section>
-            <section>
-              <h4>Connector Health</h4>
-              <div class="configuration-health-message configuration-health-message--{{ center.grants.health.level }}">
-                <strong>{{ center.grants.health.label }}</strong>
-                <p>{{ center.grants.health.summary }}</p>
-              </div>
-              <ul class="configuration-health-checks">
-                {% for check in center.grants.health.checks %}
-                  <li class="configuration-health-check configuration-health-check--{{ check.state }}">
-                    <span aria-hidden="true"></span>
-                    <div><strong>{{ check.label }}</strong>{% if check.detail %}<small>{{ check.detail }}</small>{% endif %}</div>
-                  </li>
-                {% endfor %}
-              </ul>
-            </section>
-          </div>
-
-          <footer class="configuration-connector-actions">
-            <span>Available Actions</span>
-            <div>
-              <a href="/imports/govwin{{ org_q }}" class="btn btn-sm btn-outline-secondary">Configure</a>
-              <button
-                type="button"
-                class="btn btn-sm btn-primary"
-                data-source-run="/grants/pull-now{% if org_id %}?org_id={{ org_id }}{% endif %}"
-                data-source-name="Grants.gov"
-              >Run Now</button>
-              <a href="/imports/history{{ org_q }}" class="btn btn-sm btn-outline-secondary">View Import History</a>
-            </div>
-          </footer>
-        </article>
-
-        <article class="configuration-connector-card">
-          <header class="configuration-connector-header">
-            <div>
-              <span class="configuration-connector-kicker">Commercial intelligence</span>
-              <h3>GovWin</h3>
-              <p>Manual spreadsheet intake today, with organization credentials staged for future API connectivity.</p>
-            </div>
-            <span class="configuration-health configuration-health--{{ center.govwin.health.level }}">
-              <i aria-hidden="true"></i>{{ center.govwin.health.label }}
-            </span>
-          </header>
-
-          <div class="configuration-connector-sections">
-            <section>
-              <h4>Connection Status</h4>
-              <dl class="configuration-data-list">
-                <div><dt>Active method</dt><dd>Manual .xlsx import</dd></div>
-                <div><dt>API credentials</dt><dd>{{ 'Saved' if center.govwin.credentials_saved else 'Not configured' }}</dd></div>
-              </dl>
-            </section>
-            <section>
-              <h4>Current Configuration</h4>
-              <dl class="configuration-data-list">
-                <div><dt>Import method</dt><dd>GovWin staging export</dd></div>
-                <div>
-                  <dt>Stage mapping</dt>
-                  <dd class="configuration-mapping-list">
-                    {% for mapping in center.govwin.stage_mappings %}<span>{{ mapping }}</span>{% endfor %}
-                  </dd>
-                </div>
-              </dl>
-            </section>
-            <section>
-              <h4>Connector Health</h4>
-              <div class="configuration-health-message configuration-health-message--{{ center.govwin.health.level }}">
-                <strong>{{ center.govwin.health.label }}</strong>
-                <p>{{ center.govwin.health.summary }}</p>
-              </div>
-              <ul class="configuration-health-checks">
-                {% for check in center.govwin.health.checks %}
-                  <li class="configuration-health-check configuration-health-check--{{ check.state }}">
-                    <span aria-hidden="true"></span>
-                    <div><strong>{{ check.label }}</strong>{% if check.detail %}<small>{{ check.detail }}</small>{% endif %}</div>
-                  </li>
-                {% endfor %}
-              </ul>
-            </section>
-          </div>
-
-          <footer class="configuration-connector-actions">
-            <span>Available Actions</span>
-            <div>
-              <a href="/imports/govwin{{ org_q }}" class="btn btn-sm btn-primary">Import</a>
-              <a href="/integrations/govwin{{ org_q }}" class="btn btn-sm btn-outline-secondary">Configure</a>
-              <a href="/imports/history{{ org_q }}" class="btn btn-sm btn-outline-secondary">View Import History</a>
-            </div>
-          </footer>
-        </article>
-      </div>
+      <a href="/opportunity-discovery{{ org_q }}" class="btn btn-sm btn-outline-secondary">Manage Opportunity Discovery</a>
     </section>
 
     <section class="configuration-center-section" aria-labelledby="destination-connectors-heading">
@@ -319,63 +104,4 @@
     </section>
   </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-(() => {
-  const result = document.getElementById("configuration-center-result");
-  const escapeText = (value) => String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-
-  document.querySelectorAll("[data-source-run]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const sourceName = button.dataset.sourceName || "Source";
-      const originalLabel = button.textContent;
-      button.disabled = true;
-      button.textContent = "Running…";
-      if (result) {
-        result.hidden = false;
-        result.className = "feed-sam-pull-result alert alert-info";
-        result.textContent = `${sourceName} pull is running.`;
-      }
-      try {
-        const response = await fetch(button.dataset.sourceRun, {
-          method: "POST",
-          headers: {"Accept": "application/json"},
-        });
-        const payload = await response.json().catch(() => ({}));
-        const successful = response.ok && !["failed", "error"].includes(payload.status);
-        if (result) {
-          result.className = `feed-sam-pull-result alert alert-${successful ? "success" : "error"}`;
-          result.innerHTML = `
-            <strong>${escapeText(payload.message || `${sourceName} pull completed.`)}</strong>
-            <div class="configuration-run-result-counts">
-              Processed ${Number(payload.records_seen ?? payload.received ?? 0)}
-              · Created ${Number(payload.inserted ?? payload.created ?? 0)}
-              · Updated ${Number(payload.updated ?? 0)}
-              · Errors ${Number(payload.errors ?? 0)}
-            </div>
-          `;
-        }
-        if (successful && payload.status !== "paused_rate_limit") {
-          window.setTimeout(() => window.location.reload(), 700);
-        }
-      } catch (_error) {
-        if (result) {
-          result.className = "feed-sam-pull-result alert alert-error";
-          result.textContent = `Unable to run the ${sourceName} pull right now.`;
-        }
-      } finally {
-        button.disabled = false;
-        button.textContent = originalLabel;
-      }
-    });
-  });
-})();
-</script>
 {% endblock %}

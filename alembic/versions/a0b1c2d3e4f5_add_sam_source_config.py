@@ -27,7 +27,7 @@ def upgrade():
         sa.Column("posted_days_back", sa.Integer(), server_default="30", nullable=False),
         sa.Column("due_days_from", sa.Integer(), nullable=True),
         sa.Column("due_days_to", sa.Integer(), nullable=True),
-        sa.Column("active_only", sa.Boolean(), server_default="1", nullable=False),
+        sa.Column("active_only", sa.Boolean(), server_default=sa.true(), nullable=False),
         sa.Column("max_records", sa.Integer(), server_default="100", nullable=False),
         sa.Column(
             "created_at",

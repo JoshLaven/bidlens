@@ -5,8 +5,6 @@ import logging
 import re
 from typing import Any
 
-from openai import OpenAI
-
 from ...config import OPENAI_API_KEY, OPENAI_MODEL
 from ...models import Opportunity
 from ...sam_client import _is_url_like
@@ -462,6 +460,8 @@ def generate_local_brief(opportunity: Opportunity, payload: dict[str, Any]) -> d
 def generate_llm_brief(payload: dict[str, Any]) -> dict[str, Any]:
     if not OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY is not configured")
+
+    from openai import OpenAI
 
     client = OpenAI(api_key=OPENAI_API_KEY)
     model = OPENAI_MODEL

@@ -38,7 +38,7 @@ def upgrade() -> None:
             INSERT INTO votes (org_id, opp_id, user_id, vote, updated_at)
             SELECT o.organization_id, o.id, o.crm_pushed_by, 'PURSUE', CURRENT_TIMESTAMP
             FROM opportunities o
-            WHERE o.crm_pushed = 1
+            WHERE o.crm_pushed IS TRUE
               AND o.crm_pushed_by IS NOT NULL
               AND NOT EXISTS (
                   SELECT 1
@@ -60,7 +60,7 @@ def upgrade() -> None:
                 FROM opportunities o
                 WHERE o.organization_id = votes.org_id
                   AND o.id = votes.opp_id
-                  AND o.crm_pushed = 1
+                  AND o.crm_pushed IS TRUE
                   AND o.crm_pushed_by = votes.user_id
             )
             """

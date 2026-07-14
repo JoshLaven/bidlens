@@ -1,34 +1,38 @@
 {% extends "base.html" %}
 {% set hide_context_sidebar = true %}
-{% block title %}Sources - BidLens{% endblock %}
+{% block title %}Opportunity Discovery - BidLens{% endblock %}
 {% block content %}
 {% set sam_run = latest_runs.get('sam.gov') if latest_runs else none %}
 {% set grants_run = latest_runs.get('grants.gov') if latest_runs else none %}
 {% set govwin_run = latest_runs.get('govwin_export') if latest_runs else none %}
-{% set admin_nav_active = 'sources' %}
+{% set grants_enabled = grants_config and grants_config.enabled %}
 
 <div class="admin-page-layout">
-  {% include "_admin_nav.html" %}
   <div class="admin-page-content">
     <div class="page-header">
-      <h1>Sources</h1>
-      <p class="page-subtitle">Pull opportunities from external sources or upload GovWin exports.</p>
+      <h1>Opportunity Discovery</h1>
+      <p class="page-subtitle">Manage how BidLens acquires opportunities for this workspace.</p>
     </div>
 
 {% if error %}
   <div class="alert alert-error">{{ error }}</div>
 {% endif %}
+{% if request.query_params.get('saved') == 'sam' %}
+  <div class="alert alert-success">SAM.gov source configuration saved.</div>
+{% elif request.query_params.get('saved') == 'grants' %}
+  <div class="alert alert-success">Grants.gov source enabled.</div>
+{% endif %}
 
 <div id="source-pull-result" class="feed-sam-pull-result" hidden></div>
 
-<section class="intake-section">
+<section class="intake-section" id="opportunity-sources">
   <div class="intake-section-header">
-    <h2>Scheduled Pulls</h2>
-    <p>Sources BidLens can pull directly from external systems.</p>
+    <h2>Opportunity Sources</h2>
+    <p>Sources define which external opportunity systems BidLens monitors and imports from.</p>
   </div>
 
   <div class="source-config-list">
-    <article class="source-config-row">
+    <article class="source-config-row" id="sam-gov">
       <div class="source-config-identity">
         <h3>SAM.gov</h3>
         <p>Federal opportunity notices and solicitations.</p>
@@ -43,27 +47,30 @@
           <dt>Criteria</dt>
           <dd>
             {% if sam_config %}
-              {{ sam_config.naics_codes|length }} NAICS · {{ sam_config.posted_days_back }} day window · max {{ sam_config.max_records }}
+              {{ sam_configs|length }} saved search{{ '' if sam_configs|length == 1 else 'es' }} · {{ sam_config.naics_codes|length }} NAICS · {{ sam_config.posted_days_back }} day window
             {% else %}
               Configure source intake criteria
             {% endif %}
           </dd>
         </div>
         <div>
-          <dt>Connection</dt>
-          <dd>Uses configured SAM.gov access</dd>
+          <dt>Schedule</dt>
+          <dd>{{ "Daily scheduled pull" if sam_config else "Not scheduled until configured" }}</dd>
         </div>
       </dl>
       <div class="source-config-action">
-        <a href="/admin/sources/sam{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="btn btn-sm btn-primary">{{ "Manage" if sam_config else "Set up SAM.gov" }}</a>
+        <a href="/admin/sources/sam{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="btn btn-sm btn-outline-secondary">{{ "Manage" if sam_config else "Configure" }}</a>
+        {% if sam_config %}
+          <button type="button" id="source-sam-pull-button" class="btn btn-sm btn-primary">Pull Now</button>
+        {% endif %}
       </div>
     </article>
 
-    <article class="source-config-row">
+    <article class="source-config-row" id="grants-gov">
       <div class="source-config-identity">
         <h3>Grants.gov</h3>
         <p>Federal grant opportunities and updates.</p>
-        <span class="intake-status-pill">Manual pull available</span>
+        <span class="intake-status-pill">{{ "Enabled" if grants_enabled else "Available" }}</span>
       </div>
       <dl class="source-config-meta">
         <div>
@@ -72,31 +79,62 @@
         </div>
         <div>
           <dt>Schedule</dt>
-          <dd>No BidLens schedule configured</dd>
+          <dd>{{ "Daily scheduled pull" if grants_enabled else "Enable to include in scheduled pulls" }}</dd>
         </div>
         <div>
-          <dt>Connection</dt>
-          <dd>Uses Grants.gov public search</dd>
+          <dt>Default Window</dt>
+          <dd>{{ grants_config.posted_days_back if grants_config else 7 }} day posted-date window</dd>
         </div>
       </dl>
       <div class="source-config-action">
-        <button type="button" id="source-grants-pull-button" class="btn btn-sm btn-primary">Pull Now</button>
+        {% if grants_enabled %}
+          <button type="button" id="source-grants-pull-button" class="btn btn-sm btn-primary">Pull Now</button>
+        {% else %}
+          <form method="POST" action="/connect-sources/grants/enable{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}">
+            <button type="submit" class="btn btn-sm btn-primary">Enable</button>
+          </form>
+        {% endif %}
+      </div>
+    </article>
+
+    <article class="source-config-row" id="govwin">
+      <div class="source-config-identity">
+        <h3>GovWin</h3>
+        <p>Commercial market intelligence source. API connection is planned; workbook import is available below.</p>
+        <span class="intake-status-pill">Manual import available</span>
+      </div>
+      <dl class="source-config-meta">
+        <div>
+          <dt>Last Import</dt>
+          <dd>{{ (govwin_run.finished_at or govwin_run.started_at).strftime("%b %d, %Y %I:%M %p") if govwin_run else "No imports yet" }}</dd>
+        </div>
+        <div>
+          <dt>Current Intake</dt>
+          <dd>Manual workbook upload</dd>
+        </div>
+        <div>
+          <dt>API Connection</dt>
+          <dd>Not active</dd>
+        </div>
+      </dl>
+      <div class="source-config-action">
+        <a href="#manual-import" class="btn btn-sm btn-outline-secondary">Import Workbook</a>
       </div>
     </article>
   </div>
 </section>
 
-<section class="intake-section">
+<section class="intake-section" id="manual-import">
   <div class="intake-section-header">
-    <h2>Manual Imports</h2>
-    <p>Upload source exports that are not pulled automatically.</p>
+    <h2>Manual Opportunity Import</h2>
+    <p>Upload opportunity exports that are not yet pulled automatically.</p>
   </div>
 
   <div class="source-config-list">
     <article class="source-config-row source-config-row--upload">
       <div class="source-config-identity">
-        <h3>GovWin Export</h3>
-        <p>GovWin currently enters BidLens through manual Excel uploads.</p>
+        <h3>Excel Workbook Upload</h3>
+        <p>Import a workbook using the current GovWin export schema.</p>
         <span class="intake-status-pill">Manual upload</span>
       </div>
       <dl class="source-config-meta">
@@ -105,23 +143,23 @@
           <dd>{{ (govwin_run.finished_at or govwin_run.started_at).strftime("%b %d, %Y %I:%M %p") if govwin_run else "No imports yet" }}</dd>
         </div>
         <div>
-          <dt>File Type</dt>
+          <dt>Accepted Format</dt>
           <dd>.xlsx GovWin export</dd>
         </div>
       </dl>
       <form method="POST" action="/imports/govwin{% if request.url.query %}?{{ request.url.query }}{% endif %}" enctype="multipart/form-data" class="source-config-upload">
-        <label for="govwin-file">Upload GovWin Excel file</label>
+        <label for="govwin-file">Upload opportunity workbook</label>
         <div class="intake-upload-row">
           <input id="govwin-file" type="file" name="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
-          <button type="submit" class="btn btn-primary">Import</button>
+          <button type="submit" class="btn btn-primary">Import Opportunities</button>
         </div>
-        <small>Rows display GovWin Title and upsert by source, workspace, and GovWin Staging Name.</small>
+        <small>This importer currently expects the GovWin export schema and upserts by source, workspace, and GovWin Staging Name.</small>
       </form>
     </article>
   </div>
 </section>
 
-<section class="intake-section">
+<section class="intake-section" id="operational-history">
   <div class="intake-section-header intake-section-header--split">
     <div>
       <h2>Recent Activity</h2>
@@ -148,7 +186,7 @@
   {% else %}
     <div class="empty-state empty-state--compact">
       <h2>No source activity yet</h2>
-      <p>SAM.gov pulls, Grants.gov pulls, and GovWin uploads will appear here.</p>
+      <p>SAM.gov pulls, Grants.gov pulls, and manual imports will appear here.</p>
     </div>
   {% endif %}
 </section>

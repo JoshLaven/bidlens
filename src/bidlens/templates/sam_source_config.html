@@ -2,13 +2,11 @@
 {% set hide_context_sidebar = true %}
 {% block title %}SAM.gov Saved Searches - BidLens{% endblock %}
 {% block content %}
-{% set admin_nav_active = 'sources' %}
 {% set org_id = request.query_params.get('org_id') %}
 {% set org_q = '&org_id=' ~ org_id if org_id else '' %}
 <div class="admin-page-layout">
-  {% include "_admin_nav.html" %}
   <div class="admin-page-content">
-    <a href="/imports/govwin{% if org_id %}?org_id={{ org_id }}{% endif %}" class="back-link">← Sources</a>
+    <a href="/opportunity-discovery{% if org_id %}?org_id={{ org_id }}{% endif %}#sam-gov" class="back-link">← Opportunity Discovery</a>
     <div class="page-header admin-page-header">
       <div>
         <h1>SAM.gov Saved Searches</h1>

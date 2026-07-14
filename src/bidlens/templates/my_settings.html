@@ -8,16 +8,16 @@
 </div>
 
 <div class="personal-settings-grid">
-  <section class="personal-settings-card">
+  <a href="/my-settings/account{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="personal-settings-card personal-settings-card--link">
     <div class="personal-settings-icon personal-settings-icon--account" aria-hidden="true">♙</div>
     <h2>Account</h2>
     <ul>
       <li>Role: {{ user.current_role|default('member')|title }}</li>
       <li>User: {{ user.name or user.email }}</li>
     </ul>
-  </section>
+  </a>
 
-  <section class="personal-settings-card">
+  <a href="/my-settings/notifications{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="personal-settings-card personal-settings-card--link">
     <div class="personal-settings-icon personal-settings-icon--notifications" aria-hidden="true">♢</div>
     <h2>Notifications</h2>
     <ul>
@@ -25,24 +25,24 @@
       <li>Daily digest preferences</li>
       <li>Future personal notifications</li>
     </ul>
-  </section>
+  </a>
 
-  <section class="personal-settings-card">
+  <a href="/my-settings/organization{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="personal-settings-card personal-settings-card--link">
     <div class="personal-settings-icon personal-settings-icon--organization" aria-hidden="true">▥</div>
     <h2>My Organization</h2>
     <ul>
       <li>{{ user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else user.organization.name if user.organization else 'Workspace' }}</li>
       <li>Display only</li>
     </ul>
-  </section>
+  </a>
 
-  <section class="personal-settings-card">
+  <a href="/my-settings/my-lanes{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="personal-settings-card personal-settings-card--link">
     <div class="personal-settings-icon personal-settings-icon--interests" aria-hidden="true">◇</div>
-    <h2>Interests</h2>
+    <h2>My Lanes</h2>
     <ul>
-      <li>My Lanes</li>
-      <li>Quick shortcuts to lanes you visit most often</li>
+      <li>Choose your lane shortcuts</li>
+      <li>Personalize your Daily Brief</li>
     </ul>
-  </section>
+  </a>
 </div>
 {% endblock %}

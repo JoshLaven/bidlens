@@ -42,13 +42,8 @@
                   class="btn btn-sm opp-card-button opp-card-button--primary {{ 'btn-success' if user_vote == 'PURSUE' else 'btn-primary' }} detail-interest-action"
                   data-vote-button="PURSUE"
                   data-action-opp-id="{{ opportunity.id }}"
-                  {% if user.current_role == 'admin' %}data-admin-crm-action{% endif %}
                   onclick="voteOpp('{{ opportunity.id }}', 'PURSUE')">
-            {% if user.current_role == 'admin' %}
-              {% if user_vote == 'PURSUE' %}&#10003; Pushed to CRM{% else %}Push to CRM{% endif %}
-            {% else %}
-              {% if user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}
-            {% endif %}
+            {% if user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}
           </button>
           <button type="button"
                   class="btn btn-sm opp-card-button opp-card-button--secondary btn-outline-secondary"

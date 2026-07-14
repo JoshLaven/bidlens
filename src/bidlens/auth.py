@@ -4,6 +4,7 @@ from itsdangerous import URLSafeSerializer
 from fastapi import Depends, Request, Response
 from sqlalchemy.orm import Session
 
+from . import config
 from .database import get_db
 from .config import SECRET_KEY, SESSION_COOKIE_NAME
 from .models import Opportunity, OrganizationMembership, User
@@ -61,7 +62,8 @@ def create_session(response: Response, user_id: int):
         value=token,
         httponly=True,
         max_age=60 * 60 * 24 * 30,
-        samesite="lax"
+        samesite="lax",
+        secure=config.SESSION_COOKIE_SECURE,
     )
 
 def get_current_user(request: Request, db: Session=Depends(get_db),) -> User | None:

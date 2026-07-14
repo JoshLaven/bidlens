@@ -1,9 +1,9 @@
 <div class="feed-toolbar-actions">
   <div class="feed-admin-action">
-    <span class="feed-toolbar-label">Source Intake</span>
+    <span class="feed-toolbar-label">Source Shortcuts</span>
     <button type="button" id="source-sam-pull-button" class="btn btn-sm btn-outline-secondary">Pull SAM Opps</button>
     <button type="button" id="source-grants-pull-button" class="btn btn-sm btn-outline-secondary">Pull Grants.gov Opps</button>
-    <a href="/imports/govwin{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary">Import GovWin</a>
+    <a href="/opportunity-discovery{% if request.url.query %}?{{ request.url.query }}{% endif %}#manual-import" class="btn btn-sm btn-outline-secondary">Import Opportunities</a>
   </div>
 </div>
 <div id="source-pull-result" class="feed-sam-pull-result" hidden></div>

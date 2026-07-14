@@ -14,13 +14,15 @@ from sqlalchemy.orm import Session
 from .. import config
 from ..auth import attach_request_user_context, get_current_user
 from ..database import get_db
-from ..models import IngestionRun, Opportunity, OrgProfile, SamSourceConfig
+from ..grants_gov_client import DEFAULT_GRANTS_POSTED_DAYS_BACK
+from ..models import GrantsSourceConfig, IngestionRun, Opportunity, OrgProfile, SamSourceConfig
 from ..services.govwin import GovWinAdapter
 from ..services.govwin_import import upsert_govwin_opportunity
 from ..services.opportunity_stages import is_excluded_govwin_stage
 from ..services.ingestion_details import build_error_detail, build_invalid_detail, build_upsert_detail
 from ..services.ingestion_runs import record_source_activity
 from ..services.integration_credentials import decrypt_credentials, encrypt_credentials
+from ..services.platform import post_setup_completion_url
 from ..services.salesforce import (
     PROSPECT_FEED_STATUS,
     SalesforceApiError,
@@ -245,14 +247,24 @@ def _apply_connector_health(
             "API reachable on the last successful pull",
             "pass" if grants["last_success"] else "warning",
         ),
-        _health_check("Daily change feed configured", "pass", grants["date_window"]),
+        _health_check(
+            "Daily ingestion configured",
+            "pass" if grants["connected"] else "warning",
+            grants["schedule"],
+        ),
         _health_check("Pagination enabled", "pass", "All matching daily results"),
         _health_check(
             "Last pull successful",
             "pass" if grants_latest_ok else "warning",
         ),
     ]
-    if grants["status"]["tone"] == "error":
+    if not grants["connected"]:
+        grants_health = {
+            "level": "required",
+            "label": "Configuration Required",
+            "summary": "Enable Grants.gov before scheduled pulls can run.",
+        }
+    elif grants["status"]["tone"] == "error":
         grants_health = {
             "level": "warning",
             "label": "Needs Attention",
@@ -414,6 +426,14 @@ def _configuration_center_context(
         for source_config in sam_configs
         for notice_type in (source_config.notice_types or [])
     ))
+    grants_config = (
+        db.query(GrantsSourceConfig)
+        .filter(
+            GrantsSourceConfig.organization_id == organization_id,
+            GrantsSourceConfig.enabled.is_(True),
+        )
+        .first()
+    )
     last_salesforce_sync = (
         db.query(func.max(Opportunity.salesforce_synced_at))
         .filter(
@@ -434,10 +454,11 @@ def _configuration_center_context(
             **_run_snapshot(db, organization_id, ("sam.gov", "sam")),
         },
         "grants": {
-            "connected": True,
-            "date_window": "Current day (Posted Date)",
+            "connected": bool(grants_config),
+            "config": grants_config,
+            "date_window": f"Rolling {grants_config.posted_days_back if grants_config else DEFAULT_GRANTS_POSTED_DAYS_BACK}-day posted-date window",
             "statuses": ("Forecasted", "Posted"),
-            "schedule": "Manual pull",
+            "schedule": "Daily at 01:30 UTC" if grants_config else "Enable Grants.gov to schedule daily ingestion",
             **_run_snapshot(db, organization_id, ("grants.gov", "grants_gov")),
         },
         "govwin": {
@@ -483,9 +504,24 @@ def _configuration_center_context(
     return center
 
 
-def _redirect_with_status(path: str, **params) -> RedirectResponse:
+def _redirect_with_status(
+    path: str,
+    *,
+    db: Session | None = None,
+    user=None,
+    organization_id: int | None = None,
+    **params,
+) -> RedirectResponse:
     query = urlencode({key: value for key, value in params.items() if value is not None})
-    return RedirectResponse(url=f"{path}?{query}" if query else path, status_code=303)
+    live_url = f"{path}?{query}" if query else path
+    if db is not None and user is not None:
+        live_url = post_setup_completion_url(
+            db,
+            user,
+            organization_id=organization_id or _user_org_id(user),
+            live_url=live_url,
+        )
+    return RedirectResponse(url=live_url, status_code=303)
 
 
 @router.get("/integrations")
@@ -508,7 +544,6 @@ async def integrations_page(request: Request, db: Session = Depends(get_db)):
         "request": request,
         "user": user,
         "active_page": "integrations",
-        "admin_nav_active": "integrations",
         "profile": profile,
         "center": center,
     })
@@ -561,13 +596,15 @@ async def save_govwin_configuration(
     if missing:
         return _redirect_with_status(
             "/integrations/govwin",
+            db=db,
+            user=user,
             message="Enter all GovWin credential fields before saving.",
         )
 
     profile.govwin_credentials_encrypted = encrypt_credentials(credentials)
     profile.govwin_connection_status = "not_tested"
     db.commit()
-    return _redirect_with_status("/integrations/govwin", saved="1")
+    return _redirect_with_status("/integrations/govwin", db=db, user=user, saved="1")
 
 
 @router.post("/integrations/govwin/test")
@@ -586,6 +623,8 @@ async def test_govwin_connection(request: Request, db: Session = Depends(get_db)
         db.commit()
     return _redirect_with_status(
         "/integrations/govwin",
+        db=db,
+        user=user,
         test="success" if result["connected"] else "error",
         message=result["message"],
     )
@@ -607,6 +646,9 @@ async def run_govwin_sync(request: Request, db: Session = Depends(get_db)):
     if not connection["connected"]:
         return _redirect_with_status(
             "/integrations/govwin",
+            db=db,
+            user=user,
+            organization_id=organization_id,
             sync="error",
             message=connection["message"],
         )
@@ -678,6 +720,9 @@ async def run_govwin_sync(request: Request, db: Session = Depends(get_db)):
     )
     return _redirect_with_status(
         "/integrations/govwin",
+        db=db,
+        user=user,
+        organization_id=organization_id,
         sync="success",
         message=summary,
     )
