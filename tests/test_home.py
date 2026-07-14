@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -19,6 +20,7 @@ from bidlens.models import (
     PursuitLane,
     SamSourceConfig,
     User,
+    Vote,
     Workspace,
 )
 from bidlens.routes.home import go_live, home_page, organization_setup_page
@@ -213,7 +215,19 @@ class HomeContextTests(unittest.TestCase):
             "Stored new opportunity",
         )
 
-    def test_daily_brief_context_uses_only_populated_v1_sections(self):
+    def test_daily_brief_context_renders_stored_v1_sections(self):
+        self._opportunity(
+            source_record_id="LIVE-FEED-1",
+            title="Live feed opportunity one",
+            qualification_status="qualified",
+            decision_state="INBOX",
+        )
+        self._opportunity(
+            source_record_id="LIVE-FEED-2",
+            title="Live feed opportunity two",
+            qualification_status="qualified",
+            decision_state="INBOX",
+        )
         workspace = Workspace(
             organization_id=self.org.id,
             name="Home Workspace",
@@ -227,7 +241,14 @@ class HomeContextTests(unittest.TestCase):
             snapshot_date=self.now.date(),
             status="completed",
             snapshot_json={
-                "my_shortlist": [
+                "summary": {
+                    "new_feed_count": 52,
+                    "shortlist_update_count": 1,
+                    "team_signal_count": 0,
+                    "shortlist_deadline_count": 0,
+                    "connector_issue_count": 0,
+                },
+                "shortlist_updates": [
                     {
                         "title": "NIH Survey Support",
                         "subtitle": "Amendment 2 posted",
@@ -235,8 +256,15 @@ class HomeContextTests(unittest.TestCase):
                     }
                 ],
                 "team_signals": [],
-                "my_lanes": [],
-                "new_opportunities": [{"title": "Stored new opportunity"}],
+                "shortlist_deadlines": [],
+                "new_opportunities": [
+                    {
+                        "id": 321,
+                        "title": "Stored new opportunity",
+                        "agency": "Stored Agency",
+                        "response_deadline": "2026-07-12",
+                    }
+                ],
             },
         ))
         self.db.commit()
@@ -249,9 +277,222 @@ class HomeContextTests(unittest.TestCase):
         )
 
         self.assertTrue(context["has_updates"])
-        self.assertEqual([section["key"] for section in context["sections"]], ["my_shortlist"])
+        self.assertFalse(context["snapshot_missing"])
+        self.assertEqual(
+            context["brief_points"],
+            [
+                "1 opportunity on your Shortlist changed.",
+            ],
+        )
+        self.assertEqual(context["feed_review"]["count"], 2)
+        self.assertEqual(context["feed_review"]["message"], "2 opportunities awaiting review.")
+        self.assertEqual(context["feed_review"]["action_label"], "Review Feed")
+        self.assertEqual([section["key"] for section in context["sections"]], ["shortlist_updates"])
         self.assertEqual(context["sections"][0]["count"], 1)
         self.assertEqual(context["sections"][0]["items"][0]["destination_url"], "/opportunity/123")
+        self.assertEqual(context["actions"][0]["label"], "Review Shortlist")
+
+    def test_daily_brief_feed_count_updates_without_regenerating_snapshot(self):
+        first = self._opportunity(
+            source_record_id="LIVE-REVIEW-1",
+            title="First live opportunity",
+            qualification_status="qualified",
+            decision_state="INBOX",
+        )
+        second = self._opportunity(
+            source_record_id="LIVE-REVIEW-2",
+            title="Second live opportunity",
+            qualification_status="qualified",
+            decision_state="INBOX",
+        )
+        workspace = Workspace(
+            organization_id=self.org.id,
+            name="Home Workspace",
+            slug="home-workspace-live-overlay",
+        )
+        self.db.add(workspace)
+        self.db.flush()
+        snapshot = DailySnapshot(
+            workspace_id=workspace.id,
+            user_id=self.admin.id,
+            snapshot_date=self.now.date(),
+            status="completed",
+            snapshot_json={
+                "summary": {
+                    "new_feed_count": 99,
+                    "shortlist_update_count": 1,
+                    "team_signal_count": 0,
+                    "shortlist_deadline_count": 0,
+                    "connector_issue_count": 0,
+                },
+                "shortlist_updates": [
+                    {
+                        "title": "Stored shortlist item",
+                        "subtitle": "Amendment posted",
+                        "destination_url": "/opportunity/777",
+                    }
+                ],
+                "team_signals": [],
+                "shortlist_deadlines": [],
+                "connector_issues": [],
+            },
+        )
+        self.db.add(snapshot)
+        self.db.commit()
+
+        before = get_daily_brief_home_context(
+            self.db,
+            self.org.id,
+            self.admin.id,
+            now=self.now,
+        )
+
+        self.db.add(Vote(
+            org_id=self.org.id,
+            opp_id=first.id,
+            user_id=self.admin.id,
+            vote="PASS",
+        ))
+        self.db.commit()
+        after_one_review = get_daily_brief_home_context(
+            self.db,
+            self.org.id,
+            self.admin.id,
+            now=self.now,
+        )
+
+        self.db.add(Vote(
+            org_id=self.org.id,
+            opp_id=second.id,
+            user_id=self.admin.id,
+            vote="PURSUE",
+        ))
+        self.db.commit()
+        after_cleared = get_daily_brief_home_context(
+            self.db,
+            self.org.id,
+            self.admin.id,
+            now=self.now,
+        )
+
+        self.assertEqual(before["snapshot"]["id"], snapshot.id)
+        self.assertEqual(after_one_review["snapshot"]["id"], snapshot.id)
+        self.assertEqual(after_cleared["snapshot"]["id"], snapshot.id)
+        self.assertEqual(before["feed_review"]["count"], 2)
+        self.assertEqual(after_one_review["feed_review"]["count"], 1)
+        self.assertEqual(after_cleared["feed_review"]["count"], 0)
+        self.assertTrue(after_cleared["feed_review"]["complete"])
+        self.assertEqual(after_cleared["feed_review"]["message"], "No opportunities awaiting review.")
+        self.assertEqual(before["brief_points"], after_one_review["brief_points"])
+        self.assertEqual(before["brief_points"], after_cleared["brief_points"])
+        self.assertEqual(before["sections"], after_one_review["sections"])
+        self.assertEqual(before["sections"], after_cleared["sections"])
+
+    def test_daily_brief_context_distinguishes_missing_snapshot_from_no_activity(self):
+        self._opportunity(
+            title="Database activity should not render without a stored snapshot",
+            created_at=self.now,
+        )
+
+        context = get_daily_brief_home_context(
+            self.db,
+            self.org.id,
+            self.admin.id,
+            now=self.now,
+        )
+
+        self.assertTrue(context["snapshot_missing"])
+        self.assertFalse(context["has_updates"])
+        self.assertEqual(context["sections"], [])
+
+    def test_daily_brief_context_empty_snapshot_has_no_activity_state(self):
+        workspace = Workspace(
+            organization_id=self.org.id,
+            name="Home Workspace",
+            slug="home-workspace-empty",
+        )
+        self.db.add(workspace)
+        self.db.flush()
+        self.db.add(DailySnapshot(
+            workspace_id=workspace.id,
+            user_id=self.admin.id,
+            snapshot_date=self.now.date(),
+            status="completed",
+            snapshot_json={
+                "snapshot_date": self.now.date().isoformat(),
+                "activity_date": "2026-07-05",
+                "new_opportunities": [],
+                "updated_opportunities": [],
+                "upcoming_deadlines": [],
+                "interested_activity": [],
+                "shortlist_changes": [],
+                "connector_issues": [],
+            },
+        ))
+        self.db.commit()
+
+        context = get_daily_brief_home_context(
+            self.db,
+            self.org.id,
+            self.admin.id,
+            now=self.now,
+        )
+
+        self.assertFalse(context["snapshot_missing"])
+        self.assertTrue(context["has_updates"])
+        self.assertEqual(context["brief_points"], [])
+        self.assertEqual(context["feed_review"]["count"], 0)
+        self.assertTrue(context["feed_review"]["complete"])
+        self.assertEqual(context["feed_review"]["message"], "No opportunities awaiting review.")
+        self.assertEqual(context["sections"], [])
+
+    def test_home_template_renders_daily_brief_section_items(self):
+        environment = Environment(
+            loader=FileSystemLoader("src/bidlens/templates"),
+            autoescape=select_autoescape(["html"]),
+        )
+        template = environment.get_template("home.html")
+
+        rendered = template.render(
+            request=SimpleNamespace(),
+            user=SimpleNamespace(name="Home User", email="home-user@test.local"),
+            active_page="home",
+            home={
+                "snapshot_date": self.now.date(),
+                "snapshot_missing": False,
+                "has_updates": True,
+                "brief_points": ["1 opportunity on your Shortlist changed."],
+                "feed_review": {
+                    "count": 1,
+                    "message": "1 opportunity awaiting review.",
+                    "complete": False,
+                    "url": "/",
+                    "action_label": "Review Feed",
+                },
+                "actions": [
+                    {"label": "Review Shortlist", "url": "/my-shortlist"},
+                ],
+                "sections": [
+                    {
+                        "key": "shortlist_updates",
+                        "title": "Shortlist Changes",
+                        "count": 1,
+                        "items": [
+                            {
+                                "title": "Stored opportunity",
+                                "subtitle": "Stored Agency",
+                                "destination_url": "/opportunity/321",
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+        self.assertIn("Stored opportunity", rendered)
+        self.assertIn("/opportunity/321", rendered)
+        self.assertIn("1 opportunity awaiting review.", rendered)
+        self.assertIn("Review Feed", rendered)
 
     def test_home_page_is_available_to_members(self):
         member = User(email="member-home@test.local", organization_id=self.org.id)

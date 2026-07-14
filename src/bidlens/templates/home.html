@@ -8,34 +8,70 @@
     <p>Here's what changed since yesterday.</p>
   </header>
 
-  {% if home.has_updates %}
-    <div class="home-brief-sections">
-      {% for section in home.sections %}
-        <section class="home-brief-section" aria-labelledby="daily-brief-{{ section.key }}">
-          <div class="home-brief-section-heading">
-            <h2 id="daily-brief-{{ section.key }}">{{ section.title }}</h2>
-            <span>{{ section.count }}</span>
-          </div>
-          <ul class="home-brief-list">
-            {% for item in section.items %}
-              <li>
-                {% if item.destination_url %}
-                  <a href="{{ item.destination_url }}">
-                    <strong>{{ item.title }}</strong>
-                    {% if item.subtitle %}<span>{{ item.subtitle }}</span>{% endif %}
-                  </a>
-                {% else %}
-                  <div>
-                    <strong>{{ item.title }}</strong>
-                    {% if item.subtitle %}<span>{{ item.subtitle }}</span>{% endif %}
-                  </div>
-                {% endif %}
-              </li>
-            {% endfor %}
-          </ul>
-        </section>
+  {% if home.snapshot_missing %}
+    <section class="home-brief-empty" aria-labelledby="daily-brief-missing">
+      <h2 id="daily-brief-missing">No Daily Brief yet.</h2>
+      <p>Your snapshot has not been generated for today.</p>
+    </section>
+  {% elif home.has_updates %}
+    {% if home.brief_points %}
+      <section class="home-brief-summary" aria-labelledby="daily-brief-summary">
+        <h2 id="daily-brief-summary">Yesterday</h2>
+        <ul>
+          {% for point in home.brief_points %}
+            <li>{{ point }}</li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
+    {% if home.feed_review %}
+      <section class="home-brief-feed{% if home.feed_review.complete %} home-brief-feed--complete{% endif %}" aria-label="Feed review status">
+        <p>
+          {% if home.feed_review.complete %}<span aria-hidden="true">✓</span>{% endif %}
+          {{ home.feed_review.message }}
+        </p>
+        {% if home.feed_review.action_label and home.feed_review.url %}
+          <a href="{{ home.feed_review.url }}">{{ home.feed_review.action_label }} →</a>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    <nav class="home-brief-actions" aria-label="Daily Brief actions">
+      {% for action in home.actions %}
+        <a href="{{ action.url }}">{{ action.label }}</a>
       {% endfor %}
-    </div>
+    </nav>
+
+    {% if home.sections %}
+      <div class="home-brief-sections">
+        {% for section in home.sections %}
+          <section class="home-brief-section" aria-labelledby="daily-brief-{{ section.key }}">
+            <div class="home-brief-section-heading">
+              <h2 id="daily-brief-{{ section.key }}">{{ section.title }}</h2>
+              <span>{{ section.count }}</span>
+            </div>
+            <ul class="home-brief-list">
+              {% for item in section["items"] %}
+                <li>
+                  {% if item.destination_url %}
+                    <a href="{{ item.destination_url }}">
+                      <strong>{{ item.title }}</strong>
+                      {% if item.subtitle %}<span>{{ item.subtitle }}</span>{% endif %}
+                    </a>
+                  {% else %}
+                    <div>
+                      <strong>{{ item.title }}</strong>
+                      {% if item.subtitle %}<span>{{ item.subtitle }}</span>{% endif %}
+                    </div>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          </section>
+        {% endfor %}
+      </div>
+    {% endif %}
   {% else %}
     <section class="home-brief-empty" aria-labelledby="daily-brief-empty">
       <h2 id="daily-brief-empty">Nothing changed yesterday.</h2>

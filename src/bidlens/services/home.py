@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlencode
 
-from sqlalchemy import func
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -19,6 +19,7 @@ from ..models import (
     OrgProfile,
     PursuitLane,
     SamSourceConfig,
+    Vote,
     Workspace,
 )
 from .salesforce import SalesforceService
@@ -272,10 +273,177 @@ def _stored_daily_snapshot_context(
 def _daily_brief_item(raw_item: Any) -> dict[str, str]:
     if not isinstance(raw_item, dict):
         return {"title": str(raw_item), "subtitle": "", "destination_url": ""}
+    opportunity = raw_item.get("opportunity")
+    if isinstance(opportunity, dict):
+        title = str(raw_item.get("title") or opportunity.get("title") or "Untitled opportunity")
+        destination_url = str(raw_item.get("destination_url") or f"/opportunity/{opportunity.get('id')}")
+    else:
+        title = str(raw_item.get("title") or "Untitled update")
+        destination_url = str(raw_item.get("destination_url") or "")
     return {
-        "title": str(raw_item.get("title") or "Untitled update"),
+        "title": title,
         "subtitle": str(raw_item.get("subtitle") or ""),
-        "destination_url": str(raw_item.get("destination_url") or ""),
+        "destination_url": destination_url,
+    }
+
+
+def _changed_field_label(changed_fields: Any) -> str:
+    if not isinstance(changed_fields, dict) or not changed_fields:
+        return "Updated yesterday"
+    field_names = [
+        str(field).replace("_", " ").title()
+        for field in changed_fields.keys()
+    ]
+    return "Updated: " + ", ".join(field_names[:3])
+
+
+def _plural(count: int, singular: str, plural: str | None = None) -> str:
+    return singular if count == 1 else (plural or f"{singular}s")
+
+
+def _daily_brief_section_item(section_key: str, raw_item: Any) -> dict[str, str]:
+    if section_key in {"my_shortlist", "team_signals", "my_lanes"}:
+        return _daily_brief_item(raw_item)
+    if not isinstance(raw_item, dict):
+        return _daily_brief_item(raw_item)
+
+    opportunity = raw_item.get("opportunity") if isinstance(raw_item.get("opportunity"), dict) else raw_item
+    title = str(opportunity.get("title") or raw_item.get("title") or "Untitled opportunity")
+    destination_url = str(
+        raw_item.get("destination_url")
+        or (f"/opportunity/{opportunity.get('id')}" if opportunity.get("id") else "")
+    )
+
+    if section_key == "new_opportunities":
+        agency = opportunity.get("agency")
+        due = opportunity.get("response_deadline")
+        subtitle = " · ".join([str(part) for part in (agency, f"Due {due}" if due else None) if part])
+    elif section_key == "updated_opportunities":
+        subtitle = _changed_field_label(raw_item.get("changed_fields"))
+    elif section_key == "upcoming_deadlines":
+        days = raw_item.get("days_until_deadline")
+        due = opportunity.get("response_deadline")
+        if days == 0:
+            subtitle = "Due today"
+        elif days == 1:
+            subtitle = "Due tomorrow"
+        elif days is not None:
+            subtitle = f"Due in {days} days"
+        else:
+            subtitle = f"Due {due}" if due else "Upcoming deadline"
+    elif section_key == "interested_activity":
+        user = raw_item.get("user") or {}
+        actor = user.get("name") or user.get("email") or "A teammate"
+        action = "removed interest" if raw_item.get("toggled_off") else "showed interest"
+        subtitle = f"{actor} {action}"
+    elif section_key == "shortlist_changes":
+        user = raw_item.get("user") or {}
+        actor = user.get("name") or user.get("email") or "A teammate"
+        from_state = raw_item.get("from") or "None"
+        to_state = raw_item.get("to") or "None"
+        subtitle = f"{actor}: {from_state} to {to_state}"
+    elif section_key == "connector_issues":
+        title = str(raw_item.get("source_label") or raw_item.get("source") or "Connector issue")
+        status = raw_item.get("status")
+        notes = raw_item.get("notes")
+        subtitle = " · ".join([str(part) for part in (status, notes) if part])
+        destination_url = "/opportunity-discovery"
+    else:
+        subtitle = str(raw_item.get("subtitle") or "")
+
+    return {
+        "title": title,
+        "subtitle": subtitle,
+        "destination_url": destination_url,
+    }
+
+
+def _feed_awaiting_review_count(
+    db: Session,
+    *,
+    organization_id: int,
+    user_id: int,
+) -> int:
+    acted_opp_ids = (
+        select(Vote.opp_id)
+        .where(
+            Vote.org_id == organization_id,
+            Vote.user_id == user_id,
+            Vote.vote.in_(("PURSUE", "PASS")),
+        )
+    )
+    source = func.lower(func.coalesce(Opportunity.source, ""))
+    raw_source_stage = func.lower(
+        func.trim(
+            func.coalesce(
+                Opportunity.source_stage,
+                Opportunity.opportunity_type,
+                "",
+            )
+        )
+    )
+    return (
+        db.query(func.count(Opportunity.id))
+        .filter(
+            Opportunity.organization_id == organization_id,
+            Opportunity.decision_state != "ARCHIVED",
+            Opportunity.qualification_status == "qualified",
+            ~Opportunity.id.in_(acted_opp_ids),
+            ~and_(
+                source.in_(("govwin_export", "govwin_api")),
+                raw_source_stage == "source selection",
+            ),
+        )
+        .scalar()
+        or 0
+    )
+
+
+def _daily_brief_points(payload: dict[str, Any]) -> list[str]:
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    shortlist_update_count = int(summary.get("shortlist_update_count") or len(payload.get("shortlist_updates") or []))
+    team_signal_count = int(summary.get("team_signal_count") or len(payload.get("team_signals") or []))
+    shortlist_deadline_count = int(summary.get("shortlist_deadline_count") or len(payload.get("shortlist_deadlines") or []))
+    connector_issue_count = int(summary.get("connector_issue_count") or len(payload.get("connector_issues") or []))
+
+    points = []
+    if shortlist_update_count:
+        points.append(
+            f"{shortlist_update_count} {_plural(shortlist_update_count, 'opportunity', 'opportunities')} "
+            f"on your Shortlist changed."
+        )
+    if team_signal_count:
+        points.append(
+            f"{team_signal_count} {_plural(team_signal_count, 'teammate')} joined "
+            f"{_plural(team_signal_count, 'an opportunity', 'opportunities')} you're tracking."
+        )
+    if shortlist_deadline_count:
+        points.append(
+            f"{shortlist_deadline_count} {_plural(shortlist_deadline_count, 'opportunity', 'opportunities')} "
+            f"on your Shortlist {_plural(shortlist_deadline_count, 'is', 'are')} due within the next 7 days."
+        )
+    if connector_issue_count:
+        points.append(
+            f"{connector_issue_count} {_plural(connector_issue_count, 'source')} needs attention."
+        )
+    return points
+
+
+def _feed_review_context(count: int) -> dict[str, Any]:
+    if count:
+        return {
+            "count": count,
+            "message": f"{count} {_plural(count, 'opportunity', 'opportunities')} awaiting review.",
+            "complete": False,
+            "url": "/",
+            "action_label": "Review Feed",
+        }
+    return {
+        "count": 0,
+        "message": "No opportunities awaiting review.",
+        "complete": True,
+        "url": None,
+        "action_label": None,
     }
 
 
@@ -295,14 +463,25 @@ def get_daily_brief_home_context(
         today=now,
     )
     payload = snapshot["snapshot_json"] if snapshot else {}
+    feed_review = _feed_review_context(
+        _feed_awaiting_review_count(
+            db,
+            organization_id=organization_id,
+            user_id=user_id,
+        )
+    ) if snapshot else None
     section_defs = [
-        ("my_shortlist", "My Shortlist"),
+        ("shortlist_updates", "Shortlist Changes"),
+        ("shortlist_deadlines", "Shortlist Deadlines"),
         ("team_signals", "Team Signals"),
-        ("my_lanes", "My Lanes"),
+        ("connector_issues", "Source Issues"),
     ]
     sections = []
     for key, title in section_defs:
-        items = [_daily_brief_item(item) for item in (payload.get(key) or [])]
+        items = [
+            _daily_brief_section_item(key, item)
+            for item in (payload.get(key) or [])[:5]
+        ]
         if not items:
             continue
         sections.append({
@@ -311,12 +490,27 @@ def get_daily_brief_home_context(
             "count": len(items),
             "items": items,
         })
+    needs_shortlist_review = any(
+        payload.get(key)
+        for key in ("shortlist_updates", "shortlist_deadlines", "team_signals")
+    )
 
     return {
         "snapshot": snapshot,
         "snapshot_date": snapshot["snapshot_date"] if snapshot else now.date(),
+        "activity_date": payload.get("activity_date") if snapshot else None,
+        "snapshot_missing": snapshot is None,
+        "brief_points": _daily_brief_points(payload) if snapshot else [],
+        "feed_review": feed_review,
         "sections": sections,
-        "has_updates": bool(sections),
+        "has_updates": bool(
+            sections
+            or (_daily_brief_points(payload) if snapshot else [])
+            or (feed_review if snapshot else None)
+        ),
+        "actions": [
+            {"label": "Review Shortlist", "url": "/my-shortlist"},
+        ] if snapshot and needs_shortlist_review else [],
     }
 
 

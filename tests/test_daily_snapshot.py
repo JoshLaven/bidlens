@@ -17,6 +17,7 @@ from bidlens.models import (
     PursuitLane,
     PursuitLaneAssignment,
     User,
+    Vote,
     Workspace,
 )
 from bidlens.services.daily_snapshot import create_daily_snapshot
@@ -37,13 +38,21 @@ class DailySnapshotTests(unittest.TestCase):
             slug="snapshot-workspace",
         )
         self.user = User(email="snapshot@example.com", name="Snapshot User", organization_id=self.org.id)
-        self.db.add_all([self.workspace, self.user])
+        self.member = User(email="member-snapshot@example.com", name="Snapshot Member", organization_id=self.org.id)
+        self.db.add_all([self.workspace, self.user, self.member])
         self.db.flush()
-        self.db.add(OrganizationMembership(
-            organization_id=self.org.id,
-            user_id=self.user.id,
-            role="admin",
-        ))
+        self.db.add_all([
+            OrganizationMembership(
+                organization_id=self.org.id,
+                user_id=self.user.id,
+                role="admin",
+            ),
+            OrganizationMembership(
+                organization_id=self.org.id,
+                user_id=self.member.id,
+                role="member",
+            ),
+        ])
         self.db.commit()
 
     def tearDown(self):
@@ -73,8 +82,11 @@ class DailySnapshotTests(unittest.TestCase):
     def test_create_daily_snapshot_uses_prior_calendar_day_and_stores_json(self):
         activity_day = dt.date(2026, 7, 7)
         snapshot_date = dt.date(2026, 7, 8)
+        self._opportunity("BEFORE", dt.datetime(2026, 7, 6, 23, 59, 59))
+        start_boundary = self._opportunity("START", dt.datetime(2026, 7, 7, 0, 0))
         included = self._opportunity("INCLUDED", dt.datetime(2026, 7, 7, 10, 30))
-        self._opportunity("EXCLUDED", dt.datetime(2026, 7, 8, 9, 0))
+        end_boundary = self._opportunity("END", dt.datetime(2026, 7, 7, 23, 59, 59))
+        self._opportunity("EXCLUDED", dt.datetime(2026, 7, 8, 0, 0))
 
         update = OpportunityUpdateEvent(
             organization_id=self.org.id,
@@ -121,10 +133,20 @@ class DailySnapshotTests(unittest.TestCase):
         self.assertEqual(snapshot.status, "completed")
         self.assertEqual(payload["snapshot_date"], "2026-07-08")
         self.assertEqual(payload["activity_date"], activity_day.isoformat())
-        self.assertEqual([item["source_record_id"] for item in payload["new_opportunities"]], ["INCLUDED"])
+        self.assertEqual(
+            [item["source_record_id"] for item in payload["new_opportunities"]],
+            ["START", "INCLUDED", "END"],
+        )
         self.assertEqual(payload["updated_opportunities"][0]["opportunity"]["source_record_id"], "INCLUDED")
         self.assertEqual(payload["interested_activity"][0]["opportunity"]["source_record_id"], "INCLUDED")
-        self.assertEqual(payload["upcoming_deadlines"][0]["source_record_id"], "INCLUDED")
+        self.assertIn(
+            start_boundary.source_record_id,
+            [item["source_record_id"] for item in payload["upcoming_deadlines"]],
+        )
+        self.assertIn(
+            end_boundary.source_record_id,
+            [item["source_record_id"] for item in payload["upcoming_deadlines"]],
+        )
         self.assertEqual(payload["connector_issues"], [])
         self.assertNotIn("shortlisted_opportunities", payload)
         self.assertNotIn("team_activity", payload)
@@ -231,6 +253,141 @@ class DailySnapshotTests(unittest.TestCase):
         self.assertEqual(payload["my_lane_context"][0]["updated_opportunity_count"], 1)
         self.assertEqual(payload["my_lane_context"][0]["upcoming_deadline_count"], 1)
         self.assertEqual(other.source_record_id, "ORG-WIDE")
+
+    def test_daily_snapshot_personalizes_shortlist_without_limiting_shared_activity(self):
+        snapshot_date = dt.date(2026, 7, 8)
+        activity_time = dt.datetime(2026, 7, 7, 9, 0)
+        interested = self._opportunity("PERSONAL-A", activity_time)
+        shared = self._opportunity("SHARED-NEW", dt.datetime(2026, 7, 7, 10, 0))
+        tracked = self._opportunity("TRACKED", dt.datetime(2026, 7, 6, 10, 0))
+        other_org = Organization(name="Other Snapshot Org", slug="other-snapshot-org")
+        self.db.add(other_org)
+        self.db.flush()
+        other_workspace = Workspace(
+            organization_id=other_org.id,
+            name="Other Snapshot Workspace",
+            slug="other-snapshot-workspace",
+        )
+        other_user = User(email="other-snapshot@example.com", organization_id=other_org.id)
+        self.db.add_all([other_workspace, other_user])
+        self.db.flush()
+        self.db.add(OrganizationMembership(
+            organization_id=other_org.id,
+            user_id=other_user.id,
+            role="member",
+        ))
+        self.db.add(Opportunity(
+            organization_id=other_org.id,
+            source="sam.gov",
+            source_record_id="OTHER-WORKSPACE",
+            title="Other Workspace Opportunity",
+            agency="Other Agency",
+            opportunity_type="Solicitation",
+            posted_date=dt.date(2026, 7, 7),
+            response_deadline=dt.date(2026, 7, 10),
+            qualification_status="qualified",
+            decision_state="INBOX",
+            created_at=activity_time,
+        ))
+        self.db.add_all([
+            Vote(
+                org_id=self.org.id,
+                user_id=self.user.id,
+                opp_id=interested.id,
+                vote="PURSUE",
+                updated_at=dt.datetime(2026, 7, 7, 11, 0),
+            ),
+            Vote(
+                org_id=self.org.id,
+                user_id=self.user.id,
+                opp_id=shared.id,
+                vote="PURSUE",
+                updated_at=dt.datetime(2026, 7, 6, 11, 0),
+            ),
+            Vote(
+                org_id=self.org.id,
+                user_id=self.user.id,
+                opp_id=tracked.id,
+                vote="PURSUE",
+                updated_at=dt.datetime(2026, 7, 6, 12, 0),
+            ),
+            Vote(
+                org_id=self.org.id,
+                user_id=self.member.id,
+                opp_id=tracked.id,
+                vote="PURSUE",
+                updated_at=dt.datetime(2026, 7, 7, 13, 0),
+            ),
+            Event(
+                org_id=self.org.id,
+                user_id=self.user.id,
+                opp_id=interested.id,
+                event_type="vote_cast",
+                ui_version="v1",
+                ts=dt.datetime(2026, 7, 7, 11, 0),
+                payload={"vote": "PURSUE", "requested_vote": "PURSUE", "toggled_off": False},
+            ),
+            Event(
+                org_id=self.org.id,
+                user_id=self.member.id,
+                opp_id=tracked.id,
+                event_type="vote_cast",
+                ui_version="v1",
+                ts=dt.datetime(2026, 7, 7, 13, 0),
+                payload={"vote": "PURSUE", "requested_vote": "PURSUE", "toggled_off": False},
+            ),
+        ])
+        self.db.add(OpportunityUpdateEvent(
+            organization_id=self.org.id,
+            opportunity_id=shared.id,
+            source="sam.gov",
+            source_record_id=shared.source_record_id,
+            detected_at=dt.datetime(2026, 7, 7, 12, 0),
+            changed_fields={"title": {"old": "Old", "new": "New"}},
+            salesforce_sync_status="not_synced",
+        ))
+        self.db.commit()
+
+        user_snapshot = create_daily_snapshot(
+            self.db,
+            workspace_id=self.workspace.id,
+            user_id=self.user.id,
+            snapshot_date=snapshot_date,
+        )
+        member_snapshot = create_daily_snapshot(
+            self.db,
+            workspace_id=self.workspace.id,
+            user_id=self.member.id,
+            snapshot_date=snapshot_date,
+        )
+
+        user_payload = user_snapshot.snapshot_json
+        member_payload = member_snapshot.snapshot_json
+
+        self.assertEqual(user_payload["my_shortlist"][0]["opportunity"]["source_record_id"], "PERSONAL-A")
+        self.assertNotIn(
+            "PERSONAL-A",
+            [item["opportunity"]["source_record_id"] for item in member_payload["my_shortlist"]],
+        )
+        self.assertEqual(user_payload["team_signals"][0]["opportunity"]["source_record_id"], "TRACKED")
+        self.assertEqual(member_payload["team_signals"], [])
+        self.assertEqual(user_payload["shortlist_updates"][0]["opportunity"]["source_record_id"], "SHARED-NEW")
+        self.assertEqual(member_payload["shortlist_updates"], [])
+        self.assertEqual(user_payload["summary"]["shortlist_update_count"], 1)
+        self.assertEqual(user_payload["summary"]["team_signal_count"], 1)
+        self.assertEqual(
+            [item["source_record_id"] for item in user_payload["new_opportunities"]],
+            ["PERSONAL-A", "SHARED-NEW"],
+        )
+        self.assertEqual(
+            [item["source_record_id"] for item in member_payload["new_opportunities"]],
+            ["PERSONAL-A", "SHARED-NEW"],
+        )
+        self.assertEqual(user_payload["updated_opportunities"][0]["opportunity"]["source_record_id"], "SHARED-NEW")
+        self.assertNotIn(
+            "OTHER-WORKSPACE",
+            [item["source_record_id"] for item in user_payload["new_opportunities"]],
+        )
 
     def test_create_daily_snapshot_returns_existing_snapshot_without_regenerating(self):
         snapshot_date = dt.date(2026, 7, 8)

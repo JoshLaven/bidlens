@@ -21,6 +21,8 @@ from bidlens.services.daily_snapshot import create_daily_snapshot, get_stored_da
 
 SECTION_LABELS = [
     ("my_shortlist", "My Shortlist"),
+    ("shortlist_updates", "Shortlist Updates"),
+    ("shortlist_deadlines", "Shortlist Deadlines"),
     ("team_signals", "Team Signals"),
     ("my_lanes", "My Lanes"),
     ("new_opportunities", "New Opportunities"),
@@ -52,7 +54,7 @@ def _opportunity_title(item: dict[str, Any]) -> str:
 
 
 def _format_section_item(section_key: str, item: dict[str, Any]) -> str:
-    if section_key in {"my_shortlist", "team_signals", "my_lanes"}:
+    if section_key in {"my_shortlist", "shortlist_updates", "shortlist_deadlines", "team_signals", "my_lanes"}:
         parts = [str(item.get("title") or "Untitled update")]
         if item.get("subtitle"):
             parts.append(str(item["subtitle"]))

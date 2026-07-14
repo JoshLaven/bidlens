@@ -14,6 +14,7 @@ from ..models import (
     OpportunityPursuitLaneMatch,
     OpportunityUpdateEvent,
     User,
+    Vote,
     Workspace,
 )
 from .pursuit_lanes import user_my_lanes
@@ -109,6 +110,37 @@ def _new_opportunities(
     ]
 
 
+def _new_opportunity_count(
+    db: Session,
+    *,
+    organization_id: int,
+    user_id: int,
+    start_at: dt.datetime,
+    end_before: dt.datetime,
+) -> int:
+    acted_opp_ids = (
+        db.query(Vote.opp_id)
+        .filter(
+            Vote.org_id == organization_id,
+            Vote.user_id == user_id,
+            Vote.vote.in_(("PURSUE", "PASS")),
+        )
+    )
+    return (
+        db.query(func.count(Opportunity.id))
+        .filter(
+            Opportunity.organization_id == organization_id,
+            Opportunity.created_at >= start_at,
+            Opportunity.created_at < end_before,
+            Opportunity.decision_state != "ARCHIVED",
+            Opportunity.qualification_status == "qualified",
+            ~Opportunity.id.in_(acted_opp_ids),
+        )
+        .scalar()
+        or 0
+    )
+
+
 def _updated_opportunities(
     db: Session,
     *,
@@ -134,6 +166,60 @@ def _updated_opportunities(
             "detected_at": _iso_datetime(event.detected_at),
             "changed_fields": event.changed_fields or {},
             "salesforce_sync_status": event.salesforce_sync_status,
+            "opportunity": _opportunity_payload(opportunity),
+        }
+        for event, opportunity in rows
+    ]
+
+
+def _changed_field_label(changed_fields: Any) -> str:
+    if not isinstance(changed_fields, dict) or not changed_fields:
+        return "Updated yesterday"
+    fields = [
+        str(field).replace("_", " ").title()
+        for field in changed_fields.keys()
+    ]
+    return "Updated: " + ", ".join(fields[:3])
+
+
+def _shortlist_updates(
+    db: Session,
+    *,
+    organization_id: int,
+    user_id: int,
+    start_at: dt.datetime,
+    end_before: dt.datetime,
+) -> list[dict[str, Any]]:
+    rows = (
+        db.query(OpportunityUpdateEvent, Opportunity)
+        .join(Opportunity, Opportunity.id == OpportunityUpdateEvent.opportunity_id)
+        .join(
+            Vote,
+            (Vote.org_id == organization_id)
+            & (Vote.user_id == user_id)
+            & (Vote.opp_id == Opportunity.id)
+            & (Vote.vote == "PURSUE"),
+        )
+        .filter(
+            OpportunityUpdateEvent.organization_id == organization_id,
+            OpportunityUpdateEvent.detected_at >= start_at,
+            OpportunityUpdateEvent.detected_at < end_before,
+            Opportunity.organization_id == organization_id,
+            Opportunity.decision_state != "ARCHIVED",
+            Opportunity.qualification_status == "qualified",
+        )
+        .order_by(OpportunityUpdateEvent.detected_at.asc(), OpportunityUpdateEvent.id.asc())
+        .limit(10)
+        .all()
+    )
+    return [
+        {
+            "title": opportunity.title,
+            "subtitle": _changed_field_label(event.changed_fields),
+            "destination_url": f"/opportunity/{opportunity.id}",
+            "event_id": event.id,
+            "detected_at": _iso_datetime(event.detected_at),
+            "changed_fields": event.changed_fields or {},
             "opportunity": _opportunity_payload(opportunity),
         }
         for event, opportunity in rows
@@ -209,6 +295,63 @@ def _upcoming_deadlines(
     ]
 
 
+def _shortlist_deadlines(
+    db: Session,
+    *,
+    organization_id: int,
+    user_id: int,
+    snapshot_date: dt.date,
+    days: int = DEFAULT_DEADLINE_WINDOW_DAYS,
+) -> list[dict[str, Any]]:
+    end_date = snapshot_date + dt.timedelta(days=days)
+    rows = (
+        db.query(Opportunity)
+        .join(
+            Vote,
+            (Vote.org_id == organization_id)
+            & (Vote.user_id == user_id)
+            & (Vote.opp_id == Opportunity.id)
+            & (Vote.vote == "PURSUE"),
+        )
+        .filter(
+            Opportunity.organization_id == organization_id,
+            Opportunity.decision_state != "ARCHIVED",
+            Opportunity.qualification_status == "qualified",
+            Opportunity.response_deadline <= end_date,
+        )
+        .order_by(Opportunity.response_deadline.asc(), Opportunity.id.asc())
+        .limit(10)
+        .all()
+    )
+    deadlines = []
+    for opportunity in rows:
+        days_until = (
+            (opportunity.response_deadline - snapshot_date).days
+            if opportunity.response_deadline
+            else None
+        )
+        if days_until is None:
+            subtitle = "Deadline needs review"
+        elif days_until < 0:
+            subtitle = f"Overdue by {abs(days_until)} day{'s' if abs(days_until) != 1 else ''}"
+        elif days_until == 0:
+            subtitle = "Due today"
+        elif days_until == 1:
+            subtitle = "Due tomorrow"
+        else:
+            subtitle = f"Due in {days_until} days"
+        deadlines.append(
+            {
+                "title": opportunity.title,
+                "subtitle": subtitle,
+                "destination_url": f"/opportunity/{opportunity.id}",
+                "days_until_deadline": days_until,
+                "opportunity": _opportunity_payload(opportunity),
+            }
+        )
+    return deadlines
+
+
 def _interested_activity(
     db: Session,
     *,
@@ -245,6 +388,95 @@ def _interested_activity(
             }
         )
     return activity
+
+
+def _my_shortlist(
+    db: Session,
+    *,
+    organization_id: int,
+    user_id: int,
+    start_at: dt.datetime,
+    end_before: dt.datetime,
+) -> list[dict[str, Any]]:
+    rows = (
+        db.query(Vote, Opportunity)
+        .join(Opportunity, Opportunity.id == Vote.opp_id)
+        .filter(
+            Vote.org_id == organization_id,
+            Vote.user_id == user_id,
+            Vote.vote == "PURSUE",
+            Vote.updated_at >= start_at,
+            Vote.updated_at < end_before,
+            Opportunity.organization_id == organization_id,
+            Opportunity.decision_state != "ARCHIVED",
+            Opportunity.qualification_status == "qualified",
+        )
+        .order_by(Vote.updated_at.asc(), Vote.id.asc())
+        .limit(50)
+        .all()
+    )
+    return [
+        {
+            "title": opportunity.title,
+            "subtitle": "Added to My Shortlist",
+            "destination_url": f"/opportunity/{opportunity.id}",
+            "occurred_at": _iso_datetime(vote.updated_at),
+            "opportunity": _opportunity_payload(opportunity),
+        }
+        for vote, opportunity in rows
+    ]
+
+
+def _team_signals(
+    db: Session,
+    *,
+    organization_id: int,
+    user_id: int,
+    start_at: dt.datetime,
+    end_before: dt.datetime,
+) -> list[dict[str, Any]]:
+    rows = (
+        db.query(Event, Opportunity)
+        .join(Opportunity, Opportunity.id == Event.opp_id)
+        .join(
+            Vote,
+            (Vote.org_id == organization_id)
+            & (Vote.user_id == user_id)
+            & (Vote.opp_id == Opportunity.id)
+            & (Vote.vote == "PURSUE"),
+        )
+        .filter(
+            Event.org_id == organization_id,
+            Event.user_id != user_id,
+            Event.event_type == "vote_cast",
+            Event.ts >= start_at,
+            Event.ts < end_before,
+            Opportunity.organization_id == organization_id,
+            Opportunity.decision_state != "ARCHIVED",
+        )
+        .order_by(Event.ts.asc(), Event.id.asc())
+        .limit(50)
+        .all()
+    )
+    signals = []
+    for event, opportunity in rows:
+        payload = event.payload or {}
+        if payload.get("vote") != "PURSUE" or payload.get("toggled_off"):
+            continue
+        actor = _event_user_payload(db, event.user_id) or {}
+        actor_label = actor.get("name") or actor.get("email") or "A teammate"
+        action = "removed interest" if payload.get("toggled_off") else "showed interest"
+        signals.append(
+            {
+                "title": opportunity.title,
+                "subtitle": f"{actor_label} {action}",
+                "destination_url": f"/opportunity/{opportunity.id}",
+                "occurred_at": _iso_datetime(event.ts),
+                "user": actor,
+                "opportunity": _opportunity_payload(opportunity),
+            }
+        )
+    return signals
 
 
 def _connector_issues(
@@ -383,6 +615,51 @@ def build_snapshot_payload(
         end_before=end_before,
         snapshot_date=snapshot_date,
     )
+    new_opportunities = _new_opportunities(
+        db,
+        organization_id=organization_id,
+        start_at=start_at,
+        end_before=end_before,
+    )
+    updated_opportunities = _updated_opportunities(
+        db,
+        organization_id=organization_id,
+        start_at=start_at,
+        end_before=end_before,
+    )
+    upcoming_deadlines = _upcoming_deadlines(
+        db,
+        organization_id=organization_id,
+        snapshot_date=snapshot_date,
+    )
+    my_shortlist = _my_shortlist(
+        db,
+        organization_id=organization_id,
+        user_id=user_id,
+        start_at=start_at,
+        end_before=end_before,
+    )
+    shortlist_updates = _shortlist_updates(
+        db,
+        organization_id=organization_id,
+        user_id=user_id,
+        start_at=start_at,
+        end_before=end_before,
+    )
+    team_signals = _team_signals(
+        db,
+        organization_id=organization_id,
+        user_id=user_id,
+        start_at=start_at,
+        end_before=end_before,
+    )
+    shortlist_deadlines = _shortlist_deadlines(
+        db,
+        organization_id=organization_id,
+        user_id=user_id,
+        snapshot_date=snapshot_date,
+    )
+    connector_issues = _connector_issues(db, organization_id=organization_id)
 
     return {
         "version": SNAPSHOT_VERSION,
@@ -399,27 +676,28 @@ def build_snapshot_payload(
             "end": end_before.isoformat(),
             "basis": "calendar_day",
         },
-        "my_shortlist": [],
-        "team_signals": [],
+        "summary": {
+            "new_feed_count": _new_opportunity_count(
+                db,
+                organization_id=organization_id,
+                user_id=user_id,
+                start_at=start_at,
+                end_before=end_before,
+            ),
+            "shortlist_update_count": len(shortlist_updates),
+            "team_signal_count": len(team_signals),
+            "shortlist_deadline_count": len(shortlist_deadlines),
+            "connector_issue_count": len(connector_issues),
+        },
+        "my_shortlist": my_shortlist,
+        "shortlist_updates": shortlist_updates,
+        "team_signals": team_signals,
+        "shortlist_deadlines": shortlist_deadlines,
         "my_lanes": [],
         "my_lane_context": my_lane_context,
-        "new_opportunities": _new_opportunities(
-            db,
-            organization_id=organization_id,
-            start_at=start_at,
-            end_before=end_before,
-        ),
-        "updated_opportunities": _updated_opportunities(
-            db,
-            organization_id=organization_id,
-            start_at=start_at,
-            end_before=end_before,
-        ),
-        "upcoming_deadlines": _upcoming_deadlines(
-            db,
-            organization_id=organization_id,
-            snapshot_date=snapshot_date,
-        ),
+        "new_opportunities": new_opportunities,
+        "updated_opportunities": updated_opportunities,
+        "upcoming_deadlines": upcoming_deadlines,
         "interested_activity": _interested_activity(
             db,
             organization_id=organization_id,
@@ -432,7 +710,7 @@ def build_snapshot_payload(
             start_at=start_at,
             end_before=end_before,
         ),
-        "connector_issues": _connector_issues(db, organization_id=organization_id),
+        "connector_issues": connector_issues,
     }
 
 
