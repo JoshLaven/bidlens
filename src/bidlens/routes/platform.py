@@ -11,10 +11,15 @@ from sqlalchemy.orm import Session
 
 from ..auth import create_session, get_current_user, is_platform_admin_email
 from ..database import get_db
-from ..models import JobRun, Organization, Plan, User, Workspace, WorkspaceInvitation
+from ..models import JobRun, Organization, OrganizationMembership, Plan, User, Workspace, WorkspaceInvitation
 from ..services.platform import (
     PROFESSIONAL_PLAN_CODE,
     accept_workspace_invitation,
+    create_owner_replacement_invitation,
+    create_replacement_workspace_invitation,
+    delete_test_organization,
+    invitation_url,
+    is_protected_platform_organization,
     platform_plan_definitions,
     provision_workspace,
     ProvisionWorkspaceInput,
@@ -337,6 +342,135 @@ def _organization_rows(db: Session) -> list[dict]:
     return results
 
 
+def _member_rows(db: Session, organization_id: int) -> list[dict]:
+    rows = (
+        db.query(OrganizationMembership, User)
+        .join(User, User.id == OrganizationMembership.user_id)
+        .filter(OrganizationMembership.organization_id == organization_id)
+        .order_by(OrganizationMembership.role.asc(), User.email.asc())
+        .all()
+    )
+    return [
+        {
+            "membership": membership,
+            "user": member,
+            "status": "active",
+        }
+        for membership, member in rows
+    ]
+
+
+def _invitation_rows(request: Request, db: Session, organization_id: int) -> list[dict]:
+    invitations = (
+        db.query(WorkspaceInvitation)
+        .filter(WorkspaceInvitation.organization_id == organization_id)
+        .order_by(WorkspaceInvitation.status.asc(), WorkspaceInvitation.created_at.desc(), WorkspaceInvitation.id.desc())
+        .all()
+    )
+    base_url = str(request.base_url).rstrip("/")
+    return [
+        {
+            "invitation": invitation,
+            "url": invitation_url(base_url, invitation),
+            "expires_label": "—",
+        }
+        for invitation in invitations
+    ]
+
+
+def _owner_state(db: Session, organization_id: int) -> dict:
+    owner_invitation = (
+        db.query(WorkspaceInvitation)
+        .filter(
+            WorkspaceInvitation.organization_id == organization_id,
+            WorkspaceInvitation.role == "admin",
+        )
+        .order_by(WorkspaceInvitation.created_at.desc(), WorkspaceInvitation.id.desc())
+        .first()
+    )
+    owner_user = None
+    owner_membership = None
+    if owner_invitation:
+        owner_user = db.query(User).filter(User.email == owner_invitation.email).first()
+        if owner_user:
+            owner_membership = (
+                db.query(OrganizationMembership)
+                .filter(
+                    OrganizationMembership.organization_id == organization_id,
+                    OrganizationMembership.user_id == owner_user.id,
+                )
+                .first()
+            )
+
+    if not owner_membership:
+        owner_membership = (
+            db.query(OrganizationMembership)
+            .join(User, User.id == OrganizationMembership.user_id)
+            .filter(
+                OrganizationMembership.organization_id == organization_id,
+                OrganizationMembership.role == "admin",
+            )
+            .order_by(OrganizationMembership.id.asc())
+            .first()
+        )
+        if owner_membership:
+            owner_user = owner_membership.user
+
+    if owner_invitation and owner_invitation.status == "pending":
+        status = "Invitation pending"
+    elif owner_membership:
+        status = "Accepted and active"
+    else:
+        status = "No usable invitation"
+
+    return {
+        "user": owner_user,
+        "membership": owner_membership,
+        "invitation": owner_invitation,
+        "status": status,
+        "can_create_replacement": not owner_membership and not (owner_invitation and owner_invitation.status == "pending"),
+    }
+
+
+def _organization_detail_context(
+    request: Request,
+    db: Session,
+    user: User,
+    organization_id: int,
+    *,
+    message: str | None = None,
+    error: str | None = None,
+) -> dict:
+    org = db.get(Organization, organization_id)
+    if not org or is_protected_platform_organization(org):
+        raise HTTPException(status_code=404, detail="Organization not found")
+    workspace = (
+        db.query(Workspace)
+        .filter(Workspace.organization_id == org.id)
+        .first()
+    )
+    plan = workspace.plan if workspace and workspace.plan else db.query(Plan).filter(Plan.code == org.plan).first()
+    members = _member_rows(db, org.id)
+    invitations = _invitation_rows(request, db, org.id)
+    pending_invitations = [row for row in invitations if row["invitation"].status == "pending"]
+    return {
+        "request": request,
+        "user": user,
+        "active_page": "platform",
+        "organization": org,
+        "workspace": workspace,
+        "plan": plan,
+        "owner_state": _owner_state(db, org.id),
+        "members": members,
+        "active_members": members,
+        "pending_members": pending_invitations,
+        "invitations": invitations,
+        "pending_invitations": pending_invitations,
+        "message": message,
+        "error": error,
+    }
+
+
 @router.get("/platform")
 async def platform_page(request: Request, db: Session = Depends(get_db)):
     user = require_platform_admin(request, db)
@@ -370,6 +504,116 @@ async def platform_operation_detail(run_id: int, request: Request, db: Session =
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse("platform_operation_detail.html", _operation_detail_context(request, db, user, run_id))
+
+
+@router.get("/platform/organizations/{organization_id}")
+async def platform_organization_detail(organization_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_platform_admin(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    return templates.TemplateResponse(
+        "platform_organization_detail.html",
+        _organization_detail_context(request, db, user, organization_id),
+    )
+
+
+@router.post("/platform/organizations/{organization_id}/invitations/{invitation_id}/replace")
+async def platform_replace_invitation(
+    organization_id: int,
+    invitation_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_platform_admin(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    invitation = (
+        db.query(WorkspaceInvitation)
+        .filter(
+            WorkspaceInvitation.id == invitation_id,
+            WorkspaceInvitation.organization_id == organization_id,
+        )
+        .first()
+    )
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    try:
+        create_replacement_workspace_invitation(db, invitation=invitation, platform_user_id=user.id)
+        return RedirectResponse(url=f"/platform/organizations/{organization_id}?recovered=1", status_code=303)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            "platform_organization_detail.html",
+            _organization_detail_context(request, db, user, organization_id, error=str(exc)),
+            status_code=400,
+        )
+
+
+@router.post("/platform/organizations/{organization_id}/owner-invitation")
+async def platform_create_owner_invitation(
+    organization_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_platform_admin(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    try:
+        create_owner_replacement_invitation(db, organization_id=organization_id, platform_user_id=user.id)
+        return RedirectResponse(url=f"/platform/organizations/{organization_id}?recovered=1", status_code=303)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            "platform_organization_detail.html",
+            _organization_detail_context(request, db, user, organization_id, error=str(exc)),
+            status_code=400,
+        )
+
+
+@router.get("/platform/organizations/{organization_id}/delete")
+async def platform_delete_organization_confirm(organization_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_platform_admin(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    org = db.get(Organization, organization_id)
+    if not org or is_protected_platform_organization(org):
+        raise HTTPException(status_code=404, detail="Organization not found")
+    return templates.TemplateResponse("platform_organization_delete.html", {
+        "request": request,
+        "user": user,
+        "active_page": "platform",
+        "organization": org,
+        "error": None,
+    })
+
+
+@router.post("/platform/organizations/{organization_id}/delete")
+async def platform_delete_organization(
+    organization_id: int,
+    request: Request,
+    confirmation_name: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user = require_platform_admin(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    org = db.get(Organization, organization_id)
+    if not org or is_protected_platform_organization(org):
+        raise HTTPException(status_code=404, detail="Organization not found")
+    try:
+        delete_test_organization(
+            db,
+            organization_id=organization_id,
+            confirmation_name=confirmation_name,
+            platform_admin_user_id=user.id,
+        )
+        return RedirectResponse(url="/platform?deleted=1", status_code=303)
+    except ValueError as exc:
+        return templates.TemplateResponse("platform_organization_delete.html", {
+            "request": request,
+            "user": user,
+            "active_page": "platform",
+            "organization": org,
+            "error": str(exc),
+        }, status_code=400)
 
 
 @router.get("/platform/diagnostics/duplicate-domains")

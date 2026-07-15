@@ -4,14 +4,36 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import secrets
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from ..auth import platform_admin_emails
 from ..models import (
+    CompanyProfile,
+    DailySnapshot,
+    DigestLog,
     Event,
+    GrantsSourceConfig,
+    IngestionRun,
+    IngestionRunDetail,
+    JobRun,
+    Opportunity,
+    OpportunityBrief,
+    OpportunityHistoryEvent,
+    OpportunityHistoryRecipient,
+    OpportunityNote,
+    OpportunityPursuitLaneMatch,
+    OpportunityUpdateEvent,
+    OrgProfile,
     Organization,
     OrganizationMembership,
     Plan,
+    PursuitLane,
+    PursuitLaneAssignment,
+    SamSourceConfig,
     User,
+    UserOpportunity,
+    Vote,
     Workspace,
     WorkspaceInvitation,
 )
@@ -52,6 +74,16 @@ class ProvisionedWorkspace:
     invitation: WorkspaceInvitation
     invitation_url: str
     email_placeholder: str
+
+
+@dataclass(frozen=True)
+class DeleteOrganizationResult:
+    organization_id: int
+    organization_name: str
+    deleted_users: int
+    preserved_users: int
+    deleted_opportunities: int
+    deleted_invitations: int
 
 
 def platform_plan_definitions() -> dict[str, dict[str, object]]:
@@ -109,6 +141,16 @@ def _invitation_token(db: Session) -> str:
         token = secrets.token_urlsafe(32)
         if not db.query(WorkspaceInvitation).filter(WorkspaceInvitation.token == token).first():
             return token
+
+
+def invitation_url(base_url: str, invitation: WorkspaceInvitation) -> str:
+    return f"{base_url.rstrip('/')}/invite/{invitation.token}"
+
+
+def is_protected_platform_organization(org: Organization | None) -> bool:
+    if not org:
+        return False
+    return org.slug == "bidlens-platform" or org.plan == "platform"
 
 
 def provision_workspace(
@@ -228,10 +270,10 @@ def provision_workspace(
     db.refresh(invitation)
 
     invite_path = f"/invite/{invitation.token}"
-    invitation_url = f"{base_url.rstrip('/')}{invite_path}" if base_url else invite_path
+    invite_url = f"{base_url.rstrip('/')}{invite_path}" if base_url else invite_path
     email_placeholder = (
         f"Invitation email placeholder for {owner_email}: "
-        f"Welcome to BidLens. Accept your workspace invitation: {invitation_url}"
+        f"Welcome to BidLens. Accept your workspace invitation: {invite_url}"
     )
 
     return ProvisionedWorkspace(
@@ -241,8 +283,368 @@ def provision_workspace(
         membership=membership,
         plan=plan,
         invitation=invitation,
-        invitation_url=invitation_url,
+        invitation_url=invite_url,
         email_placeholder=email_placeholder,
+    )
+
+
+def create_replacement_workspace_invitation(
+    db: Session,
+    *,
+    invitation: WorkspaceInvitation,
+    platform_user_id: int | None = None,
+) -> WorkspaceInvitation:
+    """Invalidate a pending/consumed invitation and create one replacement."""
+
+    existing_membership = (
+        db.query(OrganizationMembership)
+        .join(User, User.id == OrganizationMembership.user_id)
+        .filter(
+            OrganizationMembership.organization_id == invitation.organization_id,
+            User.email == invitation.email,
+        )
+        .first()
+    )
+    if existing_membership:
+        raise ValueError("This user already has an active workspace membership.")
+
+    if invitation.status == "pending":
+        invitation.status = "replaced"
+
+    replacement = WorkspaceInvitation(
+        organization_id=invitation.organization_id,
+        workspace_id=invitation.workspace_id,
+        email=invitation.email,
+        name=invitation.name,
+        role=invitation.role,
+        token=_invitation_token(db),
+        status="pending",
+        sent_at=datetime.now(timezone.utc),
+    )
+    db.add(replacement)
+    db.add(Event(
+        org_id=invitation.organization_id,
+        user_id=platform_user_id,
+        opp_id=None,
+        event_type="workspace_invitation_replaced",
+        ui_version="platform_v1",
+        payload={
+            "workspace_id": invitation.workspace_id,
+            "old_invitation_id": invitation.id,
+            "new_invitation_email": invitation.email,
+            "new_invitation_role": invitation.role,
+        },
+    ))
+    db.commit()
+    db.refresh(replacement)
+    return replacement
+
+
+def create_owner_replacement_invitation(
+    db: Session,
+    *,
+    organization_id: int,
+    platform_user_id: int | None = None,
+) -> WorkspaceInvitation:
+    organization = db.get(Organization, organization_id)
+    workspace = (
+        db.query(Workspace)
+        .filter(Workspace.organization_id == organization_id)
+        .first()
+    )
+    if not organization or not workspace:
+        raise ValueError("Organization workspace was not found.")
+    if is_protected_platform_organization(organization):
+        raise ValueError("Protected platform organizations cannot receive customer owner invitations.")
+
+    pending_owner = (
+        db.query(WorkspaceInvitation)
+        .filter(
+            WorkspaceInvitation.organization_id == organization_id,
+            WorkspaceInvitation.role == "admin",
+            WorkspaceInvitation.status == "pending",
+        )
+        .order_by(WorkspaceInvitation.created_at.desc(), WorkspaceInvitation.id.desc())
+        .first()
+    )
+    if pending_owner:
+        return pending_owner
+
+    owner_invitation = (
+        db.query(WorkspaceInvitation)
+        .filter(
+            WorkspaceInvitation.organization_id == organization_id,
+            WorkspaceInvitation.role == "admin",
+        )
+        .order_by(WorkspaceInvitation.created_at.desc(), WorkspaceInvitation.id.desc())
+        .first()
+    )
+    if owner_invitation:
+        return create_replacement_workspace_invitation(
+            db,
+            invitation=owner_invitation,
+            platform_user_id=platform_user_id,
+        )
+
+    owner_membership = (
+        db.query(OrganizationMembership)
+        .join(User, User.id == OrganizationMembership.user_id)
+        .filter(
+            OrganizationMembership.organization_id == organization_id,
+            OrganizationMembership.role == "admin",
+        )
+        .order_by(OrganizationMembership.id.asc())
+        .first()
+    )
+    if owner_membership and owner_membership.user:
+        raise ValueError("An active workspace admin already exists and no invitation is needed.")
+
+    email = workspace.operational_contact_email
+    name = workspace.operational_contact_name
+    if not email:
+        raise ValueError("No owner email is available for this organization.")
+
+    replacement = WorkspaceInvitation(
+        organization_id=organization_id,
+        workspace_id=workspace.id,
+        email=normalize_email(email),
+        name=name,
+        role="admin",
+        token=_invitation_token(db),
+        status="pending",
+        sent_at=datetime.now(timezone.utc),
+    )
+    db.add(replacement)
+    db.add(Event(
+        org_id=organization_id,
+        user_id=platform_user_id,
+        opp_id=None,
+        event_type="workspace_owner_invitation_generated",
+        ui_version="platform_v1",
+        payload={
+            "workspace_id": workspace.id,
+            "invitation_email": replacement.email,
+        },
+    ))
+    db.commit()
+    db.refresh(replacement)
+    return replacement
+
+
+def delete_test_organization(
+    db: Session,
+    *,
+    organization_id: int,
+    confirmation_name: str,
+    platform_admin_user_id: int | None = None,
+) -> DeleteOrganizationResult:
+    org = db.get(Organization, organization_id)
+    if not org:
+        raise ValueError("Organization was not found.")
+    if is_protected_platform_organization(org):
+        raise ValueError("The BidLens Platform organization cannot be deleted.")
+    if confirmation_name.strip() != org.name:
+        raise ValueError("Confirmation name does not match the organization name.")
+    organization_name = org.name
+
+    workspace_ids = {
+        int(row[0])
+        for row in db.query(Workspace.id).filter(Workspace.organization_id == org.id).all()
+    }
+    opportunity_ids = {
+        int(row[0])
+        for row in db.query(Opportunity.id).filter(Opportunity.organization_id == org.id).all()
+    }
+    invitation_count = (
+        db.query(WorkspaceInvitation)
+        .filter(WorkspaceInvitation.organization_id == org.id)
+        .count()
+    )
+
+    member_user_ids = {
+        int(row[0])
+        for row in db.query(OrganizationMembership.user_id)
+        .filter(OrganizationMembership.organization_id == org.id)
+        .all()
+    }
+    member_user_ids.update(
+        int(row[0])
+        for row in db.query(User.id).filter(User.organization_id == org.id).all()
+    )
+    protected_emails = platform_admin_emails()
+    users_to_delete: set[int] = set()
+    users_to_preserve: set[int] = set()
+    for user_id in member_user_ids:
+        user = db.get(User, user_id)
+        if not user or user.id == platform_admin_user_id or normalize_email(user.email) in protected_emails:
+            users_to_preserve.add(user_id)
+            continue
+        other_memberships = (
+            db.query(OrganizationMembership)
+            .filter(
+                OrganizationMembership.user_id == user_id,
+                OrganizationMembership.organization_id != org.id,
+            )
+            .count()
+        )
+        if other_memberships:
+            users_to_preserve.add(user_id)
+        else:
+            users_to_delete.add(user_id)
+
+    ingestion_run_ids = {
+        int(row[0])
+        for row in db.query(IngestionRun.id)
+        .filter(
+            or_(
+                IngestionRun.organization_id == org.id,
+                IngestionRun.user_id.in_(users_to_delete or {-1}),
+            )
+        )
+        .all()
+    }
+    history_event_ids = {
+        int(row[0])
+        for row in db.query(OpportunityHistoryEvent.id)
+        .filter(
+            or_(
+                OpportunityHistoryEvent.organization_id == org.id,
+                OpportunityHistoryEvent.opportunity_id.in_(opportunity_ids or {-1}),
+            )
+        )
+        .all()
+    }
+
+    try:
+        db.query(DailySnapshot).filter(
+            or_(
+                DailySnapshot.workspace_id.in_(workspace_ids or {-1}),
+                DailySnapshot.user_id.in_(users_to_delete or {-1}),
+            )
+        ).delete(synchronize_session=False)
+        db.query(OpportunityHistoryRecipient).filter(
+            or_(
+                OpportunityHistoryRecipient.organization_id == org.id,
+                OpportunityHistoryRecipient.opportunity_id.in_(opportunity_ids or {-1}),
+                OpportunityHistoryRecipient.history_event_id.in_(history_event_ids or {-1}),
+                OpportunityHistoryRecipient.user_id.in_(users_to_delete or {-1}),
+            )
+        ).delete(synchronize_session=False)
+        db.query(OpportunityHistoryEvent).filter(
+            or_(
+                OpportunityHistoryEvent.organization_id == org.id,
+                OpportunityHistoryEvent.opportunity_id.in_(opportunity_ids or {-1}),
+            )
+        ).delete(synchronize_session=False)
+        db.query(OpportunityUpdateEvent).filter(
+            or_(
+                OpportunityUpdateEvent.organization_id == org.id,
+                OpportunityUpdateEvent.opportunity_id.in_(opportunity_ids or {-1}),
+                OpportunityUpdateEvent.ingestion_run_id.in_(ingestion_run_ids or {-1}),
+            )
+        ).delete(synchronize_session=False)
+        db.query(IngestionRunDetail).filter(
+            or_(
+                IngestionRunDetail.ingestion_run_id.in_(ingestion_run_ids or {-1}),
+                IngestionRunDetail.matched_opportunity_id.in_(opportunity_ids or {-1}),
+            )
+        ).delete(synchronize_session=False)
+        db.query(IngestionRun).filter(IngestionRun.id.in_(ingestion_run_ids or {-1})).delete(synchronize_session=False)
+        db.query(JobRun).filter(JobRun.organization_id == org.id).delete(synchronize_session=False)
+        db.query(OpportunityBrief).filter(
+            or_(
+                OpportunityBrief.organization_id == org.id,
+                OpportunityBrief.opportunity_id.in_(opportunity_ids or {-1}),
+            )
+        ).delete(synchronize_session=False)
+        db.query(OpportunityNote).filter(
+            or_(
+                OpportunityNote.org_id == org.id,
+                OpportunityNote.opportunity_id.in_(opportunity_ids or {-1}),
+                OpportunityNote.user_id.in_(users_to_delete or {-1}),
+            )
+        ).delete(synchronize_session=False)
+        db.query(UserOpportunity).filter(
+            or_(
+                UserOpportunity.organization_id == org.id,
+                UserOpportunity.opportunity_id.in_(opportunity_ids or {-1}),
+                UserOpportunity.user_id.in_(users_to_delete or {-1}),
+            )
+        ).delete(synchronize_session=False)
+        db.query(Vote).filter(
+            or_(
+                Vote.org_id == org.id,
+                Vote.opp_id.in_(opportunity_ids or {-1}),
+                Vote.user_id.in_(users_to_delete or {-1}),
+            )
+        ).delete(synchronize_session=False)
+        db.query(OpportunityPursuitLaneMatch).filter(
+            or_(
+                OpportunityPursuitLaneMatch.organization_id == org.id,
+                OpportunityPursuitLaneMatch.opportunity_id.in_(opportunity_ids or {-1}),
+            )
+        ).delete(synchronize_session=False)
+        db.query(PursuitLaneAssignment).filter(
+            or_(
+                PursuitLaneAssignment.organization_id == org.id,
+                PursuitLaneAssignment.user_id.in_(users_to_delete or {-1}),
+            )
+        ).delete(synchronize_session=False)
+        db.query(PursuitLane).filter(PursuitLane.organization_id == org.id).delete(synchronize_session=False)
+        db.query(Opportunity).filter(Opportunity.organization_id == org.id).delete(synchronize_session=False)
+        db.query(CompanyProfile).filter(CompanyProfile.org_id == org.id).delete(synchronize_session=False)
+        db.query(OrgProfile).filter(OrgProfile.org_id == org.id).delete(synchronize_session=False)
+        db.query(SamSourceConfig).filter(SamSourceConfig.organization_id == org.id).delete(synchronize_session=False)
+        db.query(GrantsSourceConfig).filter(GrantsSourceConfig.organization_id == org.id).delete(synchronize_session=False)
+        db.query(DigestLog).filter(DigestLog.org_id == org.id).delete(synchronize_session=False)
+        db.query(Event).filter(
+            or_(
+                Event.org_id == org.id,
+                Event.opp_id.in_(opportunity_ids or {-1}),
+                Event.user_id.in_(users_to_delete or {-1}),
+            )
+        ).delete(synchronize_session=False)
+        db.query(WorkspaceInvitation).filter(WorkspaceInvitation.organization_id == org.id).delete(synchronize_session=False)
+        db.query(OrganizationMembership).filter(OrganizationMembership.organization_id == org.id).delete(synchronize_session=False)
+        db.query(Workspace).filter(Workspace.organization_id == org.id).delete(synchronize_session=False)
+
+        for user_id in users_to_preserve:
+            user = db.get(User, user_id)
+            if user and user.organization_id == org.id:
+                replacement_home_org_id = (
+                    db.query(OrganizationMembership.organization_id)
+                    .filter(
+                        OrganizationMembership.user_id == user_id,
+                        OrganizationMembership.organization_id != org.id,
+                    )
+                    .order_by(OrganizationMembership.organization_id.asc())
+                    .scalar()
+                )
+                if not replacement_home_org_id:
+                    replacement_home_org_id = (
+                        db.query(Organization.id)
+                        .filter(Organization.id != org.id)
+                        .order_by(Organization.id.asc())
+                        .scalar()
+                    )
+                if not replacement_home_org_id:
+                    raise ValueError("Cannot delete organization while preserving users without another organization.")
+                user.organization_id = replacement_home_org_id
+
+        db.query(User).filter(User.id.in_(users_to_delete or {-1})).delete(synchronize_session=False)
+        db.delete(org)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    return DeleteOrganizationResult(
+        organization_id=organization_id,
+        organization_name=organization_name,
+        deleted_users=len(users_to_delete),
+        preserved_users=len(users_to_preserve),
+        deleted_opportunities=len(opportunity_ids),
+        deleted_invitations=invitation_count,
     )
 
 

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Delete {{ organization.name }} - Platform - BidLens{% endblock %}
+
+{% block content %}
+<div class="platform-shell">
+  <header class="platform-hero platform-hero--compact">
+    <div>
+      <span class="platform-eyebrow">Private Beta Cleanup</span>
+      <h1>Delete Test Organization</h1>
+      <p>This permanently removes the customer organization and tenant-scoped operational data.</p>
+    </div>
+    <a class="btn btn-secondary" href="/platform/organizations/{{ organization.id }}">Cancel</a>
+  </header>
+
+  {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+  {% endif %}
+
+  <section class="platform-card platform-danger-zone">
+    <div class="platform-section-heading">
+      <div>
+        <span>Confirmation Required</span>
+        <h2>{{ organization.name }}</h2>
+      </div>
+    </div>
+    <p>
+      Type the organization name exactly to delete this test organization. This action preserves
+      platform/system records and does not affect other customer organizations.
+    </p>
+    <form method="post" action="/platform/organizations/{{ organization.id }}/delete" class="platform-form">
+      <div class="form-group">
+        <label for="confirmation_name">Organization name</label>
+        <input id="confirmation_name" name="confirmation_name" type="text" autocomplete="off" required>
+      </div>
+      <div class="platform-actions">
+        <a class="btn btn-secondary" href="/platform/organizations/{{ organization.id }}">Cancel</a>
+        <button type="submit" class="btn btn-danger">Delete Test Organization</button>
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}

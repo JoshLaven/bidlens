@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}{{ organization.name }} - Platform - BidLens{% endblock %}
+
+{% block content %}
+<div class="platform-shell">
+  <header class="platform-hero platform-hero--compact">
+    <div>
+      <span class="platform-eyebrow">Customer Organization</span>
+      <h1>{{ organization.name }}</h1>
+      <p>Inspect workspace access, invitations, and private-beta cleanup controls.</p>
+    </div>
+    <a class="btn btn-secondary" href="/platform">Back to Platform</a>
+  </header>
+
+  {% if request.query_params.get('recovered') %}
+    <div class="alert alert-success">Invitation recovery action completed.</div>
+  {% endif %}
+  {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+  {% endif %}
+
+  <section class="platform-card">
+    <div class="platform-section-heading">
+      <div>
+        <span>Organization</span>
+        <h2>Provisioning State</h2>
+      </div>
+    </div>
+    <dl class="platform-detail-grid">
+      <div>
+        <dt>Name</dt>
+        <dd>{{ organization.name }}</dd>
+      </div>
+      <div>
+        <dt>Organization ID</dt>
+        <dd>{{ organization.id }}</dd>
+      </div>
+      <div>
+        <dt>Status</dt>
+        <dd>{{ 'Live' if organization.is_live else 'Setup' }}</dd>
+      </div>
+      <div>
+        <dt>Created</dt>
+        <dd>{{ organization.created_at.strftime('%b %-d, %Y') if organization.created_at else '—' }}</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="platform-card">
+    <div class="platform-section-heading">
+      <div>
+        <span>Workspace</span>
+        <h2>{{ workspace.name if workspace else 'No workspace linked' }}</h2>
+      </div>
+    </div>
+    <dl class="platform-detail-grid">
+      <div>
+        <dt>Workspace ID</dt>
+        <dd>{{ workspace.id if workspace else '—' }}</dd>
+      </div>
+      <div>
+        <dt>Plan</dt>
+        <dd>{{ plan.name if plan else organization.plan|title }}</dd>
+      </div>
+      <div>
+        <dt>Included Seats</dt>
+        <dd>{{ plan.included_user_count if plan else '—' }}</dd>
+      </div>
+      <div>
+        <dt>Current Members</dt>
+        <dd>{{ active_members|length }}</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="platform-card">
+    <div class="platform-section-heading">
+      <div>
+        <span>Workspace Owner</span>
+        <h2>{{ owner_state.status }}</h2>
+      </div>
+      {% if owner_state.can_create_replacement %}
+        <form method="post" action="/platform/organizations/{{ organization.id }}/owner-invitation">
+          <button type="submit" class="btn btn-secondary">Create Replacement Owner Invitation</button>
+        </form>
+      {% endif %}
+    </div>
+    <dl class="platform-detail-grid">
+      <div>
+        <dt>Name</dt>
+        <dd>{{ owner_state.user.name if owner_state.user else owner_state.invitation.name if owner_state.invitation else '—' }}</dd>
+      </div>
+      <div>
+        <dt>Email</dt>
+        <dd>{{ owner_state.user.email if owner_state.user else owner_state.invitation.email if owner_state.invitation else '—' }}</dd>
+      </div>
+      <div>
+        <dt>Role</dt>
+        <dd>{{ owner_state.membership.role|title if owner_state.membership else owner_state.invitation.role|title if owner_state.invitation else '—' }}</dd>
+      </div>
+      <div>
+        <dt>Invitation</dt>
+        <dd>{{ owner_state.invitation.status|title if owner_state.invitation else 'None' }}</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="platform-card">
+    <div class="platform-section-heading">
+      <div>
+        <span>Members</span>
+        <h2>Active Members</h2>
+      </div>
+    </div>
+    <div class="platform-table">
+      <div class="platform-table-row platform-table-head">
+        <span>Name</span>
+        <span>Email</span>
+        <span>Role</span>
+        <span>Status</span>
+      </div>
+      {% for row in active_members %}
+        <div class="platform-table-row">
+          <span>{{ row.user.name or '—' }}</span>
+          <span>{{ row.user.email }}</span>
+          <span>{{ row.membership.role|title }}</span>
+          <span>{{ row.status|title }}</span>
+        </div>
+      {% else %}
+        <div class="platform-empty">No active members found.</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="platform-card">
+    <div class="platform-section-heading">
+      <div>
+        <span>Invitations</span>
+        <h2>Pending and Historical Invitations</h2>
+      </div>
+    </div>
+    <div class="platform-table platform-table-wide">
+      <div class="platform-table-row platform-table-head">
+        <span>Email</span>
+        <span>Role</span>
+        <span>Status</span>
+        <span>Created</span>
+        <span>Expires</span>
+        <span>Recovery</span>
+      </div>
+      {% for row in invitations %}
+        {% set invitation = row.invitation %}
+        <div class="platform-table-row">
+          <span>{{ invitation.email }}</span>
+          <span>{{ invitation.role|title }}</span>
+          <span>{{ invitation.status|title }}</span>
+          <span>{{ invitation.created_at.strftime('%b %-d, %Y') if invitation.created_at else '—' }}</span>
+          <span>{{ row.expires_label }}</span>
+          <span class="platform-invite-actions">
+            {% if invitation.status == 'pending' %}
+              <a href="{{ row.url }}">Open</a>
+              <input readonly value="{{ row.url }}" aria-label="Invitation URL for {{ invitation.email }}">
+            {% else %}
+              <form method="post" action="/platform/organizations/{{ organization.id }}/invitations/{{ invitation.id }}/replace">
+                <button type="submit" class="btn btn-secondary btn-small">Create Replacement</button>
+              </form>
+            {% endif %}
+          </span>
+        </div>
+      {% else %}
+        <div class="platform-empty">No invitations found.</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="platform-card platform-danger-zone">
+    <div class="platform-section-heading">
+      <div>
+        <span>Private Beta Cleanup</span>
+        <h2>Delete Test Organization</h2>
+      </div>
+      <a class="btn btn-danger" href="/platform/organizations/{{ organization.id }}/delete">Delete Test Organization</a>
+    </div>
+    <p>This removes the customer organization and tenant-scoped data after explicit confirmation.</p>
+  </section>
+</div>
+{% endblock %}

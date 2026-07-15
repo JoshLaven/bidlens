@@ -159,7 +159,7 @@
 
     <div class="platform-org-list">
       {% for row in organizations %}
-        <article class="platform-org-row">
+        <a class="platform-org-row platform-org-row-link" href="/platform/organizations/{{ row.organization.id }}">
           <div>
             <h3>{{ row.organization.name }}</h3>
             <p>
@@ -175,7 +175,7 @@
             <span>{{ 'Live' if row.organization.is_live else 'Setup' }}</span>
             <span>{{ row.pending_invitations }} pending invitation{{ '' if row.pending_invitations == 1 else 's' }}</span>
           </div>
-        </article>
+        </a>
       {% else %}
         <div class="platform-empty">No customer organizations have been provisioned yet.</div>
       {% endfor %}

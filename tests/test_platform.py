@@ -17,6 +17,9 @@ from bidlens.services.platform import (
     PROFESSIONAL_INCLUDED_USERS,
     ProvisionWorkspaceInput,
     accept_workspace_invitation,
+    create_replacement_workspace_invitation,
+    delete_test_organization,
+    platform_plan_definitions,
     post_authentication_destination_url,
     post_invitation_acceptance_url,
     provision_workspace,
@@ -414,6 +417,271 @@ class PlatformProvisioningTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(self.db.query(Organization).count(), 0)
         self.assertEqual(self.db.query(User).count(), 0)
+
+    def _platform_owner(self):
+        platform_org = Organization(name="BidLens Platform", slug="bidlens-platform", plan="platform")
+        self.db.add(platform_org)
+        self.db.flush()
+        owner = User(email="joshuatlaven@gmail.com", name="Josh", organization_id=platform_org.id)
+        self.db.add(owner)
+        self.db.flush()
+        self.db.add(OrganizationMembership(
+            organization_id=platform_org.id,
+            user_id=owner.id,
+            role="admin",
+        ))
+        self.db.commit()
+        return owner
+
+    def _request(self):
+        return SimpleNamespace(
+            base_url="https://beta.bidlens.com/",
+            query_params={},
+        )
+
+    def test_platform_owner_can_open_organization_detail_context(self):
+        owner = self._platform_owner()
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Detail Customer",
+                owner_name="Dana Owner",
+                owner_email="dana@detail.test",
+            ),
+            base_url="https://beta.bidlens.com",
+        )
+
+        context = platform_routes._organization_detail_context(
+            self._request(),
+            self.db,
+            owner,
+            result.organization.id,
+        )
+
+        self.assertEqual(context["organization"].id, result.organization.id)
+        self.assertEqual(context["workspace"].id, result.workspace.id)
+        self.assertEqual(context["owner_state"]["status"], "Invitation pending")
+
+    def test_non_platform_user_cannot_open_organization_detail_route(self):
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Forbidden Customer",
+                owner_name="Fiona Owner",
+                owner_email="fiona@forbidden.test",
+            ),
+            base_url="https://beta.bidlens.com",
+        )
+
+        with patch("bidlens.routes.platform.get_current_user", return_value=result.owner):
+            with self.assertRaises(HTTPException) as raised:
+                asyncio.run(platform_routes.platform_organization_detail(
+                    result.organization.id,
+                    self._request(),
+                    db=self.db,
+                ))
+
+        self.assertEqual(raised.exception.status_code, 404)
+
+    def test_platform_organization_list_cards_link_to_detail_route(self):
+        owner = self._platform_owner()
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Linked Customer",
+                owner_name="Lena Owner",
+                owner_email="lena@linked.test",
+            ),
+            base_url="https://beta.bidlens.com",
+        )
+        html = platform_routes.templates.env.get_template("platform.html").render(
+            request=self._request(),
+            user=owner,
+            active_page="platform",
+            organizations=platform_routes._organization_rows(self.db),
+            plans=platform_plan_definitions(),
+            selected_plan="professional",
+            provisioned=None,
+            form={},
+            error=None,
+        )
+
+        self.assertIn(f'href="/platform/organizations/{result.organization.id}"', html)
+        self.assertIn("Linked Customer", html)
+
+    def test_organization_detail_renders_active_and_pending_members(self):
+        owner = self._platform_owner()
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Members Customer",
+                owner_name="Mina Owner",
+                owner_email="mina@members.test",
+            ),
+            base_url="https://beta.bidlens.com",
+        )
+        pending = WorkspaceInvitation(
+            organization_id=result.organization.id,
+            workspace_id=result.workspace.id,
+            email="pending@members.test",
+            name="Pending Person",
+            role="member",
+            token="pending-members-token",
+            status="pending",
+        )
+        self.db.add(pending)
+        self.db.commit()
+        context = platform_routes._organization_detail_context(
+            self._request(),
+            self.db,
+            owner,
+            result.organization.id,
+        )
+        html = platform_routes.templates.env.get_template("platform_organization_detail.html").render(**context)
+
+        self.assertIn("mina@members.test", html)
+        self.assertIn("pending@members.test", html)
+        self.assertIn("Active Members", html)
+        self.assertIn("Pending", html)
+
+    def test_pending_invitation_url_can_be_recovered_with_public_host(self):
+        owner = self._platform_owner()
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Invite Customer",
+                owner_name="Ira Owner",
+                owner_email="ira@invite.test",
+            ),
+            base_url="https://beta.bidlens.com",
+        )
+        context = platform_routes._organization_detail_context(
+            self._request(),
+            self.db,
+            owner,
+            result.organization.id,
+        )
+        pending_urls = [row["url"] for row in context["pending_invitations"]]
+
+        self.assertTrue(pending_urls)
+        self.assertTrue(pending_urls[0].startswith("https://beta.bidlens.com/invite/"))
+        self.assertNotIn("localhost", pending_urls[0])
+
+    def test_replacement_invitation_does_not_create_duplicate_active_membership(self):
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Replacement Customer",
+                owner_name="Rae Owner",
+                owner_email="rae@replacement.test",
+            ),
+            base_url="https://beta.bidlens.com",
+        )
+        accept_workspace_invitation(self.db, token=result.invitation.token)
+
+        with self.assertRaises(ValueError):
+            create_replacement_workspace_invitation(self.db, invitation=result.invitation)
+
+        membership_count = (
+            self.db.query(OrganizationMembership)
+            .filter(OrganizationMembership.organization_id == result.organization.id)
+            .count()
+        )
+        self.assertEqual(membership_count, 1)
+
+    def test_delete_test_organization_requires_confirmation(self):
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Confirm Delete Customer",
+                owner_name="Case Owner",
+                owner_email="case@delete.test",
+            ),
+            base_url="https://beta.bidlens.com",
+        )
+
+        with self.assertRaises(ValueError):
+            delete_test_organization(
+                self.db,
+                organization_id=result.organization.id,
+                confirmation_name="Wrong Name",
+            )
+
+        self.assertIsNotNone(self.db.get(Organization, result.organization.id))
+
+    def test_deleting_one_test_organization_does_not_affect_another(self):
+        first = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Delete Me Customer",
+                owner_name="Dee Owner",
+                owner_email="dee@delete-one.test",
+            ),
+            base_url="https://beta.bidlens.com",
+        )
+        second = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Keep Me Customer",
+                owner_name="Kip Owner",
+                owner_email="kip@keep-one.test",
+            ),
+            base_url="https://beta.bidlens.com",
+        )
+
+        delete_test_organization(
+            self.db,
+            organization_id=first.organization.id,
+            confirmation_name="Delete Me Customer",
+        )
+
+        self.assertIsNone(self.db.get(Organization, first.organization.id))
+        self.assertIsNotNone(self.db.get(Organization, second.organization.id))
+        self.assertIsNotNone(self.db.get(Workspace, second.workspace.id))
+
+    def test_default_platform_organization_cannot_be_deleted(self):
+        owner = self._platform_owner()
+
+        with self.assertRaises(ValueError):
+            delete_test_organization(
+                self.db,
+                organization_id=owner.organization_id,
+                confirmation_name="BidLens Platform",
+                platform_admin_user_id=owner.id,
+            )
+
+        self.assertIsNotNone(self.db.get(Organization, owner.organization_id))
+
+    def test_platform_owner_identity_is_preserved_when_customer_org_deleted(self):
+        owner = self._platform_owner()
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="Platform Member Customer",
+                owner_name="Pat Customer",
+                owner_email="pat@platform-member.test",
+            ),
+            base_url="https://beta.bidlens.com",
+        )
+        self.db.add(OrganizationMembership(
+            organization_id=result.organization.id,
+            user_id=owner.id,
+            role="admin",
+        ))
+        owner.organization_id = result.organization.id
+        self.db.commit()
+
+        delete_test_organization(
+            self.db,
+            organization_id=result.organization.id,
+            confirmation_name="Platform Member Customer",
+            platform_admin_user_id=owner.id,
+        )
+
+        preserved_owner = self.db.get(User, owner.id)
+        self.assertIsNotNone(preserved_owner)
+        self.assertEqual(preserved_owner.email, "joshuatlaven@gmail.com")
+        self.assertIsNotNone(self.db.get(Organization, preserved_owner.organization_id))
 
 
 if __name__ == "__main__":
