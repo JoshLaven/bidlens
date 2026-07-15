@@ -17,6 +17,7 @@ psycopg2-binary==2.9.11
 pypdf==5.9.0
 pydantic==2.12.5
 pydantic-core==2.41.5
+python-dotenv==1.2.2
 python-multipart==0.0.21
 requests==2.32.5
 sqlalchemy==2.0.46
