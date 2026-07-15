@@ -1,16 +1,19 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from .config import AUTO_CREATE_SCHEMA, ENABLE_INTERNAL_SCHEDULER, startup_diagnostics, validate_deployment_config
+
+
+for diagnostic in startup_diagnostics():
+    print(f"[startup] {diagnostic}")
+
+validate_deployment_config()
+
 from .database import engine, Base
 from .routes import admin, auth, opportunities, api, settings, company_profile, pursuit_lanes, imports, grants, integrations, home, platform, connect_sources
 from . import models
 from .routes import sam
 from .scheduler import start_scheduler
 from .middleware import ClientRedirectMiddleware
-from .config import AUTO_CREATE_SCHEMA, DATABASE_URL, DOTENV_PATH, ENABLE_INTERNAL_SCHEDULER, safe_database_url
-
-
-print("DATABASE_URL =", safe_database_url(DATABASE_URL))
-print("DOTENV_PATH =", DOTENV_PATH)
 
 if AUTO_CREATE_SCHEMA:
     Base.metadata.create_all(bind=engine)

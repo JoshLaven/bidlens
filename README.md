@@ -52,6 +52,7 @@ This utility is local-development only. It preserves `joshuatlaven@gmail.com` as
 - `ENABLE_INTERNAL_SCHEDULER`: set to `true` only when this process should start APScheduler
 - `AUTO_CREATE_SCHEMA`: set to `false` in hosted environments that use Alembic migrations
 - `SESSION_COOKIE_SECURE`: set to `true` when serving over HTTPS
+- `BIDLENS_VALIDATE_DEPLOYMENT`: optional explicit hosted-config validation flag; validation also runs automatically when `AUTO_CREATE_SCHEMA=false`
 - `PORT`: platform-provided web port for hosted startup commands
 
 ## Startup Commands
