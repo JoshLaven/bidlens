@@ -17,7 +17,7 @@ serializer = URLSafeSerializer(SECRET_KEY)
 def platform_admin_emails() -> set[str]:
     raw_values = [
         os.getenv("PLATFORM_OWNER_EMAIL"),
-        os.getenv("PLATFORM_ADMIN_EMAILS", "joshuatlaven@gmail.com"),
+        os.getenv("PLATFORM_ADMIN_EMAILS", ""),
     ]
     emails: set[str] = set()
     for raw in raw_values:

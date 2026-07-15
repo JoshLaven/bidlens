@@ -1,12 +1,14 @@
 import asyncio
+import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from http.cookies import SimpleCookie
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from bidlens.auth import is_platform_admin_email, platform_admin_emails
+from bidlens.auth import is_platform_admin_email, platform_admin_emails, serializer
 from bidlens.database import Base
 from fastapi import HTTPException
 
@@ -333,7 +335,7 @@ class PlatformProvisioningTests(unittest.TestCase):
 
     def test_platform_owner_email_env_identifies_platform_admin(self):
         with patch.dict(
-            "os.environ",
+            os.environ,
             {
                 "PLATFORM_OWNER_EMAIL": "Josh@BidLens.test",
                 "PLATFORM_ADMIN_EMAILS": "",
@@ -343,6 +345,126 @@ class PlatformProvisioningTests(unittest.TestCase):
             self.assertIn("josh@bidlens.test", platform_admin_emails())
             self.assertTrue(is_platform_admin_email("josh@bidlens.test"))
             self.assertFalse(is_platform_admin_email("workspace-owner@example.com"))
+
+    def test_platform_admin_email_env_identifies_exact_platform_admin(self):
+        with patch.dict(
+            os.environ,
+            {
+                "PLATFORM_OWNER_EMAIL": "",
+                "PLATFORM_ADMIN_EMAILS": "admin@bidlens.test, ops@bidlens.test",
+            },
+            clear=False,
+        ):
+            self.assertTrue(is_platform_admin_email("admin@bidlens.test"))
+            self.assertTrue(is_platform_admin_email("ops@bidlens.test"))
+            self.assertFalse(is_platform_admin_email("workspace-admin@bidlens.test"))
+
+    def test_platform_admin_matching_normalizes_case_and_whitespace(self):
+        with patch.dict(
+            os.environ,
+            {
+                "PLATFORM_OWNER_EMAIL": "  Josh@JoshLaven.com  ",
+                "PLATFORM_ADMIN_EMAILS": "  Admin@BidLens.test  ",
+            },
+            clear=False,
+        ):
+            self.assertTrue(is_platform_admin_email("josh@joshlaven.com"))
+            self.assertTrue(is_platform_admin_email(" admin@bidlens.test "))
+            self.assertFalse(is_platform_admin_email("xjosh@joshlaven.com"))
+            self.assertFalse(is_platform_admin_email("josh@joshlaven.com.example"))
+
+    def test_platform_admin_email_has_no_hardcoded_gmail_default(self):
+        with patch.dict(
+            os.environ,
+            {
+                "PLATFORM_OWNER_EMAIL": "",
+                "PLATFORM_ADMIN_EMAILS": "",
+            },
+            clear=False,
+        ):
+            self.assertEqual(platform_admin_emails(), set())
+            self.assertFalse(is_platform_admin_email("joshuatlaven@gmail.com"))
+
+    def test_workspace_admin_role_never_implies_platform_access(self):
+        with patch.dict(
+            os.environ,
+            {
+                "PLATFORM_OWNER_EMAIL": "josh@joshlaven.com",
+                "PLATFORM_ADMIN_EMAILS": "",
+            },
+            clear=False,
+        ):
+            result = provision_workspace(
+                self.db,
+                payload=ProvisionWorkspaceInput(
+                    organization_name="Workspace Admin Customer",
+                    owner_name="Workspace Admin",
+                    owner_email="joshuatlaven@gmail.com",
+                ),
+                base_url="https://bidlens.test",
+            )
+
+            self.assertEqual(result.membership.role, "admin")
+            self.assertFalse(is_platform_admin_email(result.owner.email))
+
+            response = asyncio.run(auth_routes.login(
+                SimpleNamespace(),
+                email=result.owner.email,
+                db=self.db,
+            ))
+
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(
+                response.headers["location"],
+                f"/organization-setup?org_id={result.organization.id}",
+            )
+
+    def test_switching_platform_owner_to_workspace_admin_replaces_session_identity(self):
+        with patch.dict(
+            os.environ,
+            {
+                "PLATFORM_OWNER_EMAIL": "josh@joshlaven.com",
+                "PLATFORM_ADMIN_EMAILS": "",
+            },
+            clear=False,
+        ):
+            result = provision_workspace(
+                self.db,
+                payload=ProvisionWorkspaceInput(
+                    organization_name="Session Switch Customer",
+                    owner_name="Josh Workspace",
+                    owner_email="joshuatlaven@gmail.com",
+                ),
+                base_url="https://bidlens.test",
+            )
+
+            platform_response = asyncio.run(auth_routes.login(
+                SimpleNamespace(),
+                email="josh@joshlaven.com",
+                db=self.db,
+            ))
+            workspace_response = asyncio.run(auth_routes.login(
+                SimpleNamespace(),
+                email="joshuatlaven@gmail.com",
+                db=self.db,
+            ))
+
+            self.assertEqual(platform_response.headers["location"], "/platform")
+            self.assertEqual(
+                workspace_response.headers["location"],
+                f"/organization-setup?org_id={result.organization.id}",
+            )
+
+            cookie = SimpleCookie()
+            cookie.load(workspace_response.headers["set-cookie"])
+            token = cookie["bidlens_session"].value
+            session_user_id = serializer.loads(token)["user_id"]
+
+            self.assertEqual(session_user_id, result.owner.id)
+            self.assertNotEqual(
+                session_user_id,
+                self.db.query(User).filter(User.email == "josh@joshlaven.com").one().id,
+            )
 
     def test_email_domain_resolution_prefers_workspace_backed_organization(self):
         orphan = Organization(

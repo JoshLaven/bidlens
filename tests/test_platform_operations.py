@@ -94,7 +94,14 @@ class PlatformOperationsTests(unittest.TestCase):
         return self.env.get_template("platform_operation_detail.html").render(**context), context
 
     def test_platform_owner_can_access_operations(self):
-        with patch("bidlens.routes.platform.get_current_user", return_value=self.owner):
+        with patch.dict(
+            "os.environ",
+            {
+                "PLATFORM_OWNER_EMAIL": self.owner.email,
+                "PLATFORM_ADMIN_EMAILS": "",
+            },
+            clear=False,
+        ), patch("bidlens.routes.platform.get_current_user", return_value=self.owner):
             user = platform.require_platform_admin(_Request(), self.db)
 
         self.assertEqual(user.email, "joshuatlaven@gmail.com")
