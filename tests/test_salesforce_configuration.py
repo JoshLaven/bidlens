@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 from types import SimpleNamespace
 import unittest
@@ -165,7 +165,7 @@ class SalesforceConfigurationTests(unittest.TestCase):
             workspace_id=self.org_a.id,
             user_id=self.admin.id,
             return_path="/workspace-management/business-systems/salesforce",
-            expires_at=datetime.utcnow() + timedelta(minutes=5),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
         )
         self.db.add(record)
         self.db.commit()
@@ -177,7 +177,7 @@ class SalesforceConfigurationTests(unittest.TestCase):
             with self.assertRaises(HTTPException):
                 api.salesforce_oauth_callback(SimpleNamespace(url_for=lambda _: "callback"), code="code", state=state, db=self.db)
 
-        for user_id, expires in ((self.member.id, datetime.utcnow() + timedelta(minutes=5)), (self.admin.id, datetime.utcnow() - timedelta(seconds=1))):
+        for user_id, expires in ((self.member.id, datetime.now(timezone.utc) + timedelta(minutes=5)), (self.admin.id, datetime.now(timezone.utc) - timedelta(seconds=1))):
             other_state = f"state-{user_id}-{expires.timestamp()}"
             self.db.add(SalesforceOAuthState(
                 state_digest=hashlib.sha256(other_state.encode()).hexdigest(),
@@ -189,6 +189,39 @@ class SalesforceConfigurationTests(unittest.TestCase):
             with patch.object(api, "get_current_user", return_value=self.admin):
                 with self.assertRaises(HTTPException):
                     api.salesforce_oauth_callback(SimpleNamespace(), code="code", state=other_state, db=self.db)
+
+    def test_oauth_state_accepts_postgresql_style_naive_expiration(self):
+        naive_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        self._assert_oauth_expiration_succeeds(naive_utc + timedelta(minutes=5))
+
+    def test_oauth_state_accepts_timezone_aware_expiration(self):
+        self._assert_oauth_expiration_succeeds(
+            datetime.now(timezone.utc) + timedelta(minutes=5)
+        )
+
+    def _assert_oauth_expiration_succeeds(self, expires_at):
+        state = f"timestamp-state-{expires_at.timestamp()}"
+        self.db.add(SalesforceOAuthState(
+            state_digest=hashlib.sha256(state.encode()).hexdigest(),
+            encrypted_code_verifier=encrypt_credentials({"verifier": "pkce-secret"}),
+            workspace_id=self.org_a.id,
+            user_id=self.admin.id,
+            return_path="/workspace-management/business-systems/salesforce",
+            expires_at=expires_at,
+        ))
+        self.db.commit()
+        service = Mock()
+        service.exchange_authorization_code.return_value = {}
+        with patch.object(api, "get_current_user", return_value=self.admin), patch.object(
+            api, "SalesforceService", return_value=service
+        ):
+            response = api.salesforce_oauth_callback(
+                SimpleNamespace(url_for=lambda _: "callback"),
+                code="code",
+                state=state,
+                db=self.db,
+            )
+        self.assertEqual(response.status_code, 303)
 
 
 if __name__ == "__main__":

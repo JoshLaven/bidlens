@@ -28,7 +28,7 @@ from ..models import (CompanyProfile, Opportunity, OpportunityBrief, Organizatio
 from ..services.integration_credentials import decrypt_credentials, encrypt_credentials
 from ..tenancy import current_org_id
 from sqlalchemy import and_, or_
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import html
 import logging
 import os
@@ -331,6 +331,13 @@ def _salesforce_redirect_uri(request: Request) -> str:
     if config.SALESFORCE_REDIRECT_URI:
         return config.SALESFORCE_REDIRECT_URI
     return str(request.url_for("salesforce_oauth_callback"))
+
+
+def _salesforce_oauth_utc(value: datetime) -> datetime:
+    """Return an aware UTC value, treating transitional naive DB values as UTC."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _clean_optional_text(value: str | None) -> str | None:
@@ -893,7 +900,7 @@ def salesforce_oauth_start(request: Request, db: Session = Depends(get_db)):
             if not getattr(user, "current_organization_is_live", False)
             else f"/workspace-management/business-systems/salesforce?org_id={workspace_id}&connected=1"
         ),
-        expires_at=datetime.utcnow() + timedelta(minutes=10),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
     )
     db.add(state_record)
     db.commit()
@@ -925,11 +932,11 @@ def salesforce_oauth_callback(
     state_record = db.query(SalesforceOAuthState).filter(
         SalesforceOAuthState.state_digest == hashlib.sha256(state.encode("utf-8")).hexdigest()
     ).with_for_update().first()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if (
         state_record is None
         or state_record.consumed_at is not None
-        or state_record.expires_at < now
+        or _salesforce_oauth_utc(state_record.expires_at) < now
         or state_record.user_id != user.id
     ):
         raise HTTPException(status_code=400, detail="Invalid or expired Salesforce OAuth callback")

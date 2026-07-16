@@ -10,7 +10,7 @@ from bidlens.models import Organization, OrganizationMembership, SalesforceOAuth
 from bidlens.routes import api as api_routes
 from bidlens.services.integration_credentials import encrypt_credentials
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 class SalesforceOnboardingRedirectTests(unittest.TestCase):
@@ -90,7 +90,7 @@ class SalesforceOnboardingRedirectTests(unittest.TestCase):
             workspace_id=self.org.id,
             user_id=self.admin.id,
             return_path=return_path,
-            expires_at=datetime.utcnow() + timedelta(minutes=10),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
         ))
         self.db.commit()
 
