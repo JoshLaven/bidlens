@@ -209,6 +209,7 @@ async def administration_page(
 
 
 @router.get("/salesforce")
+@router.get("/settings/salesforce")
 async def salesforce_admin_page(
     request: Request,
     db: Session = Depends(get_db)
@@ -221,7 +222,7 @@ async def salesforce_admin_page(
 
     query = str(request.url.query or "").strip()
     suffix = f"?{query}" if query else ""
-    return RedirectResponse(url=f"/integrations{suffix}#salesforce", status_code=303)
+    return RedirectResponse(url=f"/workspace-management/business-systems/salesforce{suffix}", status_code=303)
 
 @router.get("/settings")
 async def settings_page(

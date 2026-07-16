@@ -8,7 +8,7 @@ from typing import Any, Iterable
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from ..models import Opportunity, OpportunityUpdateEvent
+from ..models import Opportunity, OpportunityUpdateEvent, SalesforceConnection
 from .opportunity_history import (
     EVENT_SALESFORCE_SYNCHRONIZED,
     EVENT_SOURCE_UPDATED,
@@ -176,7 +176,9 @@ def apply_source_update(
 
     try:
         if salesforce_payload:
-            response = SalesforceService().update_opportunity(
+            response = SalesforceService(
+                db=db, workspace_id=opportunity.organization_id
+            ).update_opportunity(
                 opportunity.salesforce_opportunity_id,
                 salesforce_payload,
             )
@@ -189,6 +191,11 @@ def apply_source_update(
         event.salesforce_sync_status = "succeeded"
         event.salesforce_synced_at = now
         opportunity.salesforce_synced_at = now
+        connection = db.query(SalesforceConnection).filter(
+            SalesforceConnection.workspace_id == opportunity.organization_id
+        ).first()
+        if connection:
+            connection.last_sync_success_at = now
         record_history_event(
             db,
             opportunity=opportunity,

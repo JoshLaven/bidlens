@@ -567,7 +567,9 @@ def get_home_context(
     attention_items = _connector_attention(db, organization_id=organization_id)
 
     if salesforce_connected is None:
-        salesforce_connected = SalesforceService().has_stored_authorization
+        salesforce_connected = SalesforceService(
+            db=db, workspace_id=organization_id
+        ).has_stored_authorization
 
     last_import_at = (
         (last_successful_import.finished_at or last_successful_import.started_at)

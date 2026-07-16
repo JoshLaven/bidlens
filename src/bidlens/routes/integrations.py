@@ -15,7 +15,8 @@ from .. import config
 from ..auth import attach_request_user_context, get_current_user
 from ..database import get_db
 from ..grants_gov_client import DEFAULT_GRANTS_POSTED_DAYS_BACK
-from ..models import GrantsSourceConfig, IngestionRun, Opportunity, OrgProfile, SamSourceConfig
+from ..models import (GrantsSourceConfig, IngestionRun, Opportunity, OrgProfile,
+                      SamSourceConfig, SalesforceConnection)
 from ..services.govwin import GovWinAdapter
 from ..services.govwin_import import upsert_govwin_opportunity
 from ..services.opportunity_stages import is_excluded_govwin_stage
@@ -127,8 +128,8 @@ def _run_snapshot(
     }
 
 
-def _salesforce_operational_snapshot() -> dict[str, Any]:
-    service = SalesforceService()
+def _salesforce_operational_snapshot(db: Session, organization_id: int) -> dict[str, Any]:
+    service = SalesforceService(db=db, workspace_id=organization_id)
     snapshot = {
         "connected": False,
         "instance_url": service.connected_instance_url,
@@ -532,7 +533,7 @@ async def integrations_page(request: Request, db: Session = Depends(get_db)):
 
     organization_id = _user_org_id(user)
     profile = _org_profile(db, organization_id)
-    salesforce_snapshot = _salesforce_operational_snapshot()
+    salesforce_snapshot = _salesforce_operational_snapshot(db, organization_id)
     center = _configuration_center_context(
         db,
         organization_id=organization_id,
@@ -547,6 +548,75 @@ async def integrations_page(request: Request, db: Session = Depends(get_db)):
         "profile": profile,
         "center": center,
     })
+
+
+@router.get("/workspace-management/business-systems/salesforce")
+async def salesforce_configuration_page(request: Request, db: Session = Depends(get_db)):
+    user, redirect = _admin_or_redirect(request, db)
+    if redirect:
+        return redirect
+    organization_id = _user_org_id(user)
+    connection = db.query(SalesforceConnection).filter(
+        SalesforceConnection.workspace_id == organization_id
+    ).first()
+    status = connection.status if connection else "not_connected"
+    last_sync = db.query(func.max(Opportunity.salesforce_synced_at)).filter(
+        Opportunity.organization_id == organization_id,
+        Opportunity.salesforce_synced_at.is_not(None),
+    ).scalar()
+    return templates.TemplateResponse("salesforce_configuration.html", {
+        "request": request,
+        "user": user,
+        "active_page": "integrations",
+        "connection": connection,
+        "connection_status": status,
+        "last_sync": last_sync,
+        "connected_success": request.query_params.get("connected") == "1",
+        "tested": request.query_params.get("tested"),
+        "disconnected": request.query_params.get("disconnected") == "1",
+    })
+
+
+@router.post("/workspace-management/business-systems/salesforce/test")
+async def test_salesforce_connection(request: Request, db: Session = Depends(get_db)):
+    user, redirect = _admin_or_redirect(request, db)
+    if redirect:
+        return redirect
+    organization_id = _user_org_id(user)
+    service = SalesforceService(db=db, workspace_id=organization_id)
+    try:
+        service.test_connection()
+        db.commit()
+        result = "success"
+    except (SalesforceApiError, SalesforceConfigError, requests.RequestException):
+        db.commit()
+        result = "error"
+    return RedirectResponse(
+        url=f"/workspace-management/business-systems/salesforce?org_id={organization_id}&tested={result}",
+        status_code=303,
+    )
+
+
+@router.post("/workspace-management/business-systems/salesforce/disconnect")
+async def disconnect_salesforce(request: Request, db: Session = Depends(get_db)):
+    user, redirect = _admin_or_redirect(request, db)
+    if redirect:
+        return redirect
+    organization_id = _user_org_id(user)
+    connection = db.query(SalesforceConnection).filter(
+        SalesforceConnection.workspace_id == organization_id
+    ).first()
+    if connection:
+        connection.encrypted_access_token = None
+        connection.encrypted_refresh_token = None
+        connection.access_token_expires_at = None
+        connection.status = "not_connected"
+        connection.last_error = None
+        db.commit()
+    return RedirectResponse(
+        url=f"/workspace-management/business-systems/salesforce?org_id={organization_id}&disconnected=1",
+        status_code=303,
+    )
 
 
 @router.get("/integrations/govwin")

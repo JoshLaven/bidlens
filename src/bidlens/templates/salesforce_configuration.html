@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% set hide_context_sidebar = true %}
+{% block title %}Salesforce Configuration - BidLens{% endblock %}
+{% block content %}
+{% set org_id = request.query_params.get('org_id') %}
+{% set org_q = '?org_id=' ~ org_id if org_id else '' %}
+{% set oauth_q = '?org_id=' ~ org_id if org_id else '' %}
+
+<div class="admin-page-layout">
+  <div class="admin-page-content">
+    <div class="page-header admin-page-header configuration-center-header">
+      <div>
+        <span class="configuration-center-eyebrow">Workspace Management · Business Systems</span>
+        <h1>Salesforce</h1>
+        <p class="page-subtitle">Manage the Salesforce organization connected to this workspace.</p>
+      </div>
+      <a href="/integrations{{ org_q }}" class="btn btn-outline-secondary">Back to Business Systems</a>
+    </div>
+
+    {% if connected_success %}<div class="alert alert-success">Salesforce connected successfully.</div>{% endif %}
+    {% if tested == 'success' %}<div class="alert alert-success">Salesforce connection verified.</div>{% endif %}
+    {% if tested == 'error' %}<div class="alert alert-warning">Salesforce could not verify the connection. Review the status below.</div>{% endif %}
+    {% if disconnected %}<div class="alert alert-success">Salesforce disconnected from this workspace.</div>{% endif %}
+
+    <section class="configuration-center-section" aria-labelledby="salesforce-status-heading">
+      <div class="configuration-center-section-heading">
+        <div><span>Connection</span><h2 id="salesforce-status-heading">Connection Status</h2></div>
+      </div>
+      {% if connection_status == 'connected' %}
+        <div class="configuration-health-message configuration-health-message--healthy"><strong>Connected</strong><p>BidLens can securely send eligible opportunity activity to this Salesforce organization.</p></div>
+      {% elif connection_status == 'reauthorization_required' %}
+        <div class="configuration-health-message configuration-health-message--warning"><strong>Requires Reauthorization</strong><p>Salesforce access has expired or was revoked. Reauthorize to resume outbound updates.</p></div>
+      {% elif connection_status == 'connection_error' %}
+        <div class="configuration-health-message configuration-health-message--error"><strong>Connection Error</strong><p>BidLens could not validate the Salesforce connection. Test again or reauthorize.</p>{% if connection and connection.last_error %}<span>{{ connection.last_error }}</span>{% endif %}</div>
+      {% else %}
+        <div class="configuration-health-message configuration-health-message--neutral"><strong>Not Connected</strong><p>Connect Salesforce to create, link, and update eligible opportunities from BidLens.</p></div>
+      {% endif %}
+    </section>
+
+    {% if connection_status != 'not_connected' and connection %}
+    <section class="configuration-center-section" aria-labelledby="salesforce-org-heading">
+      <div class="configuration-center-section-heading"><div><span>Account</span><h2 id="salesforce-org-heading">Connected Organization</h2></div></div>
+      <dl class="configuration-data-list">
+        <div><dt>Salesforce Organization ID</dt><dd>{{ connection.salesforce_org_id or 'Not provided by Salesforce' }}</dd></div>
+        <div><dt>Connected User</dt><dd>{{ connection.connected_username or connection.connected_user_id or 'Not provided by Salesforce' }}</dd></div>
+        <div><dt>Instance URL</dt><dd>{% if connection.instance_url %}<a href="{{ connection.instance_url }}" target="_blank" rel="noreferrer">{{ connection.instance_url }}</a>{% else %}Not available{% endif %}</dd></div>
+        <div><dt>Connected Date</dt><dd>{{ connection.connected_at.strftime('%b %-d, %Y at %-I:%M %p UTC') if connection.connected_at else 'Not available' }}</dd></div>
+        <div><dt>Last Successful Connection</dt><dd>{{ connection.last_connection_success_at.strftime('%b %-d, %Y at %-I:%M %p UTC') if connection.last_connection_success_at else 'Not yet tested' }}</dd></div>
+        <div><dt>Last Successful Sync</dt><dd>{{ last_sync.strftime('%b %-d, %Y at %-I:%M %p UTC') if last_sync else 'No successful sync recorded' }}</dd></div>
+      </dl>
+    </section>
+    {% endif %}
+
+    <section class="configuration-center-section" aria-labelledby="salesforce-actions-heading">
+      <div class="configuration-center-section-heading"><div><span>Management</span><h2 id="salesforce-actions-heading">Actions</h2></div></div>
+      <div class="configuration-connector-actions"><div>
+        {% if connection_status == 'not_connected' %}
+          <a href="/api/salesforce/oauth/start{{ oauth_q }}" class="btn btn-primary">Connect Salesforce</a>
+        {% elif connection_status == 'connected' %}
+          <form method="post" action="/workspace-management/business-systems/salesforce/test{{ org_q }}"><button class="btn btn-primary" type="submit">Test Connection</button></form>
+          <a href="/api/salesforce/oauth/start{{ oauth_q }}" class="btn btn-outline-secondary">Reconnect / Reauthorize</a>
+          {% if connection.instance_url %}<a href="{{ connection.instance_url }}" target="_blank" rel="noreferrer" class="btn btn-outline-secondary">Open Salesforce</a>{% endif %}
+          <form method="post" action="/workspace-management/business-systems/salesforce/disconnect{{ org_q }}" onsubmit="return confirm('Disconnect Salesforce from this workspace? Existing Salesforce records and local history will be preserved.');"><button class="btn btn-outline-danger" type="submit">Disconnect</button></form>
+        {% elif connection_status == 'reauthorization_required' %}
+          <a href="/api/salesforce/oauth/start{{ oauth_q }}" class="btn btn-primary">Reauthorize</a>
+          <form method="post" action="/workspace-management/business-systems/salesforce/disconnect{{ org_q }}" onsubmit="return confirm('Disconnect Salesforce from this workspace? Existing Salesforce records and local history will be preserved.');"><button class="btn btn-outline-danger" type="submit">Disconnect</button></form>
+        {% else %}
+          <form method="post" action="/workspace-management/business-systems/salesforce/test{{ org_q }}"><button class="btn btn-primary" type="submit">Test Again</button></form>
+          <a href="/api/salesforce/oauth/start{{ oauth_q }}" class="btn btn-outline-secondary">Reauthorize</a>
+          <form method="post" action="/workspace-management/business-systems/salesforce/disconnect{{ org_q }}" onsubmit="return confirm('Disconnect Salesforce from this workspace? Existing Salesforce records and local history will be preserved.');"><button class="btn btn-outline-danger" type="submit">Disconnect</button></form>
+        {% endif %}
+      </div></div>
+    </section>
+
+    <section class="configuration-center-section" aria-labelledby="salesforce-sync-heading">
+      <div class="configuration-center-section-heading"><div><span>Current behavior</span><h2 id="salesforce-sync-heading">Basic Sync Behavior</h2></div></div>
+      <ul>
+        <li>Interested and qualified opportunities may be created in or linked to Salesforce.</li>
+        <li>Existing records are matched using the configured external-source identifier.</li>
+        <li>Source updates for linked opportunities may be pushed outbound to Salesforce.</li>
+        <li>BidLens does not currently perform general bidirectional synchronization.</li>
+      </ul>
+    </section>
+
+    <section class="configuration-center-section" aria-labelledby="salesforce-future-heading">
+      <div class="configuration-center-section-heading"><div><span>Roadmap</span><h2 id="salesforce-future-heading">Future Configuration</h2></div><p>Coming in a future release.</p></div>
+      <dl class="configuration-data-list">
+        {% for item in ['Field Mapping', 'Default Opportunity Owner', 'Default Record Type', 'Sync Direction', 'Automatic Push Rules'] %}
+          <div><dt>{{ item }}</dt><dd><span class="text-muted">Coming in a future release</span></dd></div>
+        {% endfor %}
+      </dl>
+    </section>
+  </div>
+</div>
+{% endblock %}

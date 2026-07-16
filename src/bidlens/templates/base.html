@@ -59,7 +59,7 @@
       {% set workspace_management_child = 'members' %}
     {% elif request_path.startswith('/opportunity-discovery') or request_path.startswith('/imports/govwin') or request_path.startswith('/admin/sources/') or request_path.startswith('/connect-sources') %}
       {% set workspace_management_child = 'discovery' %}
-    {% elif request_path.startswith('/integrations') or request_path.startswith('/outbound-integrations') or request_path.startswith('/settings/salesforce') %}
+    {% elif request_path.startswith('/integrations') or request_path.startswith('/outbound-integrations') or request_path.startswith('/settings/salesforce') or request_path.startswith('/workspace-management/business-systems') %}
       {% set workspace_management_child = 'business_systems' %}
     {% elif request_path.startswith('/pursuit-lanes') %}
       {% set workspace_management_child = 'pursuit_lanes' %}

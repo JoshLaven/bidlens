@@ -506,6 +506,45 @@ class OrgProfile(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class SalesforceConnection(Base):
+    __tablename__ = "salesforce_connections"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", name="uq_salesforce_connection_workspace"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    workspace_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    instance_url = Column(String, nullable=True)
+    salesforce_org_id = Column(String, nullable=True)
+    connected_user_id = Column(String, nullable=True)
+    connected_username = Column(String, nullable=True)
+    encrypted_refresh_token = Column(Text, nullable=True)
+    encrypted_access_token = Column(Text, nullable=True)
+    access_token_expires_at = Column(DateTime(timezone=True), nullable=True)
+    status = Column(String, nullable=False, default="not_connected", server_default="not_connected")
+    connected_at = Column(DateTime(timezone=True), nullable=True)
+    last_connection_success_at = Column(DateTime(timezone=True), nullable=True)
+    last_sync_success_at = Column(DateTime(timezone=True), nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class SalesforceOAuthState(Base):
+    __tablename__ = "salesforce_oauth_states"
+    __table_args__ = (UniqueConstraint("state_digest", name="uq_salesforce_oauth_state_digest"),)
+
+    id = Column(Integer, primary_key=True)
+    state_digest = Column(String, nullable=False, index=True)
+    encrypted_code_verifier = Column(Text, nullable=True)
+    workspace_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    return_path = Column(String, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class SamSourceConfig(Base):
     __tablename__ = "sam_source_configs"
     __table_args__ = (

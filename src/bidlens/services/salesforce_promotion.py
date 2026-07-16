@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ..models import Opportunity
+from ..models import Opportunity, SalesforceConnection
 from ..sam_client import _is_url_like
 from . import push_opportunity_to_crm
 from .opportunity_history import (
@@ -155,6 +155,11 @@ def _record_salesforce_opportunity_reference(
     opp.salesforce_opportunity_url = salesforce_opp_url
     opp.salesforce_synced_at = datetime.utcnow()
     opp.salesforce_action = action
+    connection = db.query(SalesforceConnection).filter(
+        SalesforceConnection.workspace_id == opp.organization_id
+    ).first()
+    if connection:
+        connection.last_sync_success_at = opp.salesforce_synced_at
     db.commit()
 
 
@@ -213,7 +218,7 @@ def ensure_opportunity_in_salesforce(
         organization_id=organization_id,
     )
 
-    service = service or SalesforceService()
+    service = service or SalesforceService(db=db, workspace_id=organization_id)
     if not service.is_authorized():
         raise SalesforceConfigError("Salesforce is not connected.")
 

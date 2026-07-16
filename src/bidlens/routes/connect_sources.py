@@ -114,7 +114,7 @@ async def outbound_integrations_page(request: Request, db: Session = Depends(get
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    salesforce = SalesforceService()
+    salesforce = SalesforceService(db=db, workspace_id=_user_org_id(user))
     return templates.TemplateResponse("outbound_integrations.html", {
         "request": request,
         "user": user,

@@ -23,7 +23,9 @@ from ..services.salesforce_promotion import (
     record_salesforce_sync_failure,
 )
 from ..services.platform import post_setup_completion_url
-from ..models import CompanyProfile, Opportunity, OpportunityBrief, Organization, OrganizationMembership
+from ..models import (CompanyProfile, Opportunity, OpportunityBrief, Organization,
+                      OrganizationMembership, SalesforceOAuthState)
+from ..services.integration_credentials import decrypt_credentials, encrypt_credentials
 from ..tenancy import current_org_id
 from sqlalchemy import and_, or_
 from datetime import date, datetime, timedelta
@@ -33,12 +35,12 @@ import os
 import re
 import requests
 import secrets
+import hashlib
 from .. import config
 from ..services import get_vote_counts, get_vote_user_maps
 from ..sam_client import _is_url_like
 router = APIRouter(prefix="/api", tags=["api"])
 logger = logging.getLogger(__name__)
-_SALESFORCE_OAUTH_PKCE: dict[str, str] = {}
 N8N_PROVIDER = "n8n"
 N8N_MODEL = "n8n-webhook"
 BRIEF_SECTION_KEYS = [
@@ -752,7 +754,7 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
                     user_id=user.id,
                     opportunity=opp,
                     ui_version=payload.ui_version,
-                    service=SalesforceService(),
+                    service=SalesforceService(db=db, workspace_id=_user_org_id(user)),
                 ).as_response_payload()
             except Exception as exc:
                 db.rollback()
@@ -877,11 +879,25 @@ def api_push_crm(payload: CrmPushIn, request: Request, db: Session = Depends(get
 
 @router.get("/salesforce/oauth/start")
 def salesforce_oauth_start(request: Request, db: Session = Depends(get_db)):
-    require_user(request, db)
+    user = require_admin(request, db)
+    workspace_id = _user_org_id(user)
     state = secrets.token_urlsafe(24)
     code_verifier, code_challenge = generate_pkce_pair()
-    _SALESFORCE_OAUTH_PKCE[state] = code_verifier
-    service = SalesforceService()
+    state_record = SalesforceOAuthState(
+        state_digest=hashlib.sha256(state.encode("utf-8")).hexdigest(),
+        encrypted_code_verifier=encrypt_credentials({"verifier": code_verifier}),
+        workspace_id=workspace_id,
+        user_id=user.id,
+        return_path=(
+            f"/organization-setup?org_id={workspace_id}"
+            if not getattr(user, "current_organization_is_live", False)
+            else f"/workspace-management/business-systems/salesforce?org_id={workspace_id}&connected=1"
+        ),
+        expires_at=datetime.utcnow() + timedelta(minutes=10),
+    )
+    db.add(state_record)
+    db.commit()
+    service = SalesforceService(db=db, workspace_id=workspace_id)
     try:
         authorization_url = service.build_authorization_url(
             _salesforce_redirect_uri(request),
@@ -902,41 +918,51 @@ def salesforce_oauth_callback(
     db: Session = Depends(get_db),
 ):
     if error:
-        raise HTTPException(status_code=400, detail=f"Salesforce OAuth failed: {error}")
-    if not code or not state or state not in _SALESFORCE_OAUTH_PKCE:
+        raise HTTPException(status_code=400, detail="Salesforce authorization was not completed.")
+    user = get_current_user(request, db)
+    if not user or not code or not state:
         raise HTTPException(status_code=400, detail="Invalid Salesforce OAuth callback")
-
-    code_verifier = _SALESFORCE_OAUTH_PKCE.pop(state)
-    service = SalesforceService()
+    state_record = db.query(SalesforceOAuthState).filter(
+        SalesforceOAuthState.state_digest == hashlib.sha256(state.encode("utf-8")).hexdigest()
+    ).with_for_update().first()
+    now = datetime.utcnow()
+    if (
+        state_record is None
+        or state_record.consumed_at is not None
+        or state_record.expires_at < now
+        or state_record.user_id != user.id
+    ):
+        raise HTTPException(status_code=400, detail="Invalid or expired Salesforce OAuth callback")
+    membership = db.query(OrganizationMembership).filter(
+        OrganizationMembership.organization_id == state_record.workspace_id,
+        OrganizationMembership.user_id == user.id,
+        OrganizationMembership.role == "admin",
+    ).first()
+    if membership is None:
+        raise HTTPException(status_code=403, detail="Workspace administrator access required")
+    code_verifier = decrypt_credentials(state_record.encrypted_code_verifier).get("verifier")
+    if not code_verifier:
+        raise HTTPException(status_code=400, detail="Invalid Salesforce OAuth callback")
+    state_record.consumed_at = now
+    state_record.encrypted_code_verifier = None
+    db.commit()  # Consume before the external exchange so the state cannot be replayed.
+    service = SalesforceService(db=db, workspace_id=state_record.workspace_id)
     try:
-        service.exchange_authorization_code(code, _salesforce_redirect_uri(request), code_verifier)
+        token_response = service.exchange_authorization_code(code, _salesforce_redirect_uri(request), code_verifier)
+        service.capture_identity_metadata(token_response)
+        db.commit()
     except SalesforceConfigError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     except SalesforceApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
-    user = get_current_user(request, db)
-    if user:
-        attach_request_user_context(request, db, user)
-        setup_destination = post_setup_completion_url(
-            db,
-            user,
-            organization_id=getattr(user, "current_organization_id", None),
-            live_url="/integrations#salesforce",
-        )
-        if setup_destination.startswith("/organization-setup"):
-            return RedirectResponse(url=setup_destination, status_code=303)
-
-    return HTMLResponse(
-        "<h1>Salesforce connected</h1>"
-        "<p>BidLens can now query and update matching Salesforce Opportunities for this local POC.</p>"
-    )
+    return RedirectResponse(url=state_record.return_path, status_code=303)
 
 
 @router.get("/salesforce/opportunity-create-requirements")
 def salesforce_opportunity_create_requirements(request: Request, db: Session = Depends(get_db)):
-    require_user(request, db)
-    service = SalesforceService()
+    user = require_admin(request, db)
+    service = SalesforceService(db=db, workspace_id=_user_org_id(user))
     try:
         if not service.is_authorized():
             return {
@@ -1093,7 +1119,7 @@ def api_push_opp_to_salesforce(opp_id: int, request: Request, db: Session = Depe
             user_id=user.id,
             opportunity=opp,
             ui_version="v1",
-            service=SalesforceService(),
+            service=SalesforceService(db=db, workspace_id=org_id),
         )
         workflow_payload = _crm_workflow_response_payload(db, user, opp.id)
         logger.info(
@@ -1175,7 +1201,7 @@ def api_create_opp_in_salesforce(opp_id: int, request: Request, db: Session = De
             user_id=user.id,
             opportunity=opp,
             ui_version="v1",
-            service=SalesforceService(),
+            service=SalesforceService(db=db, workspace_id=org_id),
         )
         workflow_payload = _crm_workflow_response_payload(db, user, opp.id)
         logger.info(
