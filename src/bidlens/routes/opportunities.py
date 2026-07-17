@@ -1582,6 +1582,9 @@ async def archive(
     sort: str = "imported",
     direction: str = "desc",
     q: str = "",
+    stages: str | None = None,
+    sources: str | None = None,
+    stage: str | None = None,
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -1593,8 +1596,21 @@ async def archive(
 
     selected_sort = _normalize_feed_sort(sort)
     selected_direction = _normalize_sort_direction(direction)
+    selected_stages = _normalize_stage_filters(
+        stages
+        if stages is not None
+        else ([stage] if stage and stage != "All" else None)
+    )
+    selected_sources = (
+        _normalize_triage_source_filters(sources)
+        if _is_admin(user)
+        else TRIAGE_SOURCE_FILTERS
+    )
     query = _user_archive_query(db, user, tab)
     query = _apply_feed_search(query, search_term=q)
+    query = _apply_stage_filter(query, selected_stages)
+    if _is_admin(user):
+        query = _apply_triage_source_filter(query, selected_sources)
     query = _apply_feed_ordering(
         query,
         sort=selected_sort,
@@ -1612,6 +1628,11 @@ async def archive(
         "sort": selected_sort,
         "direction": selected_direction,
         "q": q,
+        "selected_stages": selected_stages,
+        "stages_value": ",".join(selected_stages),
+        "source_options": TRIAGE_SOURCE_OPTIONS if _is_admin(user) else None,
+        "selected_sources": selected_sources if _is_admin(user) else (),
+        "sources_value": ",".join(selected_sources) if _is_admin(user) else "",
         "result_count": result_count,
         "now": datetime.utcnow(),
     })

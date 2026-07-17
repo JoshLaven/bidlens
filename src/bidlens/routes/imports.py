@@ -66,12 +66,17 @@ def _current_user_role(db: Session, user) -> str:
     return membership.role if membership else "member"
 
 
-def require_admin(request: Request, db: Session):
+def require_admin(
+    request: Request,
+    db: Session,
+    *,
+    forbidden_detail: str = "Only Workspace Admins can access this page.",
+):
     user = require_user(request, db)
     if not user:
         return None
     if getattr(user, "current_role", "member") != "admin":
-        raise HTTPException(status_code=403, detail="Only organization admins can view Source Activity.")
+        raise HTTPException(status_code=403, detail=forbidden_detail)
     return user
 
 
@@ -844,7 +849,11 @@ async def source_update_detail_page(
 
 @router.get("/admin/market-activity")
 async def market_activity_page(request: Request, db: Session = Depends(get_db)):
-    user = require_admin(request, db)
+    user = require_admin(
+        request,
+        db,
+        forbidden_detail="Only Workspace Admins can view Analytics.",
+    )
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 

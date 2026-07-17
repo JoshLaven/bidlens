@@ -1,17 +1,13 @@
 {% extends "base.html" %}
+{% from "_workspace_management_hero.html" import workspace_management_hero %}
 {% set hide_context_sidebar = true %}
-{% block title %}Market Activity - BidLens{% endblock %}
+{% block title %}Insights - BidLens{% endblock %}
 {% block content %}
-<div class="admin-page-layout">
+<div class="admin-page-layout workspace-management-page">
   <div class="admin-page-content">
-    <div class="page-header admin-page-header">
-      <div>
-        <h1>Market Activity</h1>
-        <p class="page-subtitle">Source-side opportunity volume and workflow conversion—not revenue forecasting.</p>
-      </div>
-    </div>
+    {{ workspace_management_hero('Insights', 'Explore market activity and the organizational intelligence BidLens has captured.') }}
 
-    <nav class="market-view-tabs" aria-label="Market Activity views">
+    <nav class="market-view-tabs" aria-label="Insights views">
       <a href="/admin/market-activity?{{ filter_query }}&view=overview" class="{{ 'active' if view == 'overview' else '' }}" aria-current="{{ 'page' if view == 'overview' else 'false' }}">Overview</a>
       <a href="/admin/market-activity?{{ filter_query }}&view=trends" class="{{ 'active' if view == 'trends' else '' }}" aria-current="{{ 'page' if view == 'trends' else 'false' }}">Trends</a>
     </nav>
@@ -183,7 +179,7 @@
     {% else %}
       <div class="empty-state market-activity-empty">
         <h2>No opportunities match these filters</h2>
-        <p>Adjust the date range or clear one of the market activity filters.</p>
+        <p>Adjust the date range or clear one of the analytics filters.</p>
       </div>
     {% endif %}
 

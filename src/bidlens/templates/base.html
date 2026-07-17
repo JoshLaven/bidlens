@@ -7,6 +7,9 @@
     <link rel="stylesheet" href="/static/css/styles.css">
     <script>
       try {
+        if (sessionStorage.getItem('bidlens.primaryNavigationCollapsed') === 'true') {
+          document.documentElement.classList.add('primary-navigation-is-collapsed');
+        }
         if (sessionStorage.getItem('bidlens.workSidebarCollapsed') === 'true') {
           document.documentElement.classList.add('work-sidebar-is-collapsed');
         }
@@ -51,29 +54,36 @@
       or request_path.startswith('/admin/organizations/')
       or request_path.startswith('/admin/sources/')
       or request_path.startswith('/admin/source-updates')
-      or request_path.startswith('/admin/market-activity') %}
+      or request_path.startswith('/admin/market-activity')
+      or request_path.startswith('/imports/history')
+      or request_path.startswith('/pursuit-lanes') %}
     {% set workspace_management_child = none %}
     {% if request_path.startswith('/company-profile') %}
       {% set workspace_management_child = 'organization' %}
     {% elif request_path.startswith('/admin/organizations/') %}
       {% set workspace_management_child = 'members' %}
-    {% elif request_path.startswith('/opportunity-discovery') or request_path.startswith('/imports/govwin') or request_path.startswith('/admin/sources/') or request_path.startswith('/connect-sources') %}
+    {% elif request_path.startswith('/imports/history') %}
+      {% set workspace_management_child = 'history' %}
+    {% elif request_path.startswith('/opportunity-discovery') or request_path.startswith('/imports/govwin') or request_path.startswith('/admin/sources/') or request_path.startswith('/connect-sources') or request_path.startswith('/admin/source-updates') %}
       {% set workspace_management_child = 'discovery' %}
     {% elif request_path.startswith('/integrations') or request_path.startswith('/outbound-integrations') or request_path.startswith('/settings/salesforce') or request_path.startswith('/workspace-management/business-systems') %}
       {% set workspace_management_child = 'business_systems' %}
-    {% elif request_path.startswith('/pursuit-lanes') %}
-      {% set workspace_management_child = 'pursuit_lanes' %}
-    {% elif request_path.startswith('/settings') %}
+    {% elif request_path.startswith('/settings') or request_path.startswith('/pursuit-lanes') %}
       {% set workspace_management_child = 'feed_rules' %}
-    {% elif request_path.startswith('/imports/history') or request_path.startswith('/admin/source-updates') or request_path.startswith('/admin/market-activity') %}
-      {% set workspace_management_child = 'history' %}
+    {% elif request_path.startswith('/admin/market-activity') %}
+      {% set workspace_management_child = 'analytics' %}
     {% endif %}
     <div class="app-shell{% if not user %} app-shell--public{% endif %}{% if onboarding_shell %} app-shell--onboarding{% endif %}">
       {% if user %}
-        <aside class="primary-sidebar{% if onboarding_shell %} primary-sidebar--onboarding{% endif %}" aria-label="{{ 'Organization setup' if onboarding_shell else 'Primary' }}">
+        <aside class="primary-sidebar{% if onboarding_shell %} primary-sidebar--onboarding{% endif %}" aria-label="{{ 'Organization setup' if onboarding_shell else 'Primary' }}" data-primary-sidebar>
           <div class="primary-sidebar-brand">
-            <a href="{{ '/organization-setup' ~ nav_org_q if onboarding_shell else '/platform' if platform_mode else ('/home' ~ nav_org_q if is_workspace_admin else '/' ~ nav_org_q) }}" class="logo">BidLens</a>
-            <span>{{ 'Platform' if platform_mode else 'Opportunity Intelligence' }}</span>
+            <div class="primary-sidebar-brand-copy">
+              <a href="{{ '/organization-setup' ~ nav_org_q if onboarding_shell else '/platform' if platform_mode else ('/home' ~ nav_org_q if is_workspace_admin else '/' ~ nav_org_q) }}" class="logo" title="BidLens">BidLens</a>
+              <span>{{ 'Platform' if platform_mode else 'Opportunity Intelligence' }}</span>
+            </div>
+            {% if not onboarding_shell %}
+              <button type="button" class="primary-sidebar-collapse" data-primary-sidebar-toggle aria-label="Collapse navigation" aria-expanded="true" title="Collapse navigation"><span aria-hidden="true">‹</span></button>
+            {% endif %}
           </div>
 
           {% if onboarding_shell %}
@@ -122,13 +132,15 @@
                     <small class="primary-sidebar-caret" aria-hidden="true">⌄</small>
                   </summary>
                   <div class="primary-sidebar-subnav" aria-label="Workspace Management">
-                    <a href="/company-profile{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'organization' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'organization' else 'false' }}">Organization</a>
-                    <a href="/admin/organizations/{{ workspace_nav_org_id }}/users{{ workspace_nav_org_q }}" class="{{ 'active' if workspace_management_child == 'members' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'members' else 'false' }}">Members</a>
-                    <a href="/opportunity-discovery{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'discovery' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'discovery' else 'false' }}">Opportunity Discovery</a>
-                    <a href="/integrations{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'business_systems' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'business_systems' else 'false' }}">Business Systems</a>
-                    <a href="/pursuit-lanes{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'pursuit_lanes' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'pursuit_lanes' else 'false' }}">Pursuit Lanes</a>
-                    <a href="/settings{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'feed_rules' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'feed_rules' else 'false' }}">Feed Rules</a>
-                    <a href="/imports/history{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'history' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'history' else 'false' }}">History</a>
+                    <a href="/company-profile{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'organization' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'organization' else 'false' }}" title="Overview" data-rail-label="Ov"><strong>Overview</strong></a>
+                    <a href="/admin/organizations/{{ workspace_nav_org_id }}/users{{ workspace_nav_org_q }}" class="{{ 'active' if workspace_management_child == 'members' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'members' else 'false' }}" title="Users" data-rail-label="Us"><strong>Users</strong></a>
+                    <span class="primary-sidebar-subnav-divider" aria-hidden="true"></span>
+                    <a href="/opportunity-discovery{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'discovery' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'discovery' else 'false' }}" title="Opportunity Sources" data-rail-label="OS"><strong>Opportunity Sources</strong></a>
+                    <a href="/settings{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'feed_rules' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'feed_rules' else 'false' }}" title="Feed Settings" data-rail-label="FS"><strong>Feed Settings</strong></a>
+                    <a href="/imports/history{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'history' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'history' else 'false' }}" title="Import History" data-rail-label="IH"><strong>Import History</strong></a>
+                    <span class="primary-sidebar-subnav-divider" aria-hidden="true"></span>
+                    <a href="/integrations{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'business_systems' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'business_systems' else 'false' }}" title="Integrations" data-rail-label="In"><strong>Integrations</strong></a>
+                    <a href="/admin/market-activity{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'analytics' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'analytics' else 'false' }}" title="Insights" data-rail-label="Is"><strong>Insights</strong></a>
                   </div>
                 </details>
               {% endif %}
@@ -224,6 +236,48 @@
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
     <script>
+    (function initializePrimaryNavigation() {
+      const sidebar = document.querySelector('[data-primary-sidebar]');
+      const toggle = document.querySelector('[data-primary-sidebar-toggle]');
+      if (!sidebar || !toggle) return;
+
+      const management = sidebar.querySelector('.primary-sidebar-management');
+      const storageKey = 'bidlens.primaryNavigationCollapsed';
+      let expandedManagementState = management ? management.open : false;
+
+      function applyState(collapsed) {
+        document.documentElement.classList.toggle('primary-navigation-is-collapsed', collapsed);
+        toggle.setAttribute('aria-expanded', String(!collapsed));
+        toggle.setAttribute('aria-label', collapsed ? 'Expand navigation' : 'Collapse navigation');
+        toggle.title = collapsed ? 'Expand navigation' : 'Collapse navigation';
+        toggle.querySelector('span').textContent = collapsed ? '›' : '‹';
+        if (management) {
+          if (collapsed) {
+            expandedManagementState = management.open;
+            management.open = true;
+          } else {
+            management.open = expandedManagementState;
+          }
+        }
+      }
+
+      applyState(document.documentElement.classList.contains('primary-navigation-is-collapsed'));
+      toggle.addEventListener('click', () => {
+        const collapsed = !document.documentElement.classList.contains('primary-navigation-is-collapsed');
+        applyState(collapsed);
+        try { sessionStorage.setItem(storageKey, String(collapsed)); } catch (_error) {}
+      });
+      if (management) {
+        const managementSummary = management.querySelector('summary');
+        managementSummary.addEventListener('click', (event) => {
+          if (!document.documentElement.classList.contains('primary-navigation-is-collapsed')) return;
+          event.preventDefault();
+          applyState(false);
+          try { sessionStorage.setItem(storageKey, 'false'); } catch (_error) {}
+        });
+      }
+    })();
+
     (function initializeWorkSidebar() {
       const sidebar = document.querySelector('[data-work-sidebar]');
       const toggle = document.querySelector('[data-work-sidebar-toggle]');
@@ -527,6 +581,12 @@
         : 'Interested';
     }
 
+    function setPassButtonState(button, selected) {
+      if (!button) return;
+      button.className = `btn btn-sm opp-card-button opp-card-button--secondary ${selected ? 'btn-warning' : 'btn-outline-secondary'}`;
+      button.innerHTML = selected ? '&#10003; Archived' : 'Archive';
+    }
+
     function updateOpportunityCard(oppId, vote, data) {
       document
         .querySelectorAll(`[data-vote-button="PURSUE"][data-action-opp-id="${oppId}"]`)
@@ -548,8 +608,7 @@
       const passButton = card.querySelector('[data-vote-button="PASS"]');
       const passHelper = card.querySelector('[data-pass-helper]');
       if (passButton) {
-        passButton.className = `btn btn-sm opp-card-button opp-card-button--secondary ${vote === 'PASS' ? 'btn-warning' : 'btn-outline-secondary'}`;
-        passButton.innerHTML = vote === 'PASS' ? '&#10003; Archived' : 'Archive';
+        setPassButtonState(passButton, vote === 'PASS');
       }
       if (passHelper) {
         passHelper.hidden = vote === 'PASS';
@@ -818,6 +877,81 @@
       };
     }
 
+    function beginOptimisticArchive(card, button, shouldRemove) {
+      const original = {
+        buttonClassName: button.className,
+        buttonHtml: button.innerHTML,
+        buttonDisabled: button.disabled,
+        cardHadPursue: card?.classList.contains('opp-card--pursue') || false,
+        cardHadPass: card?.classList.contains('opp-card--pass') || false,
+      };
+      let exitTimer = null;
+      let settled = false;
+      let resolveCompletion;
+      const completion = new Promise((resolve) => {
+        resolveCompletion = resolve;
+      });
+
+      card.dataset.votePending = 'true';
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      setPassButtonState(button, true);
+      card.classList.remove('opp-card--pursue', 'opp-card--exit-away');
+      card.classList.add('opp-card--pass');
+
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolveCompletion();
+      };
+
+      if (shouldRemove) {
+        requestAnimationFrame(() => {
+          if (settled) return;
+          card.classList.add('opp-card--exit-away');
+          exitTimer = window.setTimeout(() => {
+            if (settled) return;
+            card.hidden = true;
+            finish();
+          }, 260);
+        });
+      } else {
+        finish();
+      }
+
+      return {
+        completion,
+        cancel() {
+          window.clearTimeout(exitTimer);
+          const wasHidden = card.hidden;
+          card.hidden = false;
+          if (wasHidden) {
+            card.getBoundingClientRect();
+          }
+          card.classList.remove('opp-card--exit-away');
+          card.classList.toggle('opp-card--pursue', original.cardHadPursue);
+          card.classList.toggle('opp-card--pass', original.cardHadPass);
+          button.className = original.buttonClassName;
+          button.innerHTML = original.buttonHtml;
+          button.disabled = original.buttonDisabled;
+          button.removeAttribute('aria-busy');
+          delete card.dataset.votePending;
+          finish();
+        },
+        async commit() {
+          await completion;
+          button.disabled = original.buttonDisabled;
+          button.removeAttribute('aria-busy');
+          delete card.dataset.votePending;
+          if (shouldRemove && card.isConnected) {
+            card.remove();
+            decrementQueueResultCount();
+            updateOpportunityEmptyState();
+          }
+        },
+      };
+    }
+
     function actionErrorMessage(data, fallback = 'Action failed') {
       if (data?.salesforce_error) return data.salesforce_error;
       if (typeof data?.detail === 'string') return data.detail;
@@ -829,6 +963,7 @@
 
     async function voteOpp(oppId, vote) {
       let optimisticPursue = null;
+      let optimisticArchive = null;
       let optimisticShortlist = null;
       let actionButton = null;
       let card = null;
@@ -849,6 +984,19 @@
         );
         const optimisticShouldRemove = isNewPursue
           && shouldRemoveOpportunityCard(oppId, 'PURSUE', { in_my_shortlist: true });
+        const passWouldRemove = Boolean(
+          vote === 'PASS'
+          && card
+          && shouldRemoveOpportunityCard(oppId, 'PASS', { in_my_shortlist: false })
+        );
+        const isNewPass = Boolean(
+          vote === 'PASS'
+          && card
+          && actionButton
+          && passWouldRemove
+          && !actionButton.classList.contains('btn-warning')
+        );
+        const optimisticArchiveShouldRemove = isNewPass && passWouldRemove;
 
         if (isNewPursue) {
           optimisticPursue = beginOptimisticPursue(
@@ -857,6 +1005,12 @@
             optimisticShouldRemove
           );
           optimisticShortlist = beginOptimisticShortlist(card, isSalesforceAwareAction);
+        } else if (isNewPass) {
+          optimisticArchive = beginOptimisticArchive(
+            card,
+            actionButton,
+            optimisticArchiveShouldRemove
+          );
         } else if (actionButton) {
           actionButton.disabled = true;
           actionButton.setAttribute('aria-busy', 'true');
@@ -904,12 +1058,21 @@
           && effectiveVote === 'PURSUE'
           && shouldRemove === optimisticShouldRemove
         );
+        const optimisticArchiveSucceeded = Boolean(
+          optimisticArchive
+          && effectiveVote === 'PASS'
+          && shouldRemove === optimisticArchiveShouldRemove
+        );
 
         if (optimisticRemovalSucceeded) {
           updateOpportunityCard(oppId, effectiveVote, data);
           await optimisticPursue.commit();
+        } else if (optimisticArchiveSucceeded) {
+          updateOpportunityCard(oppId, effectiveVote, data);
+          await optimisticArchive.commit();
         } else {
           optimisticPursue?.cancel();
+          optimisticArchive?.cancel();
           updateOpportunityCard(oppId, effectiveVote, data);
           if (actionButton) {
             actionButton.disabled = false;
@@ -949,6 +1112,7 @@
         }
       } catch (error) {
         optimisticPursue?.cancel();
+        optimisticArchive?.cancel();
         optimisticShortlist?.cancel();
         if (actionButton) {
           actionButton.disabled = false;

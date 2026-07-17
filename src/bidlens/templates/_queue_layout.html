@@ -1,13 +1,21 @@
-{% macro queue_heading(title, description, export_url=none) %}
-  <div class="queue-page-heading">
-    <div class="page-header">
+{% macro queue_heading(title, description) %}
+  <header class="bidlens-page-header bidlens-page-header--operational queue-page-heading" data-page-header-variant="operational">
+    <div class="bidlens-page-header-copy">
       <h1>{{ title }}</h1>
-      <p class="page-subtitle">{{ description }}</p>
+      <p>{{ description }}</p>
     </div>
-    {% if export_url %}
-      <a href="{{ export_url }}" class="btn btn-outline-secondary queue-export-button">Export CSV</a>
-    {% endif %}
-  </div>
+  </header>
+{% endmacro %}
+
+{% macro queue_export_action(export_url) %}
+  <a
+    href="{{ export_url }}"
+    class="queue-export-icon-action"
+    aria-label="Export CSV"
+    title="Export CSV"
+  >
+    <span aria-hidden="true">⇩</span>
+  </a>
 {% endmacro %}
 
 {% macro queue_search(route, input_id, q, sort, direction, current_tab=none, org_id=none, lane_id=none, stages_value=none, sources_value=none) %}
@@ -125,8 +133,8 @@
   </script>
 {% endmacro %}
 
-{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none, my_lanes=none, show_filters=true, feed_sort_options=false) %}
-  {% set show_filter_controls = show_filters and (selected_stages is not none or active_lanes or my_lanes) %}
+{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none, my_lanes=none, show_filters=true, feed_sort_options=false, source_options=none, selected_sources=none) %}
+  {% set show_filter_controls = show_filters and (selected_stages is not none or active_lanes or my_lanes or source_options) %}
   <div class="queue-toolbar{% if not show_filter_controls %} queue-toolbar--sort-only{% endif %}" aria-label="Queue organization controls">
     <div class="queue-toolbar-column queue-toolbar-column--sort">
       <span class="queue-toolbar-heading">Sort By</span>
@@ -171,6 +179,9 @@
     {% if show_filter_controls %}
       <div class="queue-toolbar-column queue-toolbar-column--filters">
         <span class="queue-toolbar-heading">Filters</span>
+        {% if source_options %}
+          {{ source_filter_chips(route, source_options, selected_sources or [], sources_value, stages_value, sort, direction, q, org_id, lane_id) }}
+        {% endif %}
         {% if selected_stages is not none %}
           {{ stage_filter_chips(route, selected_stages, stages_value, sort, direction, q, org_id, lane_id, sources_value) }}
         {% endif %}

@@ -53,7 +53,7 @@ def _can_manage_lanes(db: Session, user: User) -> bool:
 
 def _redirect(request: Request, db: Session | None = None, user: User | None = None) -> RedirectResponse:
     suffix = f"?{request.url.query}" if request.url.query else ""
-    live_url = f"/pursuit-lanes{suffix}"
+    live_url = f"/settings{suffix}"
     if db is not None and user is not None:
         live_url = post_setup_completion_url(
             db,
@@ -70,6 +70,11 @@ async def pursuit_lanes_page(request: Request, db: Session = Depends(get_db)):
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
+    suffix = f"?{request.url.query}" if request.url.query else ""
+    return RedirectResponse(url=f"/settings{suffix}", status_code=303)
+
+
+def lane_management_context(db: Session, user: User) -> dict:
     org_id = _user_org_id(user)
     lanes = (
         db.query(PursuitLane)
@@ -92,20 +97,13 @@ async def pursuit_lanes_page(request: Request, db: Session = Depends(get_db)):
     my_lanes = user_my_lanes(db, organization_id=org_id, user_id=user.id)
     my_lane_ids = {lane.id for lane in my_lanes}
 
-    return templates.TemplateResponse(
-        "pursuit_lanes.html",
-        {
-            "request": request,
-            "user": user,
-            "lanes": lanes,
-            "match_counts": match_counts,
-            "my_lanes": my_lanes,
-            "my_lane_ids": my_lane_ids,
-            "can_manage_lanes": _can_manage_lanes(db, user),
-            "active_page": "pursuit_lanes",
-            "sidebar": get_sidebar(db, user),
-        },
-    )
+    return {
+        "lanes": lanes,
+        "match_counts": match_counts,
+        "my_lanes": my_lanes,
+        "my_lane_ids": my_lane_ids,
+        "can_manage_lanes": _can_manage_lanes(db, user),
+    }
 
 
 @router.post("/pursuit-lanes")

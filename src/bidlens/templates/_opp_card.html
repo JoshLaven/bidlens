@@ -110,7 +110,7 @@
           </span>
         {% endif %}
       </div>
-      {% if view not in ['triage', 'feed', 'my_shortlist'] %}
+      {% if view not in ['triage', 'feed', 'my_shortlist', 'user_archive'] %}
         <div
           class="opp-card-team-interest"
           data-team-interest
@@ -119,10 +119,10 @@
           {{ opp.team_interest_label or 'No team interest yet' }}
         </div>
       {% endif %}
-      {% if view not in ['feed', 'my_shortlist'] and crm_pushed and opp.crm_pushed_by_label %}
+      {% if view not in ['feed', 'my_shortlist', 'user_archive'] and crm_pushed and opp.crm_pushed_by_label %}
         <div class="opp-card-crm-attribution">Pushed to CRM by {{ opp.crm_pushed_by_label }}</div>
       {% endif %}
-      {% if view not in ['feed', 'my_shortlist'] %}
+      {% if view not in ['feed', 'my_shortlist', 'user_archive'] %}
         <div class="opp-card-crm-link-row" data-salesforce-link-container {% if not has_salesforce_linkage %}hidden{% endif %}>
           <span class="opp-card-crm-status" data-salesforce-status>{{ salesforce_status }}</span>
           {% if salesforce_url %}
@@ -134,7 +134,7 @@
           {% endif %}
         </div>
       {% endif %}
-      {% if pursuit_lanes and view not in ['feed', 'my_shortlist'] %}
+      {% if pursuit_lanes and view not in ['feed', 'my_shortlist', 'user_archive'] %}
         <div class="opp-card-lane-group" aria-label="Matched pursuit lanes">
           {% if view != 'feed' %}
             <div class="opp-card-lane-label">Matched Lanes</div>
@@ -184,6 +184,7 @@
       <button type="button"
               class="btn btn-sm opp-card-button opp-card-button--primary btn-primary"
               data-vote-button="PASS"
+              data-action-opp-id="{{ opp.id }}"
               onclick="voteOpp('{{ opp.id }}', 'PASS')">
         Restore to Feed
       </button>
@@ -204,6 +205,7 @@
         <button type="button"
                 class="btn btn-sm opp-card-button opp-card-button--secondary {{ 'btn-warning' if opp.user_vote == 'PASS' else 'btn-outline-secondary' }}"
                 data-vote-button="PASS"
+                data-action-opp-id="{{ opp.id }}"
                 onclick="voteOpp('{{ opp.id }}', 'PASS')">
           {% if opp.user_vote == 'PASS' %}&#10003; Archived{% else %}Archive{% endif %}
         </button>
@@ -221,7 +223,7 @@
     <summary>
       <span class="opp-card-more-label">Details</span>
       <div class="opp-footer-utilities">
-        {% if view in ['feed', 'my_shortlist'] %}
+        {% if view in ['feed', 'my_shortlist', 'user_archive'] %}
           <div class="opp-card-team-interest-control opp-footer-team-interest" data-team-interest>
             <button
               type="button"
@@ -329,21 +331,21 @@
           </div>
         {% endif %}
 
-        {% if view == 'my_shortlist' and opp.account_type %}
+        {% if view in ['my_shortlist', 'user_archive'] and opp.account_type %}
           <div class="opp-detail-row">
             <span class="opp-detail-label">Account Type</span>
             <span class="opp-detail-value">{{ opp.account_type }}</span>
           </div>
         {% endif %}
 
-        {% if view == 'my_shortlist' and crm_pushed and opp.crm_pushed_by_label %}
+        {% if view in ['my_shortlist', 'user_archive'] and crm_pushed and opp.crm_pushed_by_label %}
           <div class="opp-detail-row">
             <span class="opp-detail-label">CRM Activity</span>
             <span class="opp-detail-value">Pushed by {{ opp.crm_pushed_by_label }}</span>
           </div>
         {% endif %}
 
-        {% if view == 'my_shortlist' and pursuit_lanes %}
+        {% if view in ['my_shortlist', 'user_archive'] and pursuit_lanes %}
           <div class="opp-detail-row">
             <span class="opp-detail-label">Matched Lanes</span>
             <span class="opp-detail-value">
@@ -384,6 +386,15 @@
           <div class="opp-detail-row">
             <span class="opp-detail-label">Source Record ID</span>
             <span class="opp-detail-value">{{ opp.source_record_id }}</span>
+          </div>
+        {% endif %}
+
+        {% if salesforce_url %}
+          <div class="opp-detail-row">
+            <span class="opp-detail-label">Salesforce</span>
+            <span class="opp-detail-value">
+              <a href="{{ salesforce_url }}" target="_blank" rel="noreferrer" class="opp-card-crm-link">Open in Salesforce</a>
+            </span>
           </div>
         {% endif %}
 

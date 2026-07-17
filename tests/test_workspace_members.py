@@ -130,11 +130,18 @@ class WorkspaceMembersTests(unittest.TestCase):
 
         body = response.body.decode()
 
-        self.assertIn("Workspace Members", body)
-        self.assertIn("Invite Team Members", body)
-        self.assertIn("Pending Invitations", body)
-        self.assertIn("Invite from CSV", body)
-        self.assertIn("Active Members", body)
+        self.assertIn("<h1>Users</h1>", body)
+        self.assertIn("Add Users", body)
+        self.assertIn("Invite User", body)
+        self.assertIn("Bulk Invite (CSV)", body)
+        self.assertIn("Download CSV template", body)
+        self.assertIn("Pending User Invitations", body)
+        self.assertIn("Workspace Users", body)
+        self.assertLess(body.index("Add Users"), body.index("Pending User Invitations"))
+        self.assertLess(body.index("Pending User Invitations"), body.index("Workspace Users"))
+        self.assertNotIn("Invite Team Members", body)
+        self.assertNotIn("Invite from CSV", body)
+        self.assertNotIn("Active Members", body)
         self.assertIn("pending@example.com", body)
         self.assertIn("/invite/", body)
 

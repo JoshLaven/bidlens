@@ -1,18 +1,25 @@
 {% extends "base.html" %}
+{% from "_workspace_management_hero.html" import workspace_management_hero %}
 {% set hide_context_sidebar = true %}
-{% block title %}Pull History - BidLens{% endblock %}
+{% block title %}Import History - BidLens{% endblock %}
 {% block content %}
-<div class="admin-page-layout">
+<div class="admin-page-layout workspace-management-page">
   <div class="admin-page-content">
-    <div class="page-header admin-page-header">
-      <div>
-        <h1>Pull History</h1>
-        <p class="page-subtitle">Recent source import runs for this workspace.</p>
-      </div>
-    </div>
+    {{ workspace_management_hero('Import History', 'Review opportunity imports and source-processing activity.', (runs[0].run.finished_at or runs[0].run.started_at) if runs else none) }}
+
+    <nav class="market-view-tabs" aria-label="Opportunity Sources views">
+      <a href="/opportunity-discovery{% if request.url.query %}?{{ request.url.query }}{% endif %}">Opportunity Sources</a>
+      <a href="/imports/history{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="active" aria-current="page">Import History</a>
+    </nav>
 
     {% if runs %}
       <section class="card admin-table-card">
+        <div class="card-header">
+          <div>
+            <h2>Import History</h2>
+            <p class="muted">Recent source import runs for this workspace.</p>
+          </div>
+        </div>
         <div class="table-wrap">
           <table class="data-table admin-activity-table">
             <thead>

@@ -157,19 +157,46 @@ def _updated_opportunities(
             OpportunityUpdateEvent.detected_at < end_before,
         )
         .order_by(OpportunityUpdateEvent.detected_at.asc(), OpportunityUpdateEvent.id.asc())
-        .limit(50)
+        .limit(200)
         .all()
     )
-    return [
-        {
-            "event_id": event.id,
-            "detected_at": _iso_datetime(event.detected_at),
-            "changed_fields": event.changed_fields or {},
-            "salesforce_sync_status": event.salesforce_sync_status,
-            "opportunity": _opportunity_payload(opportunity),
-        }
-        for event, opportunity in rows
-    ]
+    return _deduped_update_payloads(rows, limit=50)
+
+
+def _deduped_update_payloads(
+    rows: list[tuple[OpportunityUpdateEvent, Opportunity]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    by_opportunity: dict[int, dict[str, Any]] = {}
+    order: list[int] = []
+    for event, opportunity in rows:
+        if not isinstance(event.changed_fields, dict) or not event.changed_fields:
+            continue
+        if opportunity.id not in by_opportunity:
+            order.append(opportunity.id)
+            by_opportunity[opportunity.id] = {
+                "event_id": event.id,
+                "event_ids": [event.id],
+                "detected_at": _iso_datetime(event.detected_at),
+                "changed_fields": {},
+                "salesforce_sync_status": event.salesforce_sync_status,
+                "opportunity": _opportunity_payload(opportunity),
+                "update_count": 0,
+            }
+        payload = by_opportunity[opportunity.id]
+        payload["event_id"] = event.id
+        payload["event_ids"].append(event.id)
+        payload["detected_at"] = _iso_datetime(event.detected_at)
+        payload["salesforce_sync_status"] = event.salesforce_sync_status
+        payload["update_count"] += 1
+        if isinstance(event.changed_fields, dict):
+            payload["changed_fields"].update(event.changed_fields)
+
+    for payload in by_opportunity.values():
+        payload["event_ids"] = list(dict.fromkeys(payload["event_ids"]))
+
+    return [by_opportunity[opportunity_id] for opportunity_id in order[:limit]]
 
 
 def _changed_field_label(changed_fields: Any) -> str:
@@ -209,20 +236,23 @@ def _shortlist_updates(
             Opportunity.qualification_status == "qualified",
         )
         .order_by(OpportunityUpdateEvent.detected_at.asc(), OpportunityUpdateEvent.id.asc())
-        .limit(10)
+        .limit(100)
         .all()
     )
+    updates = _deduped_update_payloads(rows, limit=10)
     return [
         {
-            "title": opportunity.title,
-            "subtitle": _changed_field_label(event.changed_fields),
-            "destination_url": f"/opportunity/{opportunity.id}",
-            "event_id": event.id,
-            "detected_at": _iso_datetime(event.detected_at),
-            "changed_fields": event.changed_fields or {},
-            "opportunity": _opportunity_payload(opportunity),
+            "title": item["opportunity"]["title"],
+            "subtitle": _changed_field_label(item["changed_fields"]),
+            "destination_url": f"/opportunity/{item['opportunity']['id']}",
+            "event_id": item["event_id"],
+            "event_ids": item["event_ids"],
+            "detected_at": item["detected_at"],
+            "changed_fields": item["changed_fields"],
+            "update_count": item["update_count"],
+            "opportunity": item["opportunity"],
         }
-        for event, opportunity in rows
+        for item in updates
     ]
 
 
@@ -230,6 +260,7 @@ def _shortlist_changes(
     db: Session,
     *,
     organization_id: int,
+    user_id: int,
     start_at: dt.datetime,
     end_before: dt.datetime,
 ) -> list[dict[str, Any]]:
@@ -238,9 +269,11 @@ def _shortlist_changes(
         .join(Opportunity, Opportunity.id == Event.opp_id)
         .filter(
             Event.org_id == organization_id,
-            Event.event_type == "state_changed",
+            Event.user_id == user_id,
+            Event.event_type == "vote_cast",
             Event.ts >= start_at,
             Event.ts < end_before,
+            Opportunity.organization_id == organization_id,
         )
         .order_by(Event.ts.asc(), Event.id.asc())
         .limit(50)
@@ -249,14 +282,31 @@ def _shortlist_changes(
     changes = []
     for event, opportunity in rows:
         payload = event.payload or {}
-        if payload.get("to") != "SHORTLISTED" and payload.get("from") != "SHORTLISTED":
+        requested_vote = payload.get("requested_vote")
+        effective_vote = payload.get("vote")
+        toggled_off = bool(payload.get("toggled_off"))
+        if requested_vote not in {"PURSUE", "PASS"} and effective_vote not in {"PURSUE", "PASS"}:
+            continue
+        if requested_vote == "PURSUE" and effective_vote == "PURSUE" and not toggled_off:
+            change_type = "added"
+            subtitle = "Added to My Shortlist"
+        elif requested_vote == "PURSUE" and toggled_off:
+            change_type = "removed"
+            subtitle = "Removed from My Shortlist"
+        elif effective_vote == "PASS" or requested_vote == "PASS":
+            change_type = "passed"
+            subtitle = "Archived from your review queue"
+        else:
             continue
         changes.append(
             {
                 "event_id": event.id,
                 "occurred_at": _iso_datetime(event.ts),
-                "from": payload.get("from"),
-                "to": payload.get("to"),
+                "change_type": change_type,
+                "subtitle": subtitle,
+                "vote": effective_vote,
+                "requested_vote": requested_vote,
+                "toggled_off": toggled_off,
                 "user": _event_user_payload(db, event.user_id),
                 "opportunity": _opportunity_payload(opportunity),
             }
@@ -356,6 +406,7 @@ def _interested_activity(
     db: Session,
     *,
     organization_id: int,
+    user_id: int,
     start_at: dt.datetime,
     end_before: dt.datetime,
 ) -> list[dict[str, Any]]:
@@ -364,19 +415,27 @@ def _interested_activity(
         .join(Opportunity, Opportunity.id == Event.opp_id)
         .filter(
             Event.org_id == organization_id,
+            Event.user_id != user_id,
             Event.event_type == "vote_cast",
             Event.ts >= start_at,
             Event.ts < end_before,
+            Opportunity.organization_id == organization_id,
+            Opportunity.decision_state != "ARCHIVED",
         )
         .order_by(Event.ts.asc(), Event.id.asc())
         .limit(50)
         .all()
     )
     activity = []
+    seen: set[tuple[int | None, int]] = set()
     for event, opportunity in rows:
         payload = event.payload or {}
-        if payload.get("requested_vote") != "PURSUE" and payload.get("vote") != "PURSUE":
+        if payload.get("vote") != "PURSUE" or payload.get("toggled_off"):
             continue
+        key = (event.user_id, opportunity.id)
+        if key in seen:
+            continue
+        seen.add(key)
         activity.append(
             {
                 "event_id": event.id,
@@ -701,12 +760,14 @@ def build_snapshot_payload(
         "interested_activity": _interested_activity(
             db,
             organization_id=organization_id,
+            user_id=user_id,
             start_at=start_at,
             end_before=end_before,
         ),
         "shortlist_changes": _shortlist_changes(
             db,
             organization_id=organization_id,
+            user_id=user_id,
             start_at=start_at,
             end_before=end_before,
         ),

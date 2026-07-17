@@ -1,18 +1,37 @@
 {% extends "base.html" %}
+{% from "_workspace_management_hero.html" import workspace_management_hero %}
 {% set hide_context_sidebar = true %}
-{% block title %}Pursuit Lanes - BidLens{% endblock %}
+{% block title %}Feed Settings - BidLens{% endblock %}
 {% block content %}
-<div class="admin-page-layout">
+<div class="admin-page-layout workspace-management-page">
   <div class="admin-page-content">
-    <div class="page-header pursuit-lane-page-header">
-      <div>
-        <h1>Pursuit Lanes</h1>
-        <p class="page-subtitle">Configure how BidLens organizes opportunities by market, client, service area, or team.</p>
-      </div>
-      <form method="POST" action="/pursuit-lanes/rematch{% if request.url.query %}?{{ request.url.query }}{% endif %}">
-        <button type="submit" class="btn btn-sm btn-outline-secondary" {% if not can_manage_lanes %}disabled{% endif %}>Rematch Opportunities</button>
-      </form>
+    {{ workspace_management_hero('Feed Settings', 'Control how opportunities enter the Feed and how they are organized.', profile.updated_at if profile and profile.updated_at else none) }}
+
+    <div class="workspace-management-page-actions">
+      <form method="POST" action="/pursuit-lanes/rematch{% if request.url.query %}?{{ request.url.query }}{% endif %}"><button type="submit" class="btn btn-sm btn-outline-secondary" {% if not can_manage_lanes %}disabled{% endif %}>Rematch Opportunities</button></form>
     </div>
+
+    <form method="POST" action="/settings{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="form admin-rules-form feed-settings-form">
+      {% if is_admin %}
+        <section class="admin-settings-module">
+          <div class="admin-settings-module-header"><h2>Feed Workflow</h2><p>Choose whether new opportunities require administrator review before entering the Feed.</p></div>
+          <label class="admin-setting-toggle"><input type="checkbox" name="triage_enabled" value="1" {% if profile and profile.triage_enabled %}checked{% endif %}><span><strong>Require triage before Feed</strong><small>Newly imported opportunities go to Triage and must be qualified before appearing in the Feed.</small></span></label>
+        </section>
+      {% endif %}
+      <details class="admin-settings-module feed-eligibility-panel" {% if profile and (profile.include_keywords or profile.exclude_keywords or profile.include_agencies or profile.exclude_agencies or profile.min_days_out is not none or profile.max_days_out is not none) %}open{% endif %}>
+        <summary class="admin-settings-module-header"><div><h2>Feed Eligibility</h2><p>These active filters determine which imported opportunities are eligible for review.</p></div><span class="btn btn-sm btn-outline-secondary">Configure Filters</span></summary>
+        <div class="admin-form-grid">
+          <div class="form-row"><label>Include keywords</label><textarea name="include_keywords" rows="2">{{ profile.include_keywords if profile and profile.include_keywords else '' }}</textarea></div>
+          <div class="form-row"><label>Exclude keywords</label><textarea name="exclude_keywords" rows="2">{{ profile.exclude_keywords if profile and profile.exclude_keywords else '' }}</textarea></div>
+          <div class="form-row"><label>Preferred agencies</label><textarea name="include_agencies" rows="2">{{ profile.include_agencies if profile and profile.include_agencies else '' }}</textarea></div>
+          <div class="form-row"><label>Excluded agencies</label><textarea name="exclude_agencies" rows="2">{{ profile.exclude_agencies if profile and profile.exclude_agencies else '' }}</textarea></div>
+          <div class="form-row admin-form-row--wide"><label>Due date window (days out)</label><div class="admin-number-range"><input type="number" name="min_days_out" placeholder="Minimum" value="{{ profile.min_days_out if profile and profile.min_days_out is not none else '' }}"><input type="number" name="max_days_out" placeholder="Maximum" value="{{ profile.max_days_out if profile and profile.max_days_out is not none else '' }}"></div></div>
+        </div>
+        <div class="admin-form-actions"><button type="submit" class="btn btn-primary">Save Feed Settings</button></div>
+      </details>
+    </form>
+
+    <div class="feed-settings-section-heading"><div><span>Workspace organization</span><h2>Pursuit Lanes</h2></div><p>Lanes organize matching opportunities across Feed, Shortlist, and Daily Brief.</p></div>
 
     {% if not can_manage_lanes %}
       <div class="alert alert-warning">You can view pursuit lanes, but only current workspace members can edit them.</div>

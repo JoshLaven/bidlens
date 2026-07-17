@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_opp_card.html" import opp_card %}
-{% from "_queue_layout.html" import queue_heading, queue_search, queue_toolbar, queue_count, queue_pagination %}
+{% from "_queue_layout.html" import queue_heading, queue_search, queue_toolbar, queue_count, queue_pagination, queue_export_action %}
 {% block title %}Feed - BidLens{% endblock %}
 {% block content %}
 {% set lane_param = '&lane_id=' ~ lane_id if lane_id else '' %}
@@ -11,7 +11,7 @@
 {% set stage_param = '&stages=' ~ stages_value %}
 {% set export_url = '/opportunities/export.csv?view=feed' ~ sort_params ~ lane_param ~ q_param ~ org_param ~ stage_param %}
 
-{{ queue_heading('The Feed', 'Process active opportunities, move the right ones forward, and keep the queue current.', export_url) }}
+{{ queue_heading('Feed', 'Review active opportunities and move the right ones forward.') }}
 {{ queue_search('/', 'feed-search-input', q, sort, direction, none, org_id_param, lane_id, stages_value) }}
 {{ queue_toolbar('/', 'feed', sort, direction, q, none, org_id_param, lane_id, active_lanes, stages_value, none, selected_stages, my_lanes, show_filters=(user.current_role == 'admin'), feed_sort_options=true) }}
 
@@ -32,6 +32,7 @@
     {{ queue_count(result_count, q) }}
   </div>
   <div class="feed-bulk-actions" data-feed-bulk-actions>
+    {{ queue_export_action(export_url) }}
     <button
       type="button"
       class="btn btn-sm btn-outline-secondary"

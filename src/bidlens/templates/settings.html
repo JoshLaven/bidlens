@@ -1,19 +1,19 @@
 {% extends "base.html" %}
 {% set hide_context_sidebar = true %}
-{% block title %}Feed Rules - BidLens{% endblock %}
+{% block title %}Feed Configuration - BidLens{% endblock %}
 {% block content %}
 <div class="admin-page-layout">
   <div class="admin-page-content">
     <div class="page-header">
-      <h1>Feed Rules</h1>
-      <p class="page-subtitle">Control how opportunities enter the Feed and how workspace defaults are applied.</p>
+      <h1>Feed Configuration</h1>
+      <p class="page-subtitle">Configure how opportunities move through review, qualification, and workspace routing.</p>
     </div>
 
 <form method="POST" action="/settings{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="form admin-rules-form">
   {% if is_admin %}
     <section class="admin-settings-module">
       <div class="admin-settings-module-header">
-        <h2>Workflow</h2>
+        <h2>Review Workflow</h2>
         <p>Choose whether new opportunities require administrator review before entering the Feed.</p>
       </div>
       <label class="admin-setting-toggle">
@@ -28,8 +28,8 @@
 
   <section class="admin-settings-module">
     <div class="admin-settings-module-header">
-      <h2>Matching / Feed Defaults</h2>
-      <p>Set the workspace defaults used to match and prioritize incoming opportunities.</p>
+      <h2>Feed Eligibility</h2>
+      <p>Set workspace-level filters that determine which imported opportunities are eligible for review.</p>
     </div>
     <div class="admin-form-grid">
       <div class="form-row">
@@ -65,8 +65,44 @@
   </section>
 
   <section class="admin-settings-module">
+    <div class="admin-settings-module-header admin-settings-module-header--split">
+      <div>
+        <h2>Pursuit Lanes</h2>
+        <p>Organize opportunities by market, client, service area, or team.</p>
+      </div>
+      <a href="/pursuit-lanes{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary">Manage Lanes</a>
+    </div>
+    {% if lanes %}
+      <div class="admin-settings-summary-list">
+        {% for lane in lanes %}
+          <div class="admin-settings-summary-row">
+            <div>
+              <strong>{{ lane.name }}</strong>
+              <span>{{ lane.description or 'No description' }}</span>
+            </div>
+            <span class="intake-status-pill">Active</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state empty-state--compact">
+        <h2>No pursuit lanes yet</h2>
+        <p>Create lanes to route opportunities into useful workspace categories.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="admin-settings-module">
     <div class="admin-settings-module-header">
-      <h2>Digest / Notifications</h2>
+      <h2>Qualification Questions</h2>
+      <p>BidLens uses the current review workflow and lane configuration for V1 qualification.</p>
+    </div>
+    <p class="muted">Custom qualification questions are not configurable yet.</p>
+  </section>
+
+  <section class="admin-settings-module">
+    <div class="admin-settings-module-header">
+      <h2>Notifications</h2>
       <p>Configure the default workspace digest delivery.</p>
     </div>
     <div class="admin-form-grid admin-form-grid--digest">
@@ -89,7 +125,7 @@
   </section>
 
   <div class="admin-form-actions">
-    <button type="submit" class="btn btn-primary">Save Feed Rules</button>
+    <button type="submit" class="btn btn-primary">Save Feed Configuration</button>
   </div>
 </form>
   </div>

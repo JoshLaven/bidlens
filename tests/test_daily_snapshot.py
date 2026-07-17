@@ -21,7 +21,7 @@ from bidlens.models import (
     Workspace,
 )
 from bidlens.services.daily_snapshot import create_daily_snapshot
-from scripts.generate_daily_snapshots import format_snapshot
+from scripts.generate_daily_snapshots import format_snapshot, seed_qa_scenario
 
 
 class DailySnapshotTests(unittest.TestCase):
@@ -100,7 +100,7 @@ class DailySnapshotTests(unittest.TestCase):
         self.db.add(update)
         self.db.add(Event(
             org_id=self.org.id,
-            user_id=self.user.id,
+            user_id=self.member.id,
             opp_id=included.id,
             event_type="vote_cast",
             ui_version="v1",
@@ -389,6 +389,203 @@ class DailySnapshotTests(unittest.TestCase):
             [item["source_record_id"] for item in user_payload["new_opportunities"]],
         )
 
+    def test_updated_opportunities_are_deduplicated_by_opportunity(self):
+        snapshot_date = dt.date(2026, 7, 8)
+        opportunity = self._opportunity("UPDATED-ONCE", dt.datetime(2026, 7, 6, 9, 0))
+        self.db.add_all([
+            OpportunityUpdateEvent(
+                organization_id=self.org.id,
+                opportunity_id=opportunity.id,
+                source="sam.gov",
+                source_record_id=opportunity.source_record_id,
+                detected_at=dt.datetime(2026, 7, 7, 10, 0),
+                changed_fields={"title": {"old": "Old", "new": "New"}},
+                salesforce_sync_status="not_synced",
+            ),
+            OpportunityUpdateEvent(
+                organization_id=self.org.id,
+                opportunity_id=opportunity.id,
+                source="sam.gov",
+                source_record_id=opportunity.source_record_id,
+                detected_at=dt.datetime(2026, 7, 7, 11, 0),
+                changed_fields={"response_deadline": {"old": "2026-07-09", "new": "2026-07-10"}},
+                salesforce_sync_status="not_synced",
+            ),
+        ])
+        self.db.commit()
+
+        snapshot = create_daily_snapshot(
+            self.db,
+            workspace_id=self.workspace.id,
+            user_id=self.user.id,
+            snapshot_date=snapshot_date,
+        )
+
+        updates = snapshot.snapshot_json["updated_opportunities"]
+
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0]["opportunity"]["source_record_id"], "UPDATED-ONCE")
+        self.assertEqual(updates[0]["update_count"], 2)
+        self.assertEqual(set(updates[0]["changed_fields"]), {"title", "response_deadline"})
+
+    def test_out_of_window_and_non_meaningful_updates_are_excluded(self):
+        snapshot_date = dt.date(2026, 7, 8)
+        outside = self._opportunity("OUTSIDE-UPDATE", dt.datetime(2026, 7, 6, 9, 0))
+        empty = self._opportunity("EMPTY-UPDATE", dt.datetime(2026, 7, 6, 10, 0))
+        self.db.add_all([
+            OpportunityUpdateEvent(
+                organization_id=self.org.id,
+                opportunity_id=outside.id,
+                source="sam.gov",
+                source_record_id=outside.source_record_id,
+                detected_at=dt.datetime(2026, 7, 8, 0, 0),
+                changed_fields={"title": {"old": "Old", "new": "New"}},
+                salesforce_sync_status="not_synced",
+            ),
+            OpportunityUpdateEvent(
+                organization_id=self.org.id,
+                opportunity_id=empty.id,
+                source="sam.gov",
+                source_record_id=empty.source_record_id,
+                detected_at=dt.datetime(2026, 7, 7, 12, 0),
+                changed_fields={},
+                salesforce_sync_status="not_synced",
+            ),
+        ])
+        self.db.commit()
+
+        snapshot = create_daily_snapshot(
+            self.db,
+            workspace_id=self.workspace.id,
+            user_id=self.user.id,
+            snapshot_date=snapshot_date,
+        )
+
+        record_ids = [
+            item["opportunity"]["source_record_id"]
+            for item in snapshot.snapshot_json["updated_opportunities"]
+        ]
+
+        self.assertNotIn("OUTSIDE-UPDATE", record_ids)
+        self.assertNotIn("EMPTY-UPDATE", record_ids)
+
+    def test_shortlist_changes_are_user_specific_and_include_removal(self):
+        snapshot_date = dt.date(2026, 7, 8)
+        added = self._opportunity("SHORTLIST-ADD", dt.datetime(2026, 7, 6, 9, 0))
+        removed = self._opportunity("SHORTLIST-REMOVE", dt.datetime(2026, 7, 6, 10, 0))
+        teammate = self._opportunity("TEAMMATE-ONLY", dt.datetime(2026, 7, 6, 11, 0))
+        self.db.add_all([
+            Vote(
+                org_id=self.org.id,
+                user_id=self.user.id,
+                opp_id=added.id,
+                vote="PURSUE",
+                updated_at=dt.datetime(2026, 7, 7, 9, 0),
+            ),
+            Event(
+                org_id=self.org.id,
+                user_id=self.user.id,
+                opp_id=added.id,
+                event_type="vote_cast",
+                ui_version="v1",
+                ts=dt.datetime(2026, 7, 7, 9, 0),
+                payload={"vote": "PURSUE", "requested_vote": "PURSUE", "toggled_off": False},
+            ),
+            Event(
+                org_id=self.org.id,
+                user_id=self.user.id,
+                opp_id=removed.id,
+                event_type="vote_cast",
+                ui_version="v1",
+                ts=dt.datetime(2026, 7, 7, 10, 0),
+                payload={"vote": None, "requested_vote": "PURSUE", "toggled_off": True},
+            ),
+            Event(
+                org_id=self.org.id,
+                user_id=self.member.id,
+                opp_id=teammate.id,
+                event_type="vote_cast",
+                ui_version="v1",
+                ts=dt.datetime(2026, 7, 7, 11, 0),
+                payload={"vote": "PURSUE", "requested_vote": "PURSUE", "toggled_off": False},
+            ),
+        ])
+        self.db.commit()
+
+        snapshot = create_daily_snapshot(
+            self.db,
+            workspace_id=self.workspace.id,
+            user_id=self.user.id,
+            snapshot_date=snapshot_date,
+        )
+
+        changes = snapshot.snapshot_json["shortlist_changes"]
+        by_record = {
+            item["opportunity"]["source_record_id"]: item
+            for item in changes
+        }
+
+        self.assertEqual(set(by_record), {"SHORTLIST-ADD", "SHORTLIST-REMOVE"})
+        self.assertEqual(by_record["SHORTLIST-ADD"]["change_type"], "added")
+        self.assertEqual(by_record["SHORTLIST-REMOVE"]["change_type"], "removed")
+        self.assertEqual(snapshot.snapshot_json["my_shortlist"][0]["opportunity"]["source_record_id"], "SHORTLIST-ADD")
+
+    def test_interested_activity_is_teammate_only_and_deduped(self):
+        snapshot_date = dt.date(2026, 7, 8)
+        tracked = self._opportunity("TRACKED-TEAM", dt.datetime(2026, 7, 6, 9, 0))
+        self.db.add_all([
+            Event(
+                org_id=self.org.id,
+                user_id=self.user.id,
+                opp_id=tracked.id,
+                event_type="vote_cast",
+                ui_version="v1",
+                ts=dt.datetime(2026, 7, 7, 9, 0),
+                payload={"vote": "PURSUE", "requested_vote": "PURSUE", "toggled_off": False},
+            ),
+            Event(
+                org_id=self.org.id,
+                user_id=self.member.id,
+                opp_id=tracked.id,
+                event_type="vote_cast",
+                ui_version="v1",
+                ts=dt.datetime(2026, 7, 7, 10, 0),
+                payload={"vote": "PURSUE", "requested_vote": "PURSUE", "toggled_off": False},
+            ),
+            Event(
+                org_id=self.org.id,
+                user_id=self.member.id,
+                opp_id=tracked.id,
+                event_type="vote_cast",
+                ui_version="v1",
+                ts=dt.datetime(2026, 7, 7, 11, 0),
+                payload={"vote": "PURSUE", "requested_vote": "PURSUE", "toggled_off": False},
+            ),
+            Event(
+                org_id=self.org.id,
+                user_id=self.member.id,
+                opp_id=tracked.id,
+                event_type="vote_cast",
+                ui_version="v1",
+                ts=dt.datetime(2026, 7, 7, 12, 0),
+                payload={"vote": None, "requested_vote": "PURSUE", "toggled_off": True},
+            ),
+        ])
+        self.db.commit()
+
+        snapshot = create_daily_snapshot(
+            self.db,
+            workspace_id=self.workspace.id,
+            user_id=self.user.id,
+            snapshot_date=snapshot_date,
+        )
+
+        activity = snapshot.snapshot_json["interested_activity"]
+
+        self.assertEqual(len(activity), 1)
+        self.assertEqual(activity[0]["user"]["id"], self.member.id)
+        self.assertEqual(activity[0]["opportunity"]["source_record_id"], "TRACKED-TEAM")
+
     def test_create_daily_snapshot_returns_existing_snapshot_without_regenerating(self):
         snapshot_date = dt.date(2026, 7, 8)
         first = create_daily_snapshot(
@@ -425,6 +622,32 @@ class DailySnapshotTests(unittest.TestCase):
         self.assertIn("Updated Opportunities", output)
         self.assertIn("Upcoming Deadlines", output)
         self.assertIn("Connector Issues", output)
+
+    def test_qa_seed_multiple_signals_creates_expected_snapshot_sections(self):
+        snapshot_date = dt.date(2026, 7, 8)
+
+        result = seed_qa_scenario(
+            self.db,
+            scenario="multiple-signals",
+            snapshot_date=snapshot_date,
+            workspace_id=self.workspace.id,
+            user_email=self.user.email,
+        )
+        snapshot = create_daily_snapshot(
+            self.db,
+            workspace_id=self.workspace.id,
+            user_id=self.user.id,
+            snapshot_date=snapshot_date,
+        )
+        payload = snapshot.snapshot_json
+
+        self.assertEqual(result["scenario"], "multiple-signals")
+        self.assertEqual(len(payload["updated_opportunities"]), 1)
+        self.assertEqual(payload["updated_opportunities"][0]["update_count"], 2)
+        self.assertEqual(len(payload["shortlist_changes"]), 1)
+        self.assertEqual(payload["shortlist_changes"][0]["change_type"], "added")
+        self.assertEqual(len(payload["interested_activity"]), 1)
+        self.assertEqual(len(payload["team_signals"]), 1)
 
 
 if __name__ == "__main__":

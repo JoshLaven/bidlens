@@ -3,7 +3,7 @@
 # Source this file from the repository root:
 #   source scripts/use-railway.sh
 
-railway_env_file="${BIDLENS_RAILWAY_ENV_FILE:-.env.railway.local}"
+railway_env_file="${BIDLENS_RAILWAY_ENV_FILE:-./.env.railway.local}"
 
 if [ ! -f "$railway_env_file" ]; then
   echo "BidLens developer environment"

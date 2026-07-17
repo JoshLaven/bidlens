@@ -10,7 +10,16 @@ from urllib.parse import urlencode
 
 from ..auth import attach_request_user_context, get_current_user
 from ..database import get_db
-from ..models import CompanyProfile, Event, Organization
+from ..models import (
+    CompanyProfile,
+    Event,
+    GrantsSourceConfig,
+    Organization,
+    OrganizationMembership,
+    OrgProfile,
+    SamSourceConfig,
+    User,
+)
 from .opportunities import get_sidebar
 
 
@@ -75,6 +84,42 @@ def _recent_work_context(profile: CompanyProfile | None) -> dict[str, object]:
         "status": status or ("ready" if identifiers else "needs_identifiers"),
         "requested": bool(recent_work and recent_work.get("requested_at")),
     }
+
+
+def _connected_source_count(db: Session, *, org_id: int, org_profile: OrgProfile | None) -> int:
+    connected = 0
+
+    has_sam_config = (
+        db.query(SamSourceConfig.id)
+        .filter(SamSourceConfig.organization_id == org_id)
+        .first()
+    )
+    has_legacy_sam_settings = bool(
+        org_profile
+        and (
+            org_profile.sam_naics_codes
+            or org_profile.include_keywords
+            or org_profile.include_agencies
+        )
+    )
+    if has_sam_config or has_legacy_sam_settings:
+        connected += 1
+
+    has_grants_config = (
+        db.query(GrantsSourceConfig.id)
+        .filter(
+            GrantsSourceConfig.organization_id == org_id,
+            GrantsSourceConfig.enabled.is_(True),
+        )
+        .first()
+    )
+    if has_grants_config:
+        connected += 1
+
+    if org_profile and org_profile.govwin_credentials_encrypted:
+        connected += 1
+
+    return connected
 
 
 def active_company_profile(db: Session, org_id: int) -> CompanyProfile | None:
@@ -202,6 +247,14 @@ def render_company_profile(
 ):
     org_id = _user_org_id(user)
     organization = db.query(Organization).filter(Organization.id == org_id).first()
+    org_profile = db.query(OrgProfile).filter(OrgProfile.org_id == org_id).first()
+    member_rows = (
+        db.query(OrganizationMembership, User)
+        .join(User, User.id == OrganizationMembership.user_id)
+        .filter(OrganizationMembership.organization_id == org_id)
+        .order_by(User.name.asc().nullslast(), User.email.asc())
+        .all()
+    )
     form = form or _profile_form(profile, organization)
     return templates.TemplateResponse(
         "company_profile.html",
@@ -211,8 +264,25 @@ def render_company_profile(
             "active_page": "company_profile",
             "sidebar": get_sidebar(db, user),
             "profile": profile,
+            "organization": organization,
             "profile_form": form,
             "recent_work": _recent_work_context(profile),
+            "member_count": len(member_rows),
+            "workspace_status": "Live" if organization and organization.is_live else "Setup",
+            "connected_source_count": _connected_source_count(
+                db,
+                org_id=org_id,
+                org_profile=org_profile,
+            ),
+            "member_preview": [
+                {
+                    "name": member.name or member.email,
+                    "email": member.email,
+                    "role": membership.role.replace("_", " ").title(),
+                }
+                for membership, member in member_rows[:5]
+            ],
+            "can_manage_members": getattr(user, "current_role", "member") == "admin",
             "saved": saved,
             "duplicate_cleanup_count": duplicate_cleanup_count,
         },
@@ -244,6 +314,7 @@ async def company_profile_page(
         db,
         user,
         profile=profile,
+        saved=request.query_params.get("saved") == "1",
         duplicate_cleanup_count=duplicate_cleanup_count,
     )
 
@@ -283,11 +354,11 @@ async def company_profile_save(
         key: value
         for key, value in {
             "org_id": request.query_params.get("org_id") or str(org_id),
-            "profile_saved": "1",
+            "saved": "1",
         }.items()
         if value
     })
-    return RedirectResponse(url=f"/organization-setup?{query}", status_code=303)
+    return RedirectResponse(url=f"/company-profile?{query}", status_code=303)
 
 
 @router.post("/company-profile/save")

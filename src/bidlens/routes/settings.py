@@ -10,6 +10,7 @@ from ..auth import attach_request_user_context, get_current_user
 from ..models import Event, OrgProfile, OrganizationMembership, PursuitLane
 from ..services.platform import post_setup_completion_url
 from ..services.pursuit_lanes import set_user_my_lanes, user_my_lanes
+from .pursuit_lanes import lane_management_context
 
 router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
@@ -235,14 +236,17 @@ async def settings_page(
 
     # V1: treat first user in org as "admin" if you don't have roles yet
     # If you add roles later, tighten this.
-    profile = db.query(OrgProfile).filter(OrgProfile.org_id == _user_org_id(user)).first()
+    org_id = _user_org_id(user)
+    profile = db.query(OrgProfile).filter(OrgProfile.org_id == org_id).first()
+    lane_context = lane_management_context(db, user)
 
-    return templates.TemplateResponse("settings.html", {
+    return templates.TemplateResponse("pursuit_lanes.html", {
         "request": request,
         "user": user,
         "profile": profile,
         "is_admin": _is_admin(user),
         "active_page": "settings",
+        **lane_context,
     })
 
 @router.post("/settings")
@@ -284,10 +288,8 @@ async def settings_save(
 
     profile.min_days_out = to_int(min_days_out)
     profile.max_days_out = to_int(max_days_out)
-    profile.digest_max_items = to_int(digest_max_items) or 20
-
-    profile.digest_recipients = digest_recipients.strip() if digest_recipients else None
-    profile.digest_time_local = digest_time_local.strip() if digest_time_local else None
+    # Digest settings are not part of Feed Settings. Preserve any historical
+    # values until they have a dedicated, functional destination.
     if _is_admin(user):
         profile.triage_enabled = triage_enabled == "1"
 

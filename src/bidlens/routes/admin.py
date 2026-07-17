@@ -57,7 +57,7 @@ def _role(value: str) -> str:
 
 
 def _role_label(role: str | None) -> str:
-    return "Workspace Admin" if _role(role or "member") == "admin" else "Workspace Member"
+    return "Workspace Admin" if _role(role or "member") == "admin" else "Workspace User"
 
 
 def _invitation_token(db: Session) -> str:

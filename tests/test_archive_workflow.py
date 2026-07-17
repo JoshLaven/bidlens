@@ -10,7 +10,9 @@ from sqlalchemy.orm import sessionmaker
 
 from bidlens.database import Base
 from bidlens.models import Opportunity, Organization, User, Vote
+from bidlens.routes import api
 from bidlens.routes import opportunities
+from bidlens.services.feed_queries import feed_awaiting_review_query
 from bidlens.services import cast_vote
 
 
@@ -109,6 +111,31 @@ class ArchiveQueryTests(unittest.TestCase):
         self.assertTrue(restored["toggled_off"])
         self.assertIn(self.opp.id, feed_ids)
         self.assertNotIn(self.opp.id, archive_ids)
+
+    def test_archive_request_success_removes_opportunity_from_default_feed(self):
+        setattr(self.user, "current_organization_id", self.user.organization_id)
+        setattr(self.user, "current_role", "member")
+
+        with patch("bidlens.routes.api.require_user", return_value=self.user):
+            result = api.api_vote(
+                api.VoteIn(opp_id=self.opp.id, vote="PASS", ui_version="v1"),
+                request=MagicMock(),
+                db=self.db,
+            )
+
+        feed_ids = {
+            opp.id
+            for opp, _watched in feed_awaiting_review_query(
+                self.db,
+                organization_id=self.user.organization_id,
+                user_id=self.user.id,
+            ).all()
+        }
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["vote"], "PASS")
+        self.assertFalse(result["in_my_shortlist"])
+        self.assertNotIn(self.opp.id, feed_ids)
 
 
 class FeedRouteArchiveTests(unittest.TestCase):

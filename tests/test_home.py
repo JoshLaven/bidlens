@@ -17,6 +17,7 @@ from bidlens.models import (
     Opportunity,
     Organization,
     OrganizationMembership,
+    OpportunityPursuitLaneMatch,
     PursuitLane,
     SamSourceConfig,
     User,
@@ -293,7 +294,8 @@ class HomeContextTests(unittest.TestCase):
         self.assertEqual([section["key"] for section in context["sections"]], ["shortlist_updates"])
         self.assertEqual(context["sections"][0]["count"], 1)
         self.assertEqual(context["sections"][0]["items"][0]["destination_url"], "/opportunity/123")
-        self.assertEqual(context["actions"][0]["label"], "Review Shortlist")
+        self.assertEqual(context["shortlist_sections"], [])
+        self.assertEqual(context["actions"], [])
 
     def test_daily_brief_feed_count_updates_without_regenerating_snapshot(self):
         first = self._opportunity(
@@ -497,6 +499,98 @@ class HomeContextTests(unittest.TestCase):
         self.assertEqual(context["feed_review"]["count"], len(default_feed_ids))
         self.assertEqual(context["feed_review"]["message"], "2 opportunities awaiting review.")
 
+    def test_daily_brief_feed_review_includes_top_lane_breakdown(self):
+        today = dt.date.today()
+        lanes = [
+            PursuitLane(organization_id=self.org.id, name="Health"),
+            PursuitLane(organization_id=self.org.id, name="Education"),
+            PursuitLane(organization_id=self.org.id, name="Transportation"),
+            PursuitLane(organization_id=self.org.id, name="Infrastructure"),
+        ]
+        self.db.add_all(lanes)
+        self.db.flush()
+        opportunities = [
+            self._opportunity(
+                source_record_id=f"LANE-BREAKDOWN-{index}",
+                title=f"Lane opportunity {index}",
+                qualification_status="qualified",
+                decision_state="INBOX",
+                response_deadline=today + dt.timedelta(days=14),
+            )
+            for index in range(7)
+        ]
+        past_due = self._opportunity(
+            source_record_id="LANE-BREAKDOWN-PAST",
+            title="Past due lane opportunity",
+            qualification_status="qualified",
+            decision_state="INBOX",
+            response_deadline=today - dt.timedelta(days=1),
+        )
+        workspace = Workspace(
+            organization_id=self.org.id,
+            name="Home Workspace",
+            slug="home-workspace-lane-breakdown",
+        )
+        self.db.add(workspace)
+        self.db.flush()
+        matches = []
+        for opportunity in opportunities[:3]:
+            matches.append(OpportunityPursuitLaneMatch(
+                organization_id=self.org.id,
+                opportunity_id=opportunity.id,
+                pursuit_lane_id=lanes[0].id,
+            ))
+        for opportunity in opportunities[3:5]:
+            matches.append(OpportunityPursuitLaneMatch(
+                organization_id=self.org.id,
+                opportunity_id=opportunity.id,
+                pursuit_lane_id=lanes[1].id,
+            ))
+        matches.extend([
+            OpportunityPursuitLaneMatch(
+                organization_id=self.org.id,
+                opportunity_id=opportunities[5].id,
+                pursuit_lane_id=lanes[2].id,
+            ),
+            OpportunityPursuitLaneMatch(
+                organization_id=self.org.id,
+                opportunity_id=opportunities[6].id,
+                pursuit_lane_id=lanes[3].id,
+            ),
+            OpportunityPursuitLaneMatch(
+                organization_id=self.org.id,
+                opportunity_id=past_due.id,
+                pursuit_lane_id=lanes[0].id,
+            ),
+        ])
+        self.db.add_all(matches)
+        self.db.add(DailySnapshot(
+            workspace_id=workspace.id,
+            user_id=self.admin.id,
+            snapshot_date=self.now.date(),
+            status="completed",
+            snapshot_json={"summary": {}},
+        ))
+        self.db.commit()
+
+        context = get_daily_brief_home_context(
+            self.db,
+            self.org.id,
+            self.admin.id,
+            now=self.now,
+        )
+
+        self.assertEqual(context["feed_review"]["count"], 7)
+        self.assertEqual(
+            context["feed_review"]["lanes"],
+            [
+                {"id": lanes[0].id, "name": "Health", "count": 3},
+                {"id": lanes[1].id, "name": "Education", "count": 2},
+                {"id": lanes[3].id, "name": "Infrastructure", "count": 1},
+            ],
+        )
+        self.assertEqual(context["feed_review"]["more_lane_count"], 1)
+
     def test_daily_brief_context_distinguishes_missing_snapshot_from_no_activity(self):
         self._opportunity(
             title="Database activity should not render without a stored snapshot",
@@ -513,6 +607,7 @@ class HomeContextTests(unittest.TestCase):
         self.assertTrue(context["snapshot_missing"])
         self.assertFalse(context["has_updates"])
         self.assertEqual(context["sections"], [])
+        self.assertEqual(context["shortlist_sections"], [])
 
     def test_daily_brief_context_empty_snapshot_has_no_activity_state(self):
         workspace = Workspace(
@@ -577,10 +672,13 @@ class HomeContextTests(unittest.TestCase):
                     "complete": False,
                     "url": "/",
                     "action_label": "Review Feed",
+                    "lanes": [
+                        {"id": 1, "name": "Health", "count": 5},
+                        {"id": 2, "name": "Education", "count": 2},
+                    ],
+                    "more_lane_count": 1,
                 },
-                "actions": [
-                    {"label": "Review Shortlist", "url": "/my-shortlist"},
-                ],
+                "actions": [],
                 "sections": [
                     {
                         "key": "shortlist_updates",
@@ -593,15 +691,83 @@ class HomeContextTests(unittest.TestCase):
                                 "destination_url": "/opportunity/321",
                             }
                         ],
+                    },
+                    {
+                        "key": "shortlist_deadlines",
+                        "title": "Upcoming Due Dates",
+                        "count": 1,
+                        "action_label": "Review Shortlist",
+                        "action_url": "/my-shortlist",
+                        "items": [
+                            {
+                                "title": "Due opportunity",
+                                "subtitle": "Due tomorrow",
+                                "destination_url": "/opportunity/654",
+                            }
+                        ],
+                    },
+                    {
+                        "key": "team_signals",
+                        "title": "Activity",
+                        "count": 1,
+                        "items": [
+                            {
+                                "title": "Teammate activity",
+                                "subtitle": "A teammate joined",
+                                "destination_url": "/opportunity/987",
+                            }
+                        ],
                     }
+                ],
+                "shortlist_sections": [
+                    {
+                        "key": "shortlist_deadlines",
+                        "title": "Upcoming Due Dates",
+                        "count": 1,
+                        "items": [
+                            {
+                                "title": "Due opportunity",
+                                "subtitle": "Due tomorrow",
+                                "destination_url": "/opportunity/654",
+                            }
+                        ],
+                    },
+                    {
+                        "key": "team_signals",
+                        "title": "Activity",
+                        "count": 1,
+                        "items": [
+                            {
+                                "title": "Teammate activity",
+                                "subtitle": "A teammate joined",
+                                "destination_url": "/opportunity/987",
+                            }
+                        ],
+                    },
                 ],
             },
         )
 
-        self.assertIn("Stored opportunity", rendered)
-        self.assertIn("/opportunity/321", rendered)
         self.assertIn("1 opportunity awaiting review.", rendered)
+        self.assertIn("Home's Daily Brief", rendered)
+        self.assertIn("Health", rendered)
+        self.assertIn("Education", rendered)
+        self.assertIn("+1", rendered)
+        self.assertIn("pursuit-lane-pill", rendered)
         self.assertIn("Review Feed", rendered)
+        self.assertIn("Review Shortlist", rendered)
+        self.assertEqual(rendered.count("Review Feed"), 1)
+        self.assertEqual(rendered.count("Review Shortlist"), 1)
+        self.assertIn("Shortlist", rendered)
+        self.assertIn("<details class=\"home-brief-detail-section\" open>", rendered)
+        self.assertIn("/opportunity/654", rendered)
+        self.assertIn("/opportunity/987", rendered)
+        self.assertIn("Daily Brief", rendered)
+        self.assertIn("Upcoming Due Dates", rendered)
+        self.assertIn("Activity", rendered)
+        self.assertNotIn(">Yesterday<", rendered)
+        self.assertNotIn("Shortlist Deadlines", rendered)
+        self.assertNotIn("Team Signals", rendered)
 
     def test_home_page_is_available_to_members(self):
         member = User(email="member-home@test.local", organization_id=self.org.id)

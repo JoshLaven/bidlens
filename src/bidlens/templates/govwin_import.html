@@ -1,18 +1,21 @@
 {% extends "base.html" %}
+{% from "_workspace_management_hero.html" import workspace_management_hero %}
 {% set hide_context_sidebar = true %}
-{% block title %}Opportunity Discovery - BidLens{% endblock %}
+{% block title %}Opportunity Sources - BidLens{% endblock %}
 {% block content %}
 {% set sam_run = latest_runs.get('sam.gov') if latest_runs else none %}
 {% set grants_run = latest_runs.get('grants.gov') if latest_runs else none %}
 {% set govwin_run = latest_runs.get('govwin_export') if latest_runs else none %}
 {% set grants_enabled = grants_config and grants_config.enabled %}
 
-<div class="admin-page-layout">
+<div class="admin-page-layout workspace-management-page">
   <div class="admin-page-content">
-    <div class="page-header">
-      <h1>Opportunity Discovery</h1>
-      <p class="page-subtitle">Manage how BidLens acquires opportunities for this workspace.</p>
-    </div>
+    {{ workspace_management_hero('Opportunity Sources', 'Configure where BidLens discovers and imports opportunities.') }}
+
+    <nav class="market-view-tabs" aria-label="Opportunity Sources views">
+      <a href="/opportunity-discovery{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="active" aria-current="page">Opportunity Sources</a>
+      <a href="/imports/history{% if request.url.query %}?{{ request.url.query }}{% endif %}">Import History</a>
+    </nav>
 
 {% if error %}
   <div class="alert alert-error">{{ error }}</div>

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlencode
 
-from sqlalchemy import func
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -13,6 +13,7 @@ from ..models import (
     Event,
     IngestionRun,
     Opportunity,
+    OpportunityPursuitLaneMatch,
     OpportunityUpdateEvent,
     Organization,
     OrganizationMembership,
@@ -407,7 +408,56 @@ def _daily_brief_points(payload: dict[str, Any]) -> list[str]:
     return points
 
 
-def _feed_review_context(count: int) -> dict[str, Any]:
+def _feed_lane_breakdown(
+    db: Session,
+    *,
+    organization_id: int,
+    user_id: int,
+    limit: int = 3,
+) -> dict[str, Any]:
+    rows = (
+        feed_awaiting_review_query(
+            db,
+            organization_id=organization_id,
+            user_id=user_id,
+            include_watched=False,
+        )
+        .join(
+            OpportunityPursuitLaneMatch,
+            and_(
+                OpportunityPursuitLaneMatch.organization_id == organization_id,
+                OpportunityPursuitLaneMatch.opportunity_id == Opportunity.id,
+            ),
+        )
+        .join(
+            PursuitLane,
+            and_(
+                PursuitLane.id == OpportunityPursuitLaneMatch.pursuit_lane_id,
+                PursuitLane.organization_id == organization_id,
+                PursuitLane.is_active.is_(True),
+            ),
+        )
+        .with_entities(
+            PursuitLane.id.label("id"),
+            PursuitLane.name.label("name"),
+            func.count(Opportunity.id).label("count"),
+        )
+        .group_by(PursuitLane.id, PursuitLane.name)
+        .order_by(func.count(Opportunity.id).desc(), PursuitLane.name.asc())
+        .all()
+    )
+    lanes = [
+        {"id": row.id, "name": row.name, "count": int(row.count or 0)}
+        for row in rows
+        if int(row.count or 0) > 0
+    ]
+    return {
+        "lanes": lanes[:limit],
+        "more_lane_count": max(0, len(lanes) - limit),
+    }
+
+
+def _feed_review_context(count: int, lane_breakdown: dict[str, Any] | None = None) -> dict[str, Any]:
     if count:
         return {
             "count": count,
@@ -415,6 +465,8 @@ def _feed_review_context(count: int) -> dict[str, Any]:
             "complete": False,
             "url": "/",
             "action_label": "Review Feed",
+            "lanes": (lane_breakdown or {}).get("lanes") or [],
+            "more_lane_count": (lane_breakdown or {}).get("more_lane_count") or 0,
         }
     return {
         "count": 0,
@@ -422,6 +474,8 @@ def _feed_review_context(count: int) -> dict[str, Any]:
         "complete": True,
         "url": None,
         "action_label": None,
+        "lanes": [],
+        "more_lane_count": 0,
     }
 
 
@@ -441,17 +495,26 @@ def get_daily_brief_home_context(
         today=now,
     )
     payload = snapshot["snapshot_json"] if snapshot else {}
-    feed_review = _feed_review_context(
-        _feed_awaiting_review_count(
+    if snapshot:
+        feed_count = _feed_awaiting_review_count(
             db,
             organization_id=organization_id,
             user_id=user_id,
         )
-    ) if snapshot else None
+        feed_review = _feed_review_context(
+            feed_count,
+            _feed_lane_breakdown(
+                db,
+                organization_id=organization_id,
+                user_id=user_id,
+            ) if feed_count else None,
+        )
+    else:
+        feed_review = None
     section_defs = [
+        ("shortlist_deadlines", "Upcoming Due Dates"),
+        ("team_signals", "Activity"),
         ("shortlist_updates", "Shortlist Changes"),
-        ("shortlist_deadlines", "Shortlist Deadlines"),
-        ("team_signals", "Team Signals"),
         ("connector_issues", "Source Issues"),
     ]
     sections = []
@@ -462,17 +525,19 @@ def get_daily_brief_home_context(
         ]
         if not items:
             continue
-        sections.append({
+        section = {
             "key": key,
             "title": title,
             "count": len(items),
             "items": items,
-        })
-    needs_shortlist_review = any(
-        payload.get(key)
-        for key in ("shortlist_updates", "shortlist_deadlines", "team_signals")
-    )
-
+        }
+        sections.append(section)
+    section_by_key = {section["key"]: section for section in sections}
+    shortlist_sections = [
+        section_by_key[key]
+        for key in ("shortlist_deadlines", "team_signals")
+        if key in section_by_key
+    ]
     return {
         "snapshot": snapshot,
         "snapshot_date": snapshot["snapshot_date"] if snapshot else now.date(),
@@ -481,14 +546,13 @@ def get_daily_brief_home_context(
         "brief_points": _daily_brief_points(payload) if snapshot else [],
         "feed_review": feed_review,
         "sections": sections,
+        "shortlist_sections": shortlist_sections,
         "has_updates": bool(
             sections
             or (_daily_brief_points(payload) if snapshot else [])
             or (feed_review if snapshot else None)
         ),
-        "actions": [
-            {"label": "Review Shortlist", "url": "/my-shortlist"},
-        ] if snapshot and needs_shortlist_review else [],
+        "actions": [],
     }
 
 

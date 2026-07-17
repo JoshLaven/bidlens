@@ -91,14 +91,64 @@ class NavigationShellTests(unittest.TestCase):
         self.assertIn("/admin/organizations/7/users?org_id=7", html)
         self.assertIn("/opportunity-discovery?org_id=7", html)
         self.assertIn("/integrations?org_id=7", html)
-        self.assertIn("/pursuit-lanes?org_id=7", html)
         self.assertIn("/settings?org_id=7", html)
-        self.assertIn("/imports/history?org_id=7", html)
-        self.assertIn('Opportunity Discovery</a>', html)
-        self.assertIn('class="active" aria-current="page">Opportunity Discovery</a>', html)
+        self.assertIn("/admin/market-activity?org_id=7", html)
+        self.assertNotIn('>Organization</span>', html)
+        self.assertNotIn('>Opportunities</span>', html)
+        self.assertIn('primary-sidebar-subnav-divider', html)
+        self.assertIn('>Overview</strong>', html)
+        self.assertIn('>Users</strong>', html)
+        self.assertIn('>Opportunity Sources</strong>', html)
+        self.assertIn('>Feed Settings</strong>', html)
+        self.assertIn('>Import History</strong>', html)
+        self.assertIn('>Integrations</strong>', html)
+        self.assertIn('>Insights</strong>', html)
+        self.assertIn('class="active" aria-current="page" title="Opportunity Sources"', html)
+        self.assertNotIn('Pursuit Lanes</a>', html)
+        self.assertIn('Import History</strong>', html)
+        self.assertIn('data-primary-sidebar-toggle', html)
+        self.assertIn('aria-label="Collapse navigation"', html)
         self.assertIn("/platform", html)
         self.assertIn(">My Settings<", html)
         self.assertIn(">Logout<", html)
+
+    def test_admin_sidebar_marks_analytics_active(self):
+        html = self.env.from_string("{% extends 'base.html' %}{% block content %}{% endblock %}").render(
+            request=_Request("/admin/market-activity"),
+            user=self._user(role="admin"),
+            active_page="imports",
+        )
+
+        self.assertIn("<details class=\"primary-sidebar-management\" open>", html)
+        self.assertIn(
+            'class="active" aria-current="page" title="Insights"',
+            html,
+        )
+        self.assertNotIn('class="active" aria-current="page" title="Import History"', html)
+
+    def test_pull_history_marks_history_active(self):
+        html = self.env.from_string("{% extends 'base.html' %}{% block content %}{% endblock %}").render(
+            request=_Request("/imports/history"),
+            user=self._user(role="admin"),
+            active_page="imports",
+        )
+
+        self.assertIn(
+            'class="active" aria-current="page" title="Import History"',
+            html,
+        )
+
+    def test_pursuit_lanes_marks_feed_settings_active(self):
+        html = self.env.from_string("{% extends 'base.html' %}{% block content %}{% endblock %}").render(
+            request=_Request("/pursuit-lanes"),
+            user=self._user(role="admin"),
+            active_page="pursuit_lanes",
+        )
+
+        self.assertIn(
+            'class="active" aria-current="page" title="Feed Settings"',
+            html,
+        )
 
     def test_pre_live_admin_gets_onboarding_shell_without_app_navigation(self):
         user = self._user(role="admin")

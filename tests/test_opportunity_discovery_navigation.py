@@ -59,12 +59,14 @@ class OpportunityDiscoveryNavigationTests(unittest.TestCase):
         template = Path("src/bidlens/templates/govwin_import.html").read_text()
         triage_controls = Path("src/bidlens/templates/_source_controls.html").read_text()
 
-        self.assertIn("{% block title %}Opportunity Discovery - BidLens{% endblock %}", template)
+        self.assertIn("{% block title %}Opportunity Sources - BidLens{% endblock %}", template)
         self.assertIn('id="opportunity-sources"', template)
         self.assertIn('id="manual-import"', template)
         self.assertIn("/admin/sources/sam", template)
         self.assertIn('id="grants-gov"', template)
         self.assertIn("/connect-sources/grants/enable", template)
+        self.assertIn("Opportunity Sources", template)
+        self.assertIn("Import History", template)
         self.assertIn("/opportunity-discovery", triage_controls)
         self.assertIn("#manual-import", triage_controls)
 

@@ -1,11 +1,16 @@
 import datetime as dt
+import asyncio
 import unittest
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
+from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from bidlens.database import Base
 from bidlens.models import Event, Opportunity, Organization, User, Vote
+from bidlens.routes import imports
 from bidlens.services.market_activity import (
     MarketActivityFilters,
     build_market_activity,
@@ -242,6 +247,27 @@ class MarketActivityAggregationTests(unittest.TestCase):
         self.assertNotIn("Solicitation", options["categories"])
         self.assertIn("Regional Government", options["account_types"])
         self.assertNotIn("999999", options["categories"])
+
+
+class MarketActivityRouteAccessTests(unittest.TestCase):
+    def test_member_cannot_access_analytics_page(self):
+        member = SimpleNamespace(
+            id=1,
+            organization_id=7,
+            current_organization_id=7,
+            current_role="member",
+        )
+        request = SimpleNamespace(query_params={}, url=SimpleNamespace(query=""))
+
+        with (
+            patch("bidlens.routes.imports.get_current_user", return_value=member),
+            patch("bidlens.routes.imports.attach_request_user_context", return_value=member),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                asyncio.run(imports.market_activity_page(request, db=MagicMock()))
+
+        self.assertEqual(raised.exception.status_code, 403)
+        self.assertEqual(raised.exception.detail, "Only Workspace Admins can view Analytics.")
 
 
 if __name__ == "__main__":
