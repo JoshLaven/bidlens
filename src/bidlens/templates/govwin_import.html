@@ -6,6 +6,7 @@
 {% set sam_run = latest_runs.get('sam.gov') if latest_runs else none %}
 {% set grants_run = latest_runs.get('grants.gov') if latest_runs else none %}
 {% set govwin_run = latest_runs.get('govwin_export') if latest_runs else none %}
+{% set manual_run = latest_runs.get('manual_import') if latest_runs else none %}
 {% set grants_enabled = grants_config and grants_config.enabled %}
 {% set org_id = request.query_params.get('org_id') %}
 {% if not org_id %}
@@ -16,11 +17,6 @@
 <div class="admin-page-layout workspace-management-page">
   <div class="admin-page-content">
     {{ workspace_management_hero('Opportunity Sources', 'Configure where BidLens discovers and imports opportunities.', action_url=setup_back_url) }}
-
-    <nav class="market-view-tabs" aria-label="Opportunity Sources views">
-      <a href="/opportunity-discovery{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="active" aria-current="page">Opportunity Sources</a>
-      <a href="/imports/history{% if request.url.query %}?{{ request.url.query }}{% endif %}">Import History</a>
-    </nav>
 
 {% if error %}
   <div class="alert alert-error">{{ error }}</div>
@@ -108,26 +104,23 @@
     <article class="source-config-row" id="govwin">
       <div class="source-config-identity">
         <h3>GovWin</h3>
-        <p>Commercial market intelligence source. API connection is planned; workbook import is available below.</p>
-        <span class="intake-status-pill">Manual import available</span>
+        <p>Commercial market intelligence source.</p>
+        <span class="intake-status-pill">Planned</span>
       </div>
       <dl class="source-config-meta">
         <div>
-          <dt>Last Import</dt>
-          <dd>{{ (govwin_run.finished_at or govwin_run.started_at).strftime("%b %d, %Y %I:%M %p") if govwin_run else "No imports yet" }}</dd>
+          <dt>Integration</dt>
+          <dd>Not yet available</dd>
         </div>
         <div>
-          <dt>Current Intake</dt>
-          <dd>Manual workbook upload</dd>
+          <dt>Status</dt>
+          <dd>Coming in a future release</dd>
         </div>
         <div>
-          <dt>API Connection</dt>
-          <dd>Not active</dd>
+          <dt>Source Type</dt>
+          <dd>Commercial intelligence</dd>
         </div>
       </dl>
-      <div class="source-config-action">
-        <a href="#manual-import" class="btn btn-sm btn-outline-secondary">Import Workbook</a>
-      </div>
     </article>
   </div>
 </section>
@@ -135,33 +128,34 @@
 <section class="intake-section" id="manual-import">
   <div class="intake-section-header">
     <h2>Manual Opportunity Import</h2>
-    <p>Upload opportunity exports that are not yet pulled automatically.</p>
+    <p>Upload opportunities that are not currently pulled automatically.</p>
   </div>
 
   <div class="source-config-list">
     <article class="source-config-row source-config-row--upload">
       <div class="source-config-identity">
-        <h3>Excel Workbook Upload</h3>
-        <p>Import a workbook using the current GovWin export schema.</p>
+        <h3>Opportunity File Upload</h3>
+        <p>Import opportunities using the BidLens CSV template.</p>
         <span class="intake-status-pill">Manual upload</span>
       </div>
       <dl class="source-config-meta">
         <div>
           <dt>Last Import</dt>
-          <dd>{{ (govwin_run.finished_at or govwin_run.started_at).strftime("%b %d, %Y %I:%M %p") if govwin_run else "No imports yet" }}</dd>
+          <dd>{{ (manual_run.finished_at or manual_run.started_at).strftime("%b %d, %Y %I:%M %p") if manual_run else "No imports yet" }}</dd>
         </div>
         <div>
           <dt>Accepted Format</dt>
-          <dd>.xlsx GovWin export</dd>
+          <dd>.csv BidLens template</dd>
         </div>
       </dl>
-      <form method="POST" action="/imports/govwin{% if request.url.query %}?{{ request.url.query }}{% endif %}" enctype="multipart/form-data" class="source-config-upload">
-        <label for="govwin-file">Upload opportunity workbook</label>
+      <form method="POST" action="/imports/manual{% if request.url.query %}?{{ request.url.query }}{% endif %}" enctype="multipart/form-data" class="source-config-upload">
+        <label for="manual-import-file">Upload opportunity file</label>
         <div class="intake-upload-row">
-          <input id="govwin-file" type="file" name="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+          <a href="/imports/manual/template.csv{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary">Download CSV Template</a>
+          <input id="manual-import-file" type="file" name="file" accept=".csv,text/csv" required>
           <button type="submit" class="btn btn-primary">Import Opportunities</button>
         </div>
-        <small>This importer currently expects the GovWin export schema and upserts by source, workspace, and GovWin Staging Name.</small>
+        <small>The file must follow the BidLens CSV template. Existing records are updated when the source and source record ID match.</small>
       </form>
     </article>
   </div>

@@ -9,7 +9,7 @@
 
 <div class="admin-page-layout workspace-management-page organization-overview workspace-members-page">
   <div class="admin-page-content">
-    {{ workspace_management_hero('Users', 'Invite users and manage access to this workspace.', workspace.updated_at if workspace else none, action_url=setup_back_url) }}
+    {{ workspace_management_hero('Users', 'Invite users and manage access to this workspace.', none, action_url=setup_back_url) }}
 
     {% if page_message %}<div class="alert alert-success">{{ page_message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}

@@ -3,7 +3,7 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi import HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session, joinedload
@@ -28,6 +28,12 @@ from ..services.market_activity import (
     market_activity_filter_options,
 )
 from ..services.govwin_import import REASON_LABELS, import_govwin_xlsx
+from ..services.manual_import import (
+    REASON_LABELS as MANUAL_IMPORT_REASON_LABELS,
+    SOURCE as MANUAL_IMPORT_SOURCE,
+    csv_template_text,
+    import_manual_csv,
+)
 from ..services.opportunity_stages import normalize_display_stage
 from ..services.sam_source_config import (
     SAM_NOTICE_TYPES,
@@ -123,6 +129,39 @@ def _record_govwin_import_run(
     )
 
 
+def _record_manual_import_run(
+    db: Session,
+    *,
+    organization_id: int,
+    user_id: int,
+    filename: str,
+    result: dict | None = None,
+    error_reason: str | None = None,
+    error_message: str | None = None,
+) -> IngestionRun:
+    reason_counts = dict((result or {}).get("reason_counts") or {})
+    if error_reason:
+        reason_counts[error_reason] = reason_counts.get(error_reason, 0) + 1
+    reason_labels = {**MANUAL_IMPORT_REASON_LABELS, **{
+        "invalid_file_type": "Invalid file type",
+        "empty_file": "Empty file",
+        "import_error": "Import error",
+    }}
+
+    return record_source_activity(
+        db,
+        source=MANUAL_IMPORT_SOURCE,
+        organization_id=organization_id,
+        user_id=user_id,
+        filename=filename or None,
+        result=result,
+        error_count=1 if error_reason else None,
+        reason_counts=reason_counts,
+        reason_labels=reason_labels,
+        notes=error_message,
+    )
+
+
 def _reason_summary_items(run: IngestionRun) -> list[dict]:
     summary = run.reason_summary_json if isinstance(run.reason_summary_json, dict) else {}
     reason_counts = summary.get("reason_counts") if isinstance(summary.get("reason_counts"), dict) else {}
@@ -145,6 +184,7 @@ def _source_label(source: str | None) -> str:
         "grants.gov": "Grants.gov",
         "govwin_export": "GovWin Upload",
         "govwin_api": "GovWin API",
+        MANUAL_IMPORT_SOURCE: "Manual Import",
     }
     return labels.get(source or "", source or "Source")
 
@@ -256,7 +296,7 @@ def _recent_activity(db: Session, org_id: int, limit: int = 5) -> list[dict]:
 
 def _latest_runs_by_source(db: Session, org_id: int) -> dict[str, IngestionRun]:
     latest = {}
-    for source in ("sam.gov", "grants.gov", "govwin_export"):
+    for source in ("sam.gov", "grants.gov", "govwin_export", MANUAL_IMPORT_SOURCE):
         latest[source] = (
             db.query(IngestionRun)
             .filter(
@@ -323,6 +363,18 @@ async def govwin_import_page(request: Request, db: Session = Depends(get_db)):
     return RedirectResponse(
         url=_opportunity_discovery_url(request, org_id=_user_org_id(user), fragment="manual-import"),
         status_code=303,
+    )
+
+
+@router.get("/imports/manual/template.csv")
+async def manual_import_template(request: Request, db: Session = Depends(get_db)):
+    user = require_admin(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    return Response(
+        content=csv_template_text(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="bidlens-opportunity-import-template.csv"'},
     )
 
 
@@ -970,6 +1022,72 @@ async def govwin_import_upload(
             db.rollback()
             error = f"Unable to import GovWin export: {exc}"
             _record_govwin_import_run(
+                db,
+                organization_id=org_id,
+                user_id=user.id,
+                filename=filename,
+                error_reason="import_error",
+                error_message=error,
+            )
+            db.commit()
+
+    context = _intake_context(request, db, user, result=result, error=error)
+    return templates.TemplateResponse("govwin_import.html", context)
+
+
+@router.post("/imports/manual")
+async def manual_import_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    user = require_admin(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    error = None
+    result = None
+    filename = file.filename or ""
+    org_id = _user_org_id(user)
+    if not filename.lower().endswith(".csv"):
+        error = "Upload a BidLens CSV file."
+        _record_manual_import_run(
+            db,
+            organization_id=org_id,
+            user_id=user.id,
+            filename=filename,
+            error_reason="invalid_file_type",
+            error_message=error,
+        )
+        db.commit()
+    else:
+        try:
+            file_bytes = await file.read()
+            if not file_bytes:
+                error = "The uploaded file was empty."
+                _record_manual_import_run(
+                    db,
+                    organization_id=org_id,
+                    user_id=user.id,
+                    filename=filename,
+                    error_reason="empty_file",
+                    error_message=error,
+                )
+                db.commit()
+            else:
+                result = import_manual_csv(db, org_id, file_bytes)
+                _record_manual_import_run(
+                    db,
+                    organization_id=org_id,
+                    user_id=user.id,
+                    filename=filename,
+                    result=result,
+                )
+                db.commit()
+        except Exception as exc:
+            db.rollback()
+            error = f"Unable to import opportunities: {exc}"
+            _record_manual_import_run(
                 db,
                 organization_id=org_id,
                 user_id=user.id,

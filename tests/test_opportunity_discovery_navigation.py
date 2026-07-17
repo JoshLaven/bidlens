@@ -66,9 +66,36 @@ class OpportunityDiscoveryNavigationTests(unittest.TestCase):
         self.assertIn('id="grants-gov"', template)
         self.assertIn("/connect-sources/grants/enable", template)
         self.assertIn("Opportunity Sources", template)
-        self.assertIn("Import History", template)
+        self.assertNotIn('aria-label="Opportunity Sources views"', template)
+        self.assertNotIn("market-view-tabs", template)
         self.assertIn("/opportunity-discovery", triage_controls)
         self.assertIn("#manual-import", triage_controls)
+
+    def test_users_setup_header_keeps_back_link_without_updated_badge(self):
+        template = Path("src/bidlens/templates/workspace_members.html").read_text()
+
+        self.assertIn("action_url=setup_back_url", template)
+        self.assertIn("workspace_management_hero('Users'", template)
+        self.assertNotIn("workspace.updated_at", template)
+
+    def test_govwin_source_is_future_placeholder_and_manual_import_is_generic_csv(self):
+        template = Path("src/bidlens/templates/govwin_import.html").read_text()
+
+        self.assertIn("<h3>GovWin</h3>", template)
+        self.assertIn("Commercial market intelligence source.", template)
+        self.assertIn("Not yet available", template)
+        self.assertIn("Coming in a future release", template)
+        self.assertNotIn("Import Workbook", template)
+        self.assertNotIn("workbook import is available below", template)
+
+        self.assertIn("Opportunity File Upload", template)
+        self.assertIn("BidLens CSV template", template)
+        self.assertIn("/imports/manual/template.csv", template)
+        self.assertIn('accept=".csv,text/csv"', template)
+        self.assertIn("Import Opportunities", template)
+        self.assertNotIn("GovWin export schema", template)
+        self.assertNotIn("GovWin Staging Name", template)
+        self.assertNotIn(".xlsx GovWin export", template)
 
 
 if __name__ == "__main__":
