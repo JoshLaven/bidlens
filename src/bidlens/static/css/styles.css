@@ -9252,14 +9252,6 @@ details[open] .accordion-summary::after {
   color: #286b49;
 }
 
-.triage-source-filter-row {
-  margin: 0 0 12px;
-}
-
-.triage-source-filter-row .stage-filter {
-  margin: 0;
-}
-
 .source-filter-chip.is-selected {
   border-color: rgba(93, 111, 134, 0.34);
   background: rgba(238, 242, 247, 0.94);
@@ -9300,13 +9292,19 @@ details[open] .accordion-summary::after {
 
 .queue-toolbar-column--filters {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 10px 18px;
   justify-self: end;
   width: auto;
   max-width: min(100%, 760px);
+}
+
+.queue-filter-stack {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
 }
 
 .queue-toolbar-heading {
@@ -9321,11 +9319,6 @@ details[open] .accordion-summary::after {
 .queue-toolbar-column--filters .stage-filter {
   min-width: 0;
   margin: 0;
-}
-
-.queue-toolbar-column--filters .queue-toolbar-heading {
-  flex: 0 0 100%;
-  text-align: right;
 }
 
 .queue-toolbar-tabs {
@@ -10703,8 +10696,8 @@ details[open] .accordion-summary::after {
     max-width: none;
   }
 
-  .queue-toolbar-column--filters .queue-toolbar-heading {
-    text-align: left;
+  .queue-filter-stack {
+    width: 100%;
   }
 
   .queue-toolbar-column--sort {

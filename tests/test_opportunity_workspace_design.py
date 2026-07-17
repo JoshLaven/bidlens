@@ -34,23 +34,28 @@ class OpportunityWorkspaceDesignTests(unittest.TestCase):
         self.assertIn("view in ['my_shortlist', 'user_archive'] and pursuit_lanes", self.card)
         self.assertIn("Open in Salesforce", self.card)
 
-    def test_shared_toolbar_supports_source_then_stage_filters(self):
+    def test_shared_toolbar_stacks_stage_then_source_filters(self):
         self.assertIn("source_options=none", self.toolbar)
+        self.assertIn("show_tabs=true", self.toolbar)
+        self.assertIn("queue-filter-stack", self.toolbar)
         toolbar_body = self.toolbar[self.toolbar.index("{% macro queue_toolbar("):]
         self.assertLess(
-            toolbar_body.index("source_filter_chips(route"),
             toolbar_body.index("stage_filter_chips(route"),
+            toolbar_body.index("source_filter_chips(route"),
         )
         self.assertIn("justify-content: flex-end;", self.styles)
+        self.assertIn(".queue-filter-stack", self.styles)
 
     def test_triage_uses_shared_toolbar_for_source_filter(self):
         self.assertNotIn("triage-source-filter-row", self.triage)
+        self.assertNotIn("triage-source-filter-row", self.styles)
         self.assertIn("source_options, selected_sources", self.triage)
 
     def test_archive_uses_role_aware_shared_toolbar_filters(self):
         self.assertIn("selected_stages", self.archive)
         self.assertIn("source_options if user.current_role == 'admin' else none", self.archive)
         self.assertIn("sources_value if user.current_role == 'admin' else none", self.archive)
+        self.assertIn("selected_sources if user.current_role == 'admin' else none, false", self.archive)
 
     def test_archive_route_defaults_filters_to_all_without_changing_dataset(self):
         self.assertIn("selected_stages = _normalize_stage_filters(", self.routes)

@@ -7,7 +7,7 @@
 
 {{ queue_heading('Archive', 'Review opportunities you have removed from active consideration.') }}
 {{ queue_search('/archive', 'archive-search-input', q, sort, direction, current_tab, org_id_param, none, stages_value, sources_value if user.current_role == 'admin' else none) }}
-{{ queue_toolbar('/archive', 'archive', sort, direction, q, current_tab, org_id_param, none, none, stages_value, sources_value if user.current_role == 'admin' else none, selected_stages, none, true, false, source_options if user.current_role == 'admin' else none, selected_sources if user.current_role == 'admin' else none) }}
+{{ queue_toolbar('/archive', 'archive', sort, direction, q, current_tab, org_id_param, none, none, stages_value, sources_value if user.current_role == 'admin' else none, selected_stages, none, true, false, source_options if user.current_role == 'admin' else none, selected_sources if user.current_role == 'admin' else none, false) }}
 {{ queue_count(result_count, q) }}
 
 <div id="opportunity-list" data-list-view="archive">

@@ -133,12 +133,12 @@
   </script>
 {% endmacro %}
 
-{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none, my_lanes=none, show_filters=true, feed_sort_options=false, source_options=none, selected_sources=none) %}
+{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none, my_lanes=none, show_filters=true, feed_sort_options=false, source_options=none, selected_sources=none, show_tabs=true) %}
   {% set show_filter_controls = show_filters and (selected_stages is not none or active_lanes or my_lanes or source_options) %}
   <div class="queue-toolbar{% if not show_filter_controls %} queue-toolbar--sort-only{% endif %}" aria-label="Queue organization controls">
     <div class="queue-toolbar-column queue-toolbar-column--sort">
       <span class="queue-toolbar-heading">Sort By</span>
-      {% if current_tab %}
+      {% if current_tab and show_tabs %}
         <div class="tabs queue-toolbar-tabs">
           <a href="{{ route }}?tab=solicitations&sort={{ sort }}&direction={{ direction }}{% if lane_id %}&lane_id={{ lane_id }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}" class="tab {{ 'active' if current_tab == 'solicitations' else '' }}">RFPs / Forecasts</a>
           <a href="{{ route }}?tab=rfi&sort={{ sort }}&direction={{ direction }}{% if lane_id %}&lane_id={{ lane_id }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}{% if org_id %}&org_id={{ org_id }}{% endif %}" class="tab {{ 'active' if current_tab == 'rfi' else '' }}">RFIs</a>
@@ -178,12 +178,16 @@
 
     {% if show_filter_controls %}
       <div class="queue-toolbar-column queue-toolbar-column--filters">
-        <span class="queue-toolbar-heading">Filters</span>
-        {% if source_options %}
-          {{ source_filter_chips(route, source_options, selected_sources or [], sources_value, stages_value, sort, direction, q, org_id, lane_id) }}
-        {% endif %}
-        {% if selected_stages is not none %}
-          {{ stage_filter_chips(route, selected_stages, stages_value, sort, direction, q, org_id, lane_id, sources_value) }}
+        {% if selected_stages is not none or source_options %}
+          <div class="queue-filter-stack">
+            <span class="queue-toolbar-heading">Filters</span>
+            {% if selected_stages is not none %}
+              {{ stage_filter_chips(route, selected_stages, stages_value, sort, direction, q, org_id, lane_id, sources_value) }}
+            {% endif %}
+            {% if source_options %}
+              {{ source_filter_chips(route, source_options, selected_sources or [], sources_value, stages_value, sort, direction, q, org_id, lane_id) }}
+            {% endif %}
+          </div>
         {% endif %}
         {% if active_lanes or my_lanes %}
           {% set my_lane_ids = my_lanes|map(attribute='id')|list if my_lanes else [] %}
