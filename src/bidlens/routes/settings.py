@@ -1,7 +1,7 @@
 from urllib.parse import parse_qsl, urlencode
 
 from fastapi import APIRouter, Request, Form, Depends
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -53,6 +53,10 @@ def _settings_redirect_url(request: Request) -> str:
     return f"/settings?{query}" if query else "/settings"
 
 
+def _wants_json(request: Request) -> bool:
+    return getattr(request, "headers", {}).get("x-requested-with") == "fetch"
+
+
 def _my_lanes_redirect_url(request: Request) -> str:
     params = [
         (key, value)
@@ -70,6 +74,8 @@ async def my_settings_page(
 ):
     user = require_user(request, db)
     if not user:
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "error": "Please sign in again."}, status_code=401)
         return RedirectResponse(url="/login", status_code=303)
 
     return templates.TemplateResponse("my_settings.html", {
@@ -307,4 +313,9 @@ async def settings_save(
 
     db.commit()
 
+    if _wants_json(request):
+        return JSONResponse({
+            "ok": True,
+            "triage_enabled": bool(profile.triage_enabled),
+        })
     return RedirectResponse(url=_settings_redirect_url(request), status_code=303)

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -9,6 +9,7 @@ from ..auth import attach_request_user_context, get_current_user
 from ..database import get_db
 from ..models import OrganizationMembership, OpportunityPursuitLaneMatch, PursuitLane, User
 from ..services.pursuit_lanes import (
+    lane_match_terms,
     parse_list,
     refresh_lane_matches,
     refresh_org_lane_matches,
@@ -70,6 +71,58 @@ def _redirect(
     return RedirectResponse(url=f"/settings{suffix}", status_code=303)
 
 
+def _wants_json(request: Request) -> bool:
+    return getattr(request, "headers", {}).get("x-requested-with") == "fetch"
+
+
+def _json_error(request: Request, message: str, status_code: int = 400):
+    if _wants_json(request):
+        return JSONResponse({"ok": False, "error": message}, status_code=status_code)
+    return None
+
+
+def _lane_match_count(db: Session, org_id: int, lane_id: int) -> int:
+    return (
+        db.query(func.count(OpportunityPursuitLaneMatch.id))
+        .filter(
+            OpportunityPursuitLaneMatch.organization_id == org_id,
+            OpportunityPursuitLaneMatch.pursuit_lane_id == lane_id,
+        )
+        .scalar()
+        or 0
+    )
+
+
+def _lane_payload(db: Session, org_id: int, lane: PursuitLane) -> dict:
+    return {
+        "id": lane.id,
+        "name": lane.name,
+        "is_active": bool(lane.is_active),
+        "match_terms": lane_match_terms(lane),
+        "match_terms_text": ", ".join(lane_match_terms(lane)),
+        "match_count": _lane_match_count(db, org_id, lane.id),
+    }
+
+
+def _match_terms_from_inputs(
+    *,
+    match_terms: str = "",
+    keywords: str = "",
+    agencies: str = "",
+    naics: str = "",
+    set_asides: str = "",
+) -> list[str]:
+    explicit_terms = parse_list(match_terms)
+    if explicit_terms:
+        return explicit_terms
+    return parse_list(
+        parse_list(keywords)
+        + parse_list(agencies)
+        + parse_list(naics)
+        + parse_list(set_asides)
+    )
+
+
 @router.get("/pursuit-lanes")
 async def pursuit_lanes_page(request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
@@ -108,6 +161,7 @@ def lane_management_context(db: Session, user: User) -> dict:
         "match_counts": match_counts,
         "my_lanes": my_lanes,
         "my_lane_ids": my_lane_ids,
+        "lane_match_terms": lane_match_terms,
         "can_manage_lanes": _can_manage_lanes(db, user),
     }
 
@@ -116,6 +170,7 @@ def lane_management_context(db: Session, user: User) -> dict:
 async def create_pursuit_lane(
     request: Request,
     name: str = Form(""),
+    match_terms: str = Form(""),
     description: str = Form(""),
     agencies: str = Form(""),
     naics: str = Form(""),
@@ -126,29 +181,47 @@ async def create_pursuit_lane(
 ):
     user = require_user(request, db)
     if not user:
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "error": "Please sign in again."}, status_code=401)
         return RedirectResponse(url="/login", status_code=303)
     if not _can_manage_lanes(db, user):
+        error = _json_error(request, "You do not have permission to manage pursuit lanes.", 403)
+        if error:
+            return error
         return _redirect(request, db, user)
 
     lane_name = name.strip()
     if not lane_name:
+        error = _json_error(request, "Lane name is required.", 400)
+        if error:
+            return error
         return _redirect(request)
 
     org_id = _user_org_id(user)
+    terms = _match_terms_from_inputs(
+        match_terms=match_terms,
+        keywords=keywords,
+        agencies=agencies,
+        naics=naics,
+        set_asides=set_asides,
+    )
     lane = PursuitLane(
         organization_id=org_id,
         name=lane_name,
-        description=description.strip() or None,
-        agencies=parse_list(agencies),
-        naics=parse_list(naics),
-        keywords=parse_list(keywords),
-        set_asides=parse_list(set_asides),
+        description=None,
+        agencies=[],
+        naics=[],
+        keywords=terms,
+        set_asides=[],
         is_active=bool(is_active),
     )
     db.add(lane)
     db.flush()
     refresh_lane_matches(db, org_id, lane)
     db.commit()
+    if _wants_json(request):
+        db.refresh(lane)
+        return JSONResponse({"ok": True, "lane": _lane_payload(db, org_id, lane)})
     return _redirect(request, db, user, saved=True)
 
 
@@ -157,6 +230,7 @@ async def update_pursuit_lane(
     request: Request,
     lane_id: int,
     name: str = Form(""),
+    match_terms: str = Form(""),
     description: str = Form(""),
     agencies: str = Form(""),
     naics: str = Form(""),
@@ -167,8 +241,13 @@ async def update_pursuit_lane(
 ):
     user = require_user(request, db)
     if not user:
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "error": "Please sign in again."}, status_code=401)
         return RedirectResponse(url="/login", status_code=303)
     if not _can_manage_lanes(db, user):
+        error = _json_error(request, "You do not have permission to manage pursuit lanes.", 403)
+        if error:
+            return error
         return _redirect(request, db, user)
 
     org_id = _user_org_id(user)
@@ -178,19 +257,63 @@ async def update_pursuit_lane(
         .first()
     )
     if not lane:
+        error = _json_error(request, "Pursuit lane was not found.", 404)
+        if error:
+            return error
         return _redirect(request, db, user)
 
     lane_name = name.strip()
     if lane_name:
         lane.name = lane_name
-    lane.description = description.strip() or None
-    lane.agencies = parse_list(agencies)
-    lane.naics = parse_list(naics)
-    lane.keywords = parse_list(keywords)
-    lane.set_asides = parse_list(set_asides)
+    terms = _match_terms_from_inputs(
+        match_terms=match_terms,
+        keywords=keywords,
+        agencies=agencies,
+        naics=naics,
+        set_asides=set_asides,
+    )
+    lane.description = None
+    lane.agencies = []
+    lane.naics = []
+    lane.keywords = terms
+    lane.set_asides = []
     lane.is_active = bool(is_active)
     refresh_lane_matches(db, org_id, lane)
     db.commit()
+    if _wants_json(request):
+        db.refresh(lane)
+        return JSONResponse({"ok": True, "lane": _lane_payload(db, org_id, lane)})
+    return _redirect(request, db, user, saved=True)
+
+
+@router.post("/pursuit-lanes/{lane_id}/delete")
+async def delete_pursuit_lane(
+    request: Request,
+    lane_id: int,
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "error": "Please sign in again."}, status_code=401)
+        return RedirectResponse(url="/login", status_code=303)
+    if not _can_manage_lanes(db, user):
+        error = _json_error(request, "You do not have permission to manage pursuit lanes.", 403)
+        if error:
+            return error
+        return _redirect(request, db, user)
+
+    org_id = _user_org_id(user)
+    lane = (
+        db.query(PursuitLane)
+        .filter(PursuitLane.id == lane_id, PursuitLane.organization_id == org_id)
+        .first()
+    )
+    if lane:
+        db.delete(lane)
+        db.commit()
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "lane_id": lane_id})
     return _redirect(request, db, user, saved=True)
 
 

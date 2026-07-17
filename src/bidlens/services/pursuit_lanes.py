@@ -44,23 +44,47 @@ def _naics_reasons(opp_naics: str | None, lane_naics: list[str]) -> list[str]:
     return reasons
 
 
-def match_lane_to_opportunity(lane: PursuitLane, opportunity: Opportunity) -> list[str]:
-    reasons: list[str] = []
-    reasons.extend(_contains_any(opportunity.agency, lane.agencies or [], "Agency"))
-    reasons.extend(_naics_reasons(opportunity.naics, lane.naics or []))
-    reasons.extend(_contains_any(opportunity.set_aside, lane.set_asides or [], "Set-aside"))
+def lane_match_terms(lane: PursuitLane) -> list[str]:
+    """Return the V1 match terms for a lane.
 
+    New lane edits store Match Terms in ``keywords``. Existing lanes may still
+    have legacy agencies, NAICS, or set-asides populated, so include those as
+    terms until a user edits the lane and the route rewrites it into the V1
+    representation.
+    """
+    terms: list[str] = []
+    seen = set()
+    for collection in (
+        lane.keywords or [],
+        lane.agencies or [],
+        lane.naics or [],
+        lane.set_asides or [],
+    ):
+        for raw in collection:
+            term = str(raw or "").strip()
+            key = term.lower()
+            if term and key not in seen:
+                seen.add(key)
+                terms.append(term)
+    return terms
+
+
+def match_lane_to_opportunity(lane: PursuitLane, opportunity: Opportunity) -> list[str]:
+    terms = lane_match_terms(lane)
     text = " ".join(
         part
         for part in [
             opportunity.title,
+            opportunity.agency,
+            opportunity.naics,
+            opportunity.naics_title,
+            opportunity.set_aside,
             opportunity.description,
             opportunity.description_text,
         ]
         if part
     )
-    reasons.extend(_contains_any(text, lane.keywords or [], "Keyword"))
-    return reasons
+    return _contains_any(text, terms, "Match term")
 
 
 def refresh_lane_matches(db: Session, organization_id: int, lane: PursuitLane) -> int:
