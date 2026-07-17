@@ -91,6 +91,8 @@ class IngestionRunDetailTests(unittest.TestCase):
             ["created", "unchanged", "updated", "skipped_duplicate", "skipped_invalid"],
         )
         self.assertEqual(details[2].changed_fields_json.keys(), {"title", "description", "description_text"})
+        self.assertNotIn("silently", details[2].reason.lower())
+        self.assertIn("Existing opportunity updated", details[2].reason)
         self.assertIn("Duplicate row within same import file", details[3].reason)
         self.assertEqual(run.processed_count, 5)
         self.assertEqual(run.created_count, 1)

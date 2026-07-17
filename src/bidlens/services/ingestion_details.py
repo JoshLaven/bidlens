@@ -4,6 +4,40 @@ from datetime import datetime
 from typing import Any
 
 
+FIELD_LABELS = {
+    "response_deadline": "Due date",
+    "description_text": "Synopsis",
+    "description": "Description",
+    "source_stage": "Status",
+    "opportunity_type": "Opportunity type",
+    "set_aside": "Set-aside",
+    "source_url": "Source URL",
+    "sam_url": "SAM URL",
+    "description_url": "Solicitation documents",
+    "solicitation_number": "Solicitation number",
+}
+
+
+def _field_label(field_name: str) -> str:
+    return FIELD_LABELS.get(field_name, field_name.replace("_", " ").title())
+
+
+def _meaningful_update_reason(audit: dict[str, Any]) -> str:
+    changed_fields = audit.get("changed_fields") or {}
+    if isinstance(changed_fields, dict):
+        field_names = list(changed_fields)
+    else:
+        field_names = list(changed_fields or [])
+    if not field_names:
+        return "Existing opportunity updated"
+    labels = [_field_label(field_name) for field_name in field_names]
+    if len(labels) == 1:
+        return f"Existing opportunity updated · {labels[0]} changed"
+    if len(labels) == 2:
+        return f"Existing opportunity updated · {labels[0]} and {labels[1]} changed"
+    return f"Existing opportunity updated · {len(labels)} meaningful changes recorded"
+
+
 def build_upsert_detail(
     *,
     source: str,
@@ -32,8 +66,10 @@ def build_upsert_detail(
             sync_status = audit.get("salesforce_sync_status")
             suffix = f"; Salesforce sync {sync_status}" if sync_status else ""
             reason = f"Existing linked Salesforce opportunity updated{suffix}"
+        elif audit.get("update_event_id") or audit.get("changed_fields"):
+            reason = _meaningful_update_reason(audit)
         else:
-            reason = "Existing unlinked opportunity updated silently"
+            reason = "Existing opportunity refreshed with non-user-facing source changes"
     elif reason_code == "duplicate_within_import":
         reason = "Duplicate row within same import file"
     else:

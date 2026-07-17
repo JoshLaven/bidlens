@@ -589,6 +589,22 @@
                     {% endif %}
                   {% elif event.timeline_description %}
                     <div class="opportunity-history-description">{{ event.timeline_description }}</div>
+                    {% if event.timeline_modified_fields %}
+                      <div class="opportunity-history-detail">
+                        <span class="opportunity-history-detail-label">Changed fields</span>
+                        <div class="opportunity-history-field-list">{{ event.timeline_modified_fields | join(', ') }}</div>
+                      </div>
+                    {% endif %}
+                    {% if event.timeline_change_details %}
+                      <div class="opportunity-history-detail">
+                        <span class="opportunity-history-detail-label">Changes</span>
+                        <ul class="opportunity-history-change-list">
+                          {% for change in event.timeline_change_details %}
+                            <li>{{ change.summary }}</li>
+                          {% endfor %}
+                        </ul>
+                      </div>
+                    {% endif %}
                   {% endif %}
                   <time class="opportunity-history-time" datetime="{{ event.occurred_at.isoformat() }}">{{ event.time_label }}</time>
                 </div>

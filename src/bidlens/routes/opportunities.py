@@ -270,6 +270,13 @@ def _prepare_history_events(events: list[OpportunityHistoryEvent]) -> list[Oppor
             version_name=event_data.get("version_name") or "version",
         )
         event.timeline_description = event_data.get("modification_description")
+        if event.event_type == "source_updated":
+            event.timeline_description = event_data.get("summary")
+            event.timeline_modified_fields = event_data.get("changed_field_labels") or [
+                _history_field_label(field)
+                for field in (event_data.get("changed_fields") or [])
+            ]
+            event.timeline_change_details = event_data.get("changes") or []
         event.is_grants_version = event.event_type in {
             "grants_synopsis_version",
             "grants_forecast_version",
@@ -642,6 +649,24 @@ def _enrich_opps(rows, db, user, watched_col=True):
                 "reasons": match.matched_reasons or [],
             }
         )
+    update_event_rows = (
+        db.query(OpportunityHistoryEvent)
+        .filter(
+            OpportunityHistoryEvent.organization_id == _user_org_id(user),
+            OpportunityHistoryEvent.opportunity_id.in_(opp_ids),
+            OpportunityHistoryEvent.event_type == "source_updated",
+        )
+        .order_by(
+            OpportunityHistoryEvent.opportunity_id.asc(),
+            OpportunityHistoryEvent.occurred_at.desc(),
+            OpportunityHistoryEvent.id.desc(),
+        )
+        .all()
+        if opp_ids else []
+    )
+    latest_update_map: dict[int, OpportunityHistoryEvent] = {}
+    for event in update_event_rows:
+        latest_update_map.setdefault(event.opportunity_id, event)
     crm_user_ids = sorted({opp.crm_pushed_by for opp in opportunities if getattr(opp, "crm_pushed_by", None)})
     crm_user_map = {
         user_id: (name or email or f"User {user_id}")
@@ -681,6 +706,14 @@ def _enrich_opps(rows, db, user, watched_col=True):
         opp.crm_pushed_by_label = crm_user_map.get(getattr(opp, "crm_pushed_by", None))
         opp.preview_description = _clean_preview_text(opp.description_text or opp.description or "")
         opp.preview_has_sam_fallback = bool((not opp.preview_description) and (getattr(opp, "source_url", None) or getattr(opp, "sam_url", None)))
+        latest_update = latest_update_map.get(opp.id)
+        event_data = latest_update.event_data if latest_update and isinstance(latest_update.event_data, dict) else {}
+        labels = event_data.get("changed_field_labels") or []
+        opp.updated_since_import = bool(latest_update)
+        opp.updated_since_import_label = (
+            f"Updated since import · {labels[0]} changed"
+            if labels else "Updated since import"
+        )
 
     return opportunities
 

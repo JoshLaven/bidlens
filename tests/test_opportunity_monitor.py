@@ -8,7 +8,8 @@ from sqlalchemy.orm import sessionmaker
 from bidlens.database import Base
 from bidlens.ingest_grants_gov import upsert_grants_gov_opportunity
 from bidlens.ingest_sam import upsert_opportunity
-from bidlens.models import Opportunity, OpportunityUpdateEvent, Organization
+from bidlens.models import Opportunity, OpportunityHistoryEvent, OpportunityUpdateEvent, Organization, User, Vote
+from bidlens.services.opportunity_history import EVENT_SOURCE_UPDATED
 from bidlens.services.govwin_import import upsert_govwin_opportunity
 from bidlens.services.opportunity_monitor import apply_source_update
 
@@ -89,6 +90,87 @@ class OpportunityMonitorTests(unittest.TestCase):
         self.assertEqual(event.salesforce_sync_status, "not_linked")
         self.assertIsNone(event.salesforce_payload)
         self.assertEqual(result.update_event_id, event.id)
+        history = self.db.query(OpportunityHistoryEvent).one()
+        self.assertEqual(history.event_type, EVENT_SOURCE_UPDATED)
+        self.assertEqual(history.event_data["summary"], "Title changed")
+        self.assertEqual(history.event_data["changed_fields"], ["title"])
+        self.assertEqual(history.event_data["changes"][0]["before"], "Original title")
+        self.assertEqual(history.event_data["changes"][0]["after"], "Changed title")
+
+    def test_unshortlisted_feed_opportunity_records_grouped_meaningful_history(self):
+        opportunity = self._opportunity(decision_state="INBOX", qualification_status="qualified")
+
+        result = apply_source_update(
+            self.db,
+            opportunity,
+            {
+                "response_deadline": dt.date(2026, 7, 29),
+                "set_aside": "8(a)",
+                "description_text": "Updated synopsis content",
+            },
+            observed_at=dt.datetime(2026, 7, 2, 8, 0),
+        )
+        self.db.flush()
+
+        self.assertTrue(result.changed)
+        self.assertEqual(opportunity.response_deadline, dt.date(2026, 7, 29))
+        self.assertEqual(opportunity.set_aside, "8(a)")
+        self.assertEqual(opportunity.description_text, "Updated synopsis content")
+        self.assertIsNone(result.changed_fields["description_text"]["before"])
+        self.assertIsNone(result.changed_fields["description_text"]["after"])
+        self.assertEqual(self.db.query(OpportunityUpdateEvent).count(), 1)
+        history = self.db.query(OpportunityHistoryEvent).one()
+        self.assertEqual(history.event_data["change_count"], 3)
+        self.assertEqual(
+            set(history.event_data["changed_fields"]),
+            {"response_deadline", "set_aside", "description_text"},
+        )
+        summaries = [change["summary"] for change in history.event_data["changes"]]
+        self.assertIn("Due date changed from 2026-07-01 to 2026-07-29", summaries)
+        self.assertIn("Set-aside changed from Not set to 8(a)", summaries)
+        self.assertIn("Synopsis updated", summaries)
+
+    def test_timestamp_and_equivalent_values_do_not_create_history(self):
+        opportunity = self._opportunity(
+            title="Original title",
+            description_text="Original description",
+            raw_source_payload={"modified_at": "2026-07-01T00:00:00Z"},
+        )
+        result = apply_source_update(
+            self.db,
+            opportunity,
+            {
+                "title": "  Original   title  ",
+                "description_text": "Original\ndescription",
+                "raw_source_payload": {"modified_at": "2026-07-02T00:00:00Z"},
+            },
+        )
+        self.db.flush()
+
+        self.assertFalse(result.changed)
+        self.assertEqual(self.db.query(OpportunityUpdateEvent).count(), 0)
+        self.assertEqual(self.db.query(OpportunityHistoryEvent).count(), 0)
+        self.assertEqual(opportunity.raw_source_payload, {"modified_at": "2026-07-01T00:00:00Z"})
+
+    def test_shortlisted_opportunity_still_notifies_only_interested_users(self):
+        opportunity = self._opportunity(decision_state="SHORTLISTED")
+        interested = User(email="interested-monitor@example.com", organization_id=self.org.id)
+        untouched = User(email="untouched-monitor@example.com", organization_id=self.org.id)
+        self.db.add_all([interested, untouched])
+        self.db.flush()
+        self.db.add(Vote(org_id=self.org.id, opp_id=opportunity.id, user_id=interested.id, vote="PURSUE"))
+        self.db.commit()
+
+        result = apply_source_update(
+            self.db,
+            opportunity,
+            {"response_deadline": dt.date(2026, 8, 1)},
+        )
+        self.db.commit()
+
+        self.assertTrue(result.changed)
+        history = self.db.query(OpportunityHistoryEvent).one()
+        self.assertEqual([recipient.user_id for recipient in history.recipients], [interested.id])
 
     @patch("bidlens.services.opportunity_monitor.SalesforceService")
     def test_linked_change_records_successful_salesforce_sync(self, service_class):

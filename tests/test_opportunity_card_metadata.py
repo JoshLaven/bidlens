@@ -12,6 +12,8 @@ class OpportunityCardMetadataTests(unittest.TestCase):
         self.assertIn("opp-card-agency", self.collapsed)
         self.assertIn("opp-card-metadata-row", self.collapsed)
         self.assertIn("primary_pursuit_lane.name", self.collapsed)
+        self.assertIn("opp.updated_since_import", self.collapsed)
+        self.assertIn("Updated since import", self.collapsed)
         self.assertNotIn("opportunity-type-pill", self.collapsed)
         self.assertNotIn("source-pill", self.collapsed)
 

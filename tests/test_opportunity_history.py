@@ -191,7 +191,34 @@ class OpportunityHistoryTests(unittest.TestCase):
                 feed_user,
             ).all()
         }
-        self.assertNotIn(self.opportunity.id, feed_ids)
+        self.assertIn(self.opportunity.id, feed_ids)
+
+    def test_source_update_history_prepares_summary_and_change_details(self):
+        result = apply_source_update(
+            self.db,
+            self.opportunity,
+            {
+                "response_deadline": dt.date.today() + dt.timedelta(days=45),
+                "description_text": "Updated synopsis",
+            },
+            observed_at=dt.datetime(2026, 7, 4, 9, 30),
+        )
+        self.db.commit()
+
+        self.assertTrue(result.changed)
+        event = self.db.query(OpportunityHistoryEvent).one()
+        prepared = opportunities._prepare_history_events([event])[0]
+        self.assertEqual(prepared.timeline_title, "Opportunity updated from SAM.gov")
+        self.assertEqual(
+            set(prepared.timeline_modified_fields),
+            {"Due date", "Synopsis"},
+        )
+        self.assertIn("changed", prepared.timeline_description)
+        self.assertEqual(len(prepared.timeline_change_details), 2)
+        self.assertIn(
+            "Synopsis updated",
+            [change["summary"] for change in prepared.timeline_change_details],
+        )
 
 
 if __name__ == "__main__":

@@ -98,6 +98,10 @@
             <span class="opp-card-meta-divider" aria-hidden="true">&bull;</span>
             <span class="pursuit-lane-pill" title="{{ lane_title }}">{{ primary_pursuit_lane.name }}</span>
           {% endif %}
+          {% if opp.updated_since_import %}
+            <span class="opp-card-meta-divider" aria-hidden="true">&bull;</span>
+            <span class="opp-card-source-update">{{ opp.updated_since_import_label or 'Updated since import' }}</span>
+          {% endif %}
         </div>
         {% if view == 'my_shortlist' %}
           <span class="opp-card-crm-inline" data-salesforce-link-container {% if not has_salesforce_linkage %}hidden{% endif %}>

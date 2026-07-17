@@ -6780,6 +6780,14 @@ h2 {
     line-height: 1.45;
 }
 
+.opportunity-history-change-list {
+    margin: 4px 0 0 16px;
+    padding: 0;
+    color: var(--gray-600);
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
 .opportunity-history-source-meta {
     display: flex;
     gap: 5px;
@@ -7856,6 +7864,12 @@ details[open] .accordion-summary::after {
   font-weight: 600;
   line-height: 1.25;
   white-space: nowrap;
+}
+
+.opp-card-source-update {
+  color: var(--gray-500);
+  font-size: 0.7rem;
+  font-weight: 650;
 }
 
 .opp-card-due-meta span {
