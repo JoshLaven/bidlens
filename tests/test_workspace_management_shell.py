@@ -127,9 +127,19 @@ class WorkspaceManagementShellTests(unittest.TestCase):
         css = Path("src/bidlens/static/css/styles.css").read_text()
 
         self.assertIn(".primary-sidebar-nav", css)
+        self.assertIn("height: 100vh;", css)
+        self.assertIn("overflow: hidden;", css)
+        self.assertIn("align-content: start;", css)
+        self.assertIn("grid-auto-rows: max-content;", css)
         self.assertIn("overflow-y: auto;", css)
+        self.assertIn("overscroll-behavior: contain;", css)
         self.assertIn("min-height: 0;", css)
+        self.assertIn(".primary-sidebar-brand {\n    display: flex;\n    flex: 0 0 auto;", css)
         self.assertIn(".primary-sidebar-user {\n    flex: 0 0 auto;", css)
+
+        source = (TEMPLATES / "base.html").read_text()
+        self.assertIn("keepActiveNavigationVisible", source)
+        self.assertIn("scrollIntoView({ block: 'nearest', inline: 'nearest' })", source)
 
 
 if __name__ == "__main__":

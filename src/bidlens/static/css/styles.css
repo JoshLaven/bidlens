@@ -82,6 +82,7 @@ nav {
     display: flex;
     flex-direction: column;
     height: 100vh;
+    overflow: hidden;
     padding: 18px 14px;
     border-right: 1px solid rgba(176, 191, 208, 0.42);
     background: rgba(248, 251, 255, 0.94);
@@ -160,14 +161,31 @@ nav {
 
 .primary-sidebar-nav {
     display: grid;
+    align-content: start;
     flex: 1 1 auto;
     gap: 5px;
+    grid-auto-rows: max-content;
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
     padding-right: 2px;
     scrollbar-width: thin;
     scrollbar-color: rgba(103, 117, 138, 0.36) transparent;
+}
+
+.primary-sidebar-nav::-webkit-scrollbar {
+    width: 8px;
+}
+
+.primary-sidebar-nav::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.primary-sidebar-nav::-webkit-scrollbar-thumb {
+    background: rgba(103, 117, 138, 0.24);
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
 }
 
 .primary-sidebar-onboarding {
@@ -662,6 +680,7 @@ nav {
     top: 0;
     height: auto;
     max-height: none;
+    overflow: visible;
     padding: 10px 12px;
     border-right: 0;
     border-bottom: 1px solid rgba(176, 191, 208, 0.42);
@@ -673,8 +692,10 @@ nav {
 
   .primary-sidebar-nav {
     display: flex;
+    flex: 0 1 auto;
     gap: 6px;
     overflow-x: auto;
+    overflow-y: hidden;
     padding-bottom: 2px;
   }
 

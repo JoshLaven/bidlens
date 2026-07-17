@@ -253,11 +253,23 @@
     (function initializePrimaryNavigation() {
       const sidebar = document.querySelector('[data-primary-sidebar]');
       const toggle = document.querySelector('[data-primary-sidebar-toggle]');
-      if (!sidebar || !toggle) return;
+      if (!sidebar) return;
 
+      const nav = sidebar.querySelector('.primary-sidebar-nav');
       const management = sidebar.querySelector('.primary-sidebar-management');
       const storageKey = 'bidlens.primaryNavigationCollapsed';
       let expandedManagementState = management ? management.open : false;
+
+      function keepActiveNavigationVisible() {
+        if (!nav) return;
+        const activeItem = nav.querySelector('[aria-current="page"]');
+        if (!activeItem || typeof activeItem.scrollIntoView !== 'function') return;
+        activeItem.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+
+      window.requestAnimationFrame(keepActiveNavigationVisible);
+
+      if (!toggle) return;
 
       function applyState(collapsed) {
         document.documentElement.classList.toggle('primary-navigation-is-collapsed', collapsed);
@@ -272,6 +284,7 @@
             management.open = expandedManagementState;
           }
         }
+        window.requestAnimationFrame(keepActiveNavigationVisible);
       }
 
       applyState(document.documentElement.classList.contains('primary-navigation-is-collapsed'));
@@ -287,6 +300,9 @@
           event.preventDefault();
           applyState(false);
           try { sessionStorage.setItem(storageKey, 'false'); } catch (_error) {}
+        });
+        management.addEventListener('toggle', () => {
+          window.requestAnimationFrame(keepActiveNavigationVisible);
         });
       }
     })();
