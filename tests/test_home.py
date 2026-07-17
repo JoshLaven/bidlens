@@ -105,7 +105,7 @@ class HomeContextTests(unittest.TestCase):
 
         self.assertEqual(
             list(steps),
-            ["company-profile", "opportunity-source", "invite-team", "business-systems", "feed-rules", "pursuit-lanes"],
+            ["company-profile", "opportunity-source", "invite-team", "business-systems", "feed-rules"],
         )
         self.assertEqual(steps["company-profile"]["label"], "Required")
         self.assertEqual(steps["business-systems"]["label"], "Optional")
@@ -119,10 +119,13 @@ class HomeContextTests(unittest.TestCase):
         self.assertFalse(context["can_go_live"])
         self.assertIsNone(context["operational_home_context"])
         self.assertEqual(context["workspace_summary"]["headline"], "Welcome to BidLens.")
-        self.assertIn("Organization created", [item["title"] for item in context["completed"]])
+        self.assertIn("Organization Created", [item["title"] for item in context["completed"]])
         self.assertEqual(steps["company-profile"]["title"], "Configure Organization")
         self.assertEqual(steps["opportunity-source"]["title"], "Enable Opportunity Discovery")
+        self.assertEqual(steps["invite-team"]["title"], "Invite Your Team")
         self.assertEqual(steps["business-systems"]["title"], "Connect Business Systems")
+        self.assertEqual(steps["feed-rules"]["title"], "Configure Feed")
+        self.assertNotIn("pursuit-lanes", steps)
 
     def test_configured_source_without_opportunities_completes_required_setup(self):
         self._profile()

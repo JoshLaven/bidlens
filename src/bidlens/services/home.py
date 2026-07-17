@@ -625,12 +625,6 @@ def get_home_context(
         .scalar()
         or 0
     )
-    lane_count = (
-        db.query(func.count(PursuitLane.id))
-        .filter(PursuitLane.organization_id == organization_id)
-        .scalar()
-        or 0
-    )
     recent_since = now - timedelta(days=7)
     recent_update_count = (
         db.query(func.count(OpportunityUpdateEvent.id))
@@ -665,9 +659,8 @@ def get_home_context(
     completed: list[dict[str, Any]] = [
         _completed_item(
             key="organization-created",
-            title="Organization created",
+            title="Organization Created",
             completed_at=organization.created_at,
-            cta_url=_workspace_url("/company-profile", organization_id),
         )
     ]
     if active_profile is None:
@@ -683,7 +676,7 @@ def get_home_context(
     else:
         completed.append(_completed_item(
             key="company-profile",
-            title="Organization configured",
+            title="Organization Configured",
             completed_at=active_profile.updated_at,
             cta_url=_workspace_url("/company-profile", organization_id),
         ))
@@ -711,7 +704,7 @@ def get_home_context(
     if not users_setup_complete:
         recommendations.append(_recommendation(
             key="invite-team",
-            title="Invite your team",
+            title="Invite Your Team",
             label="Recommended",
             description="Allow teammates to review and qualify opportunities together.",
             cta_label="Workspace Members",
@@ -750,7 +743,7 @@ def get_home_context(
     if not _has_setup_event(db, organization_id, "feed_rules_configured"):
         recommendations.append(_recommendation(
             key="feed-rules",
-            title="Configure Feed Rules",
+            title="Configure Feed",
             label="Recommended",
             description="Set the workspace defaults BidLens uses to match and route incoming opportunities.",
             cta_label="Feed Rules",
@@ -762,23 +755,6 @@ def get_home_context(
             key="feed-rules",
             title="Feed rules configured",
             cta_url=_workspace_url("/settings", organization_id),
-        ))
-
-    if lane_count == 0:
-        recommendations.append(_recommendation(
-            key="pursuit-lanes",
-            title="Configure pursuit lanes",
-            label="Recommended",
-            description="Helps organize opportunities by strategic markets, service areas, or teams.",
-            cta_label="Pursuit Lanes",
-            cta_url=_workspace_url("/pursuit-lanes", organization_id),
-            priority=50,
-        ))
-    else:
-        completed.append(_completed_item(
-            key="pursuit-lanes",
-            title="Pursuit lanes configured",
-            cta_url=_workspace_url("/pursuit-lanes", organization_id),
         ))
 
     recommendations.sort(key=lambda item: item["priority"])

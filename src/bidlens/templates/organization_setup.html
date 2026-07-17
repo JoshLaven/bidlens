@@ -61,14 +61,14 @@
               <div class="home-next-step-title">
                 <h3>{{ item.title }}</h3>
               </div>
+              {% if item.completed_at %}
+                <time class="home-completed-date" datetime="{{ item.completed_at.isoformat() }}">Completed {{ item.completed_at.strftime("%b %d, %Y") }}</time>
+              {% endif %}
               {% if item.description %}
                 <p>{{ item.description }}</p>
               {% endif %}
             </div>
             <div class="home-completed-actions">
-              {% if item.completed_at %}
-                <time class="home-completed-date" datetime="{{ item.completed_at.isoformat() }}">{{ item.completed_at.strftime("%b %d, %Y") }}</time>
-              {% endif %}
               {% if item.cta_url %}
                 <span class="home-next-step-chevron" aria-label="{{ item.cta_label or 'Edit' }}">›</span>
               {% endif %}

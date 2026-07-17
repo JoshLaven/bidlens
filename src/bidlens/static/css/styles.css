@@ -3029,8 +3029,11 @@ h2 {
 }
 
 .home-completed-date {
+    display: block;
+    margin-top: 4px;
     color: var(--gray-500);
-    font-size: 0.75rem;
+    font-size: 0.72rem;
+    font-weight: 700;
     white-space: nowrap;
 }
 

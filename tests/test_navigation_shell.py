@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -254,6 +255,94 @@ class NavigationShellTests(unittest.TestCase):
         self.assertIn("home-next-step--link", html)
         self.assertIn("home-next-step-chevron", html)
         self.assertNotIn("Edit →", html)
+
+    def test_completed_created_item_renders_as_audit_trail_not_navigation(self):
+        user = self._user(role="admin")
+        user.current_organization_is_live = False
+
+        html = self.env.get_template("organization_setup.html").render(
+            request=_Request("/organization-setup"),
+            user=user,
+            active_page="home",
+            home={
+                "workspace_summary": {
+                    "organization_id": 7,
+                    "organization_name": "Test Workspace",
+                    "headline": "Welcome to BidLens.",
+                    "description": "Let’s get your organization ready.",
+                },
+                "operational_snapshot": {},
+                "recommendations": [],
+                "completed": [
+                    {
+                        "key": "organization-created",
+                        "title": "Organization Created",
+                        "description": None,
+                        "completed_at": datetime(2026, 7, 17),
+                        "cta_url": None,
+                    }
+                ],
+                "can_go_live": False,
+            },
+        )
+
+        self.assertIn("Organization Created", html)
+        self.assertIn("Completed Jul 17, 2026", html)
+        self.assertIn('<article class="home-next-step home-completed-item">', html)
+        self.assertNotIn('href="/company-profile', html)
+        self.assertNotIn("home-next-step-chevron", html)
+
+    def test_opportunity_sources_hides_operational_sections_during_setup_only(self):
+        base_context = {
+            "active_page": "imports",
+            "sidebar": {},
+            "latest_runs": {},
+            "recent_activity": [],
+            "sam_config": None,
+            "sam_configs": [],
+            "grants_config": None,
+            "result": None,
+            "error": None,
+        }
+        setup_user = self._user(role="admin")
+        setup_user.current_organization_is_live = False
+        live_user = self._user(role="admin")
+
+        setup_html = self.env.get_template("govwin_import.html").render(
+            request=_Request("/opportunity-discovery"),
+            user=setup_user,
+            **base_context,
+        )
+        management_html = self.env.get_template("govwin_import.html").render(
+            request=_Request("/opportunity-discovery"),
+            user=live_user,
+            **base_context,
+        )
+
+        self.assertIn("SAM.gov", setup_html)
+        self.assertIn("Grants.gov", setup_html)
+        self.assertIn("GovWin", setup_html)
+        self.assertNotIn('id="manual-import"', setup_html)
+        self.assertNotIn("Manual Opportunity Import", setup_html)
+        self.assertNotIn('id="operational-history"', setup_html)
+        self.assertNotIn("Recent Activity", setup_html)
+
+        self.assertIn('id="manual-import"', management_html)
+        self.assertIn("Manual Opportunity Import", management_html)
+        self.assertIn('id="operational-history"', management_html)
+        self.assertIn("Recent Activity", management_html)
+
+    def test_setup_management_pages_remove_redundant_single_section_eyebrows(self):
+        users_template = self.env.loader.get_source(self.env, "workspace_members.html")[0]
+        feed_template = self.env.loader.get_source(self.env, "pursuit_lanes.html")[0]
+        outbound_template = self.env.loader.get_source(self.env, "outbound_integrations.html")[0]
+
+        self.assertIn("Add Users", users_template)
+        self.assertNotIn("<span>Access</span>", users_template)
+        self.assertIn("Pursuit Lanes", feed_template)
+        self.assertNotIn("<span>Workspace organization</span>", feed_template)
+        self.assertIn("Where should BidLens send information?", outbound_template)
+        self.assertNotIn("<span>Business systems</span>", outbound_template)
 
     def test_setup_checklist_rows_are_clickable_without_action_buttons(self):
         user = self._user(role="admin")
