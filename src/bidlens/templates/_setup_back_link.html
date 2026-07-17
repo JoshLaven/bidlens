@@ -5,8 +5,6 @@
       {% set setup_org_id = user.current_organization_id if user.current_organization_id is defined else user.organization_id %}
     {% endif %}
     {% set setup_org_q = '?org_id=' ~ setup_org_id if setup_org_id else '' %}
-    <nav class="setup-back-nav" aria-label="Organization setup navigation">
-      <a href="/organization-setup{{ setup_org_q }}" class="setup-back-link">← {{ label }}</a>
-    </nav>
+    <a href="/organization-setup{{ setup_org_q }}" class="setup-back-link">← {{ label }}</a>
   {% endif %}
 {% endmacro %}

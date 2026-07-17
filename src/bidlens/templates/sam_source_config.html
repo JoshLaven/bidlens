@@ -7,21 +7,23 @@
 {% set org_q = '&org_id=' ~ org_id if org_id else '' %}
 <div class="admin-page-layout">
   <div class="admin-page-content">
-    {{ setup_back_link() }}
     <a href="/opportunity-discovery{% if org_id %}?org_id={{ org_id }}{% endif %}#sam-gov" class="back-link">← Opportunity Discovery</a>
     <div class="page-header admin-page-header">
       <div>
         <h1>SAM.gov Saved Searches</h1>
         <p class="page-subtitle">Define the source searches BidLens runs for this workspace.</p>
       </div>
-      {% if config %}
-        <button
-          type="button"
-          id="sam-config-run-button"
-          class="btn btn-primary"
-          data-url="/sam/pull-now?search_id={{ config.id }}{{ org_q }}"
-        >Run “{{ config.name }}” now</button>
-      {% endif %}
+      <div class="setup-task-header-actions">
+        {{ setup_back_link() }}
+        {% if config %}
+          <button
+            type="button"
+            id="sam-config-run-button"
+            class="btn btn-primary"
+            data-url="/sam/pull-now?search_id={{ config.id }}{{ org_q }}"
+          >Run “{{ config.name }}” now</button>
+        {% endif %}
+      </div>
     </div>
 
     {% if saved %}

@@ -1978,11 +1978,6 @@ h2 {
     max-width: 1040px;
 }
 
-.setup-back-nav {
-    display: flex;
-    align-items: center;
-}
-
 .setup-back-link {
     display: inline-flex;
     align-items: center;
@@ -1996,6 +1991,25 @@ h2 {
 
 .setup-back-link:hover {
     text-decoration: underline;
+}
+
+.setup-connect-hero .setup-back-link,
+.workspace-management-hero .setup-back-link {
+    align-self: flex-start;
+    padding: 9px 12px;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 8px;
+    box-shadow: 0 5px 16px rgba(3, 16, 34, 0.1);
+}
+
+.setup-connect-hero .setup-back-link:hover,
+.workspace-management-hero .setup-back-link:hover,
+.setup-connect-hero .setup-back-link:focus-visible,
+.workspace-management-hero .setup-back-link:focus-visible {
+    background: rgba(255, 255, 255, 0.18);
+    text-decoration: none;
 }
 
 .setup-connect-hero {
@@ -2902,6 +2916,11 @@ h2 {
 .home-section-heading span {
     margin-bottom: 4px;
     color: var(--primary);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    line-height: 1.2;
+    text-transform: uppercase;
 }
 
 .home-section-heading h2 {
@@ -2929,6 +2948,23 @@ h2 {
     align-items: center;
     gap: 14px;
     padding: 18px 20px;
+}
+
+.home-next-step--link {
+    color: inherit;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 140ms ease;
+}
+
+.home-next-step--link:hover,
+.home-next-step--link:focus-visible {
+    background: #f8fbff;
+    outline: none;
+}
+
+.home-next-step--link:focus-visible {
+    box-shadow: inset 0 0 0 2px rgba(47, 111, 206, 0.22);
 }
 
 .home-next-step + .home-next-step {
@@ -2959,6 +2995,18 @@ h2 {
 .home-completed-check {
     color: #17745a;
     background: #dff5ed;
+}
+
+.home-next-step-chevron {
+    color: var(--gray-400);
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.home-next-step--link:hover .home-next-step-chevron,
+.home-next-step--link:focus-visible .home-next-step-chevron {
+    color: var(--primary);
 }
 
 .home-next-step-title {
@@ -4426,6 +4474,18 @@ h2 {
     gap: 18px;
 }
 
+.setup-task-page-header {
+    align-items: flex-start;
+}
+
+.setup-task-header-actions {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
 .admin-table-card {
     margin-top: 20px;
 }
@@ -4771,6 +4831,7 @@ h2 {
 }
 .workspace-management-hero h1 { margin: 0 0 7px; color: #fff; font-size: clamp(1.65rem,3vw,2.15rem); line-height: 1.15; }
 .workspace-management-hero p { max-width: 680px; margin: 0; color: rgba(255,255,255,.76); font-size: .88rem; line-height: 1.5; }
+.workspace-management-hero-actions { display: flex; align-items: flex-start; justify-content: flex-end; flex-wrap: wrap; gap: 12px; }
 .workspace-management-page .admin-page-content { display: grid; gap: 18px; }
 .workspace-management-page-actions { display: flex; justify-content: flex-end; }
 .organization-overview-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 0; }

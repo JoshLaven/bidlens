@@ -214,6 +214,7 @@ class NavigationShellTests(unittest.TestCase):
         live_html = template.render(request=_Request("/settings"), user=live_user)
 
         self.assertIn("← Back to Setup", pre_live_html)
+        self.assertIn('class="setup-back-link"', pre_live_html)
         self.assertIn('href="/organization-setup?org_id=7"', pre_live_html)
         self.assertNotIn("Back to Setup", live_html)
 
@@ -250,7 +251,46 @@ class NavigationShellTests(unittest.TestCase):
         self.assertIn("✓", html)
         self.assertIn("Users invited", html)
         self.assertIn('href="/admin/organizations/7/users?org_id=7"', html)
-        self.assertIn("Edit →", html)
+        self.assertIn("home-next-step--link", html)
+        self.assertIn("home-next-step-chevron", html)
+        self.assertNotIn("Edit →", html)
+
+    def test_setup_checklist_rows_are_clickable_without_action_buttons(self):
+        user = self._user(role="admin")
+        user.current_organization_is_live = False
+
+        html = self.env.get_template("organization_setup.html").render(
+            request=_Request("/organization-setup"),
+            user=user,
+            active_page="home",
+            home={
+                "workspace_summary": {
+                    "organization_id": 7,
+                    "organization_name": "Test Workspace",
+                    "headline": "Welcome to BidLens.",
+                    "description": "Let’s get your organization ready.",
+                },
+                "operational_snapshot": {},
+                "recommendations": [
+                    {
+                        "title": "Enable Opportunity Discovery",
+                        "description": "Tell BidLens where to discover opportunities.",
+                        "label": "Required",
+                        "cta_url": "/opportunity-discovery?org_id=7",
+                    }
+                ],
+                "completed": [],
+                "can_go_live": False,
+            },
+        )
+
+        self.assertIn('<span id="recommendations-heading">Next Steps</span>', html)
+        self.assertNotIn("Recommended Next Steps", html)
+        self.assertNotIn("Only the actions that still move this workspace forward.", html)
+        self.assertIn('href="/opportunity-discovery?org_id=7"', html)
+        self.assertIn("home-next-step--link", html)
+        self.assertIn("home-next-step-chevron", html)
+        self.assertNotIn("btn btn-sm btn-outline-secondary\">Opportunity Discovery", html)
 
     def test_administration_redirects_to_organization(self):
         user = self._user(role="admin")

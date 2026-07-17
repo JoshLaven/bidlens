@@ -16,17 +16,13 @@
   {% macro next_steps() %}
     <section class="home-section" aria-labelledby="recommendations-heading">
       <div class="home-section-heading">
-        <div>
-          <span>Recommended actions</span>
-          <h2 id="recommendations-heading">Recommended Next Steps</h2>
-        </div>
-        <p>Only the actions that still move this workspace forward.</p>
+        <span id="recommendations-heading">Next Steps</span>
       </div>
 
       {% if home.recommendations %}
         <div class="home-next-steps">
           {% for step in home.recommendations %}
-            <article class="home-next-step {{ 'home-next-step--current' if loop.first else '' }}">
+            <a href="{{ step.cta_url }}" class="home-next-step home-next-step--link {{ 'home-next-step--current' if loop.first else '' }}">
               <div class="home-next-step-marker" aria-hidden="true">{{ loop.index }}</div>
               <div class="home-next-step-copy">
                 <div class="home-next-step-title">
@@ -35,8 +31,8 @@
                 </div>
                 <p>{{ step.description }}</p>
               </div>
-              <a href="{{ step.cta_url }}" class="btn btn-sm btn-outline-secondary">{{ step.destination }}</a>
-            </article>
+              <span class="home-next-step-chevron" aria-hidden="true">›</span>
+            </a>
           {% endfor %}
         </div>
       {% else %}
@@ -54,16 +50,12 @@
   {% macro completed_setup() %}
     <section class="home-section" aria-labelledby="completed-heading">
       <div class="home-section-heading">
-        <div>
-          <span>Completed</span>
-          <h2 id="completed-heading">Completed</h2>
-        </div>
-        <p>Setup work already handled for this organization.</p>
+        <span id="completed-heading">Completed</span>
       </div>
 
       <div class="home-next-steps home-completed-list">
         {% for item in home.completed %}
-          <article class="home-next-step home-completed-item">
+          {% if item.cta_url %}<a href="{{ item.cta_url }}" class="home-next-step home-next-step--link home-completed-item">{% else %}<article class="home-next-step home-completed-item">{% endif %}
             <div class="home-next-step-marker home-completed-check" aria-hidden="true">✓</div>
             <div class="home-next-step-copy">
               <div class="home-next-step-title">
@@ -78,10 +70,10 @@
                 <time class="home-completed-date" datetime="{{ item.completed_at.isoformat() }}">{{ item.completed_at.strftime("%b %d, %Y") }}</time>
               {% endif %}
               {% if item.cta_url %}
-                <a href="{{ item.cta_url }}" class="btn btn-sm btn-outline-secondary">{{ item.cta_label or 'Edit' }} →</a>
+                <span class="home-next-step-chevron" aria-label="{{ item.cta_label or 'Edit' }}">›</span>
               {% endif %}
             </div>
-          </article>
+          {% if item.cta_url %}</a>{% else %}</article>{% endif %}
         {% endfor %}
       </div>
     </section>

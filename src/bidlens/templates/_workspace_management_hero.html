@@ -1,11 +1,18 @@
-{% macro workspace_management_hero(title, description, updated_at=none) -%}
+{% macro workspace_management_hero(title, description, updated_at=none, action_url=none, action_label='Back to Setup') -%}
 <header class="workspace-management-hero" data-workspace-management-hero>
   <div>
     <h1>{{ title }}</h1>
     <p>{{ description }}</p>
   </div>
-  {% if updated_at %}
-    <div class="organization-updated"><span>Updated</span><strong>{{ updated_at.strftime('%b %d, %Y') }}</strong></div>
+  {% if updated_at or action_url %}
+    <div class="workspace-management-hero-actions">
+      {% if action_url %}
+        <a href="{{ action_url }}" class="setup-back-link setup-back-link--hero">← {{ action_label }}</a>
+      {% endif %}
+      {% if updated_at %}
+        <div class="organization-updated"><span>Updated</span><strong>{{ updated_at.strftime('%b %d, %Y') }}</strong></div>
+      {% endif %}
+    </div>
   {% endif %}
 </header>
 {%- endmacro %}

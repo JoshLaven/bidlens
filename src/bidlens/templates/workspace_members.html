@@ -1,16 +1,15 @@
 {% extends "base.html" %}
 {% from "_workspace_management_hero.html" import workspace_management_hero %}
-{% from "_setup_back_link.html" import setup_back_link with context %}
 {% set hide_context_sidebar = true %}
 {% block title %}Users - BidLens{% endblock %}
 
 {% block content %}
 {% set org_q = '?org_id=' ~ organization.id %}
+{% set setup_back_url = '/organization-setup' ~ org_q if user.current_organization_is_live is defined and not user.current_organization_is_live else none %}
 
 <div class="admin-page-layout workspace-management-page organization-overview workspace-members-page">
   <div class="admin-page-content">
-    {{ setup_back_link() }}
-    {{ workspace_management_hero('Users', 'Invite users and manage access to this workspace.', workspace.updated_at if workspace else none) }}
+    {{ workspace_management_hero('Users', 'Invite users and manage access to this workspace.', workspace.updated_at if workspace else none, action_url=setup_back_url) }}
 
     {% if page_message %}<div class="alert alert-success">{{ page_message }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
