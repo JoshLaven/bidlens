@@ -96,18 +96,22 @@ class WorkspaceManagementShellTests(unittest.TestCase):
         ):
             self.assertIn(route, source)
         self.assertIn("data-primary-sidebar-toggle", source)
+        self.assertIn("sidebar-collapse-icon", source)
+        self.assertIn("data-work-sidebar-toggle", source)
         self.assertIn("Collapse navigation", source)
         self.assertIn("Expand navigation", source)
         self.assertIn("bidlens.primaryNavigationCollapsed", source)
         self.assertIn('data-rail-label="OS"', source)
+        self.assertIn("<strong>Workspace</strong>", source)
+        self.assertNotIn("<strong>Workspace Management</strong>", source)
 
-    def test_workspace_management_remains_admin_only(self):
+    def test_workspace_navigation_remains_admin_only(self):
         admin_html = self._render_shell(role="admin")
         member_html = self._render_shell(role="member")
 
-        self.assertIn(">Workspace Management</strong>", admin_html)
+        self.assertIn(">Workspace</strong>", admin_html)
         self.assertIn("/company-profile?org_id=7", admin_html)
-        self.assertNotIn(">Workspace Management</strong>", member_html)
+        self.assertNotIn(">Workspace</strong>", member_html)
         self.assertNotIn("/company-profile?org_id=7", member_html)
 
     def test_pre_live_and_platform_shells_preserve_existing_navigation_modes(self):
@@ -115,9 +119,17 @@ class WorkspaceManagementShellTests(unittest.TestCase):
         platform_html = self._render_shell(role="admin", platform=True, path="/platform")
 
         self.assertIn("primary-sidebar--onboarding", pre_live_html)
-        self.assertNotIn(">Workspace Management</strong>", pre_live_html)
+        self.assertNotIn(">Workspace</strong>", pre_live_html)
         self.assertIn('aria-label="Platform navigation"', platform_html)
-        self.assertNotIn(">Workspace Management</strong>", platform_html)
+        self.assertNotIn(">Workspace</strong>", platform_html)
+
+    def test_sidebar_nav_scrolls_independently_from_pinned_profile(self):
+        css = Path("src/bidlens/static/css/styles.css").read_text()
+
+        self.assertIn(".primary-sidebar-nav", css)
+        self.assertIn("overflow-y: auto;", css)
+        self.assertIn("min-height: 0;", css)
+        self.assertIn(".primary-sidebar-user {\n    flex: 0 0 auto;", css)
 
 
 if __name__ == "__main__":

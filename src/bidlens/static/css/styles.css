@@ -91,6 +91,7 @@ nav {
 
 .primary-sidebar-brand {
     display: flex;
+    flex: 0 0 auto;
     align-items: flex-start;
     justify-content: space-between;
     gap: 8px;
@@ -131,6 +132,24 @@ nav {
     cursor: pointer;
 }
 
+.sidebar-collapse-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+}
+
+.sidebar-collapse-icon svg {
+    display: block;
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.7;
+}
+
 .primary-sidebar-collapse:hover,
 .primary-sidebar-collapse:focus-visible {
     color: var(--primary);
@@ -141,7 +160,14 @@ nav {
 
 .primary-sidebar-nav {
     display: grid;
+    flex: 1 1 auto;
     gap: 5px;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 2px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(103, 117, 138, 0.36) transparent;
 }
 
 .primary-sidebar-onboarding {
@@ -327,6 +353,7 @@ nav {
 }
 
 .primary-sidebar-user {
+    flex: 0 0 auto;
     margin-top: auto;
     padding-top: 18px;
     border-top: 1px solid rgba(176, 191, 208, 0.46);
@@ -403,13 +430,14 @@ nav {
 }
 
 .work-sidebar {
+  position: relative;
   min-height: 160px;
 }
 
 .work-sidebar-toggle {
   position: absolute;
-  top: 0;
-  left: 4px;
+  top: 12px;
+  left: -15px;
   z-index: 1;
   display: inline-flex;
   align-items: center;
@@ -419,11 +447,11 @@ nav {
   padding: 0;
   border: 1px solid rgba(176, 191, 208, 0.52);
   border-radius: 6px;
-  background: rgba(248, 251, 255, 0.96);
+  background: #fff;
   color: var(--gray-600);
   cursor: pointer;
-  font-size: 1.12rem;
   line-height: 1;
+  box-shadow: 0 8px 18px rgba(17, 32, 51, 0.08);
 }
 
 .work-sidebar-toggle:hover {
@@ -438,7 +466,7 @@ nav {
 }
 
 .work-sidebar-content {
-  padding-top: 38px;
+  padding-top: 0;
 }
 
 .work-sidebar-is-collapsed .layout[data-work-layout] {
@@ -452,7 +480,7 @@ nav {
 }
 
 .work-sidebar-is-collapsed .work-sidebar-toggle {
-  left: 3px;
+  left: 4px;
 }
 
 .work-sidebar-is-collapsed .work-sidebar-content {

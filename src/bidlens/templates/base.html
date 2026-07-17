@@ -82,7 +82,15 @@
               <span>{{ 'Platform' if platform_mode else 'Opportunity Intelligence' }}</span>
             </div>
             {% if not onboarding_shell %}
-              <button type="button" class="primary-sidebar-collapse" data-primary-sidebar-toggle aria-label="Collapse navigation" aria-expanded="true" title="Collapse navigation"><span aria-hidden="true">‹</span></button>
+              <button type="button" class="primary-sidebar-collapse" data-primary-sidebar-toggle aria-label="Collapse navigation" aria-expanded="true" title="Collapse navigation">
+                <span class="sidebar-collapse-icon" aria-hidden="true">
+                  <svg viewBox="0 0 20 20" focusable="false">
+                    <rect x="3" y="4" width="14" height="12" rx="2.4"></rect>
+                    <path d="M8 4v12"></path>
+                    <path d="M5.5 7h.01M5.5 10h.01M5.5 13h.01"></path>
+                  </svg>
+                </span>
+              </button>
             {% endif %}
           </div>
 
@@ -128,10 +136,10 @@
                 <details class="primary-sidebar-management" {% if workspace_management_active %}open{% endif %}>
                   <summary class="primary-sidebar-link primary-sidebar-link--management {{ 'active' if workspace_management_active else '' }}" aria-current="{{ 'page' if workspace_management_active else 'false' }}">
                     <span aria-hidden="true">⚙︎</span>
-                    <strong>Workspace Management</strong>
+                    <strong>Workspace</strong>
                     <small class="primary-sidebar-caret" aria-hidden="true">⌄</small>
                   </summary>
-                  <div class="primary-sidebar-subnav" aria-label="Workspace Management">
+                  <div class="primary-sidebar-subnav" aria-label="Workspace">
                     <a href="/company-profile{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'organization' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'organization' else 'false' }}" title="Overview" data-rail-label="Ov"><strong>Overview</strong></a>
                     <a href="/admin/organizations/{{ workspace_nav_org_id }}/users{{ workspace_nav_org_q }}" class="{{ 'active' if workspace_management_child == 'members' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'members' else 'false' }}" title="Users" data-rail-label="Us"><strong>Users</strong></a>
                     <span class="primary-sidebar-subnav-divider" aria-hidden="true"></span>
@@ -201,7 +209,13 @@
               aria-expanded="true"
               title="Collapse sidebar"
             >
-              <span aria-hidden="true" data-work-sidebar-icon>›</span>
+              <span class="sidebar-collapse-icon" aria-hidden="true" data-work-sidebar-icon>
+                <svg viewBox="0 0 20 20" focusable="false">
+                  <rect x="3" y="4" width="14" height="12" rx="2.4"></rect>
+                  <path d="M8 4v12"></path>
+                  <path d="M5.5 7h.01M5.5 10h.01M5.5 13h.01"></path>
+                </svg>
+              </span>
             </button>
             <div class="work-sidebar-content">
               <div class="side-card">
@@ -250,7 +264,6 @@
         toggle.setAttribute('aria-expanded', String(!collapsed));
         toggle.setAttribute('aria-label', collapsed ? 'Expand navigation' : 'Collapse navigation');
         toggle.title = collapsed ? 'Expand navigation' : 'Collapse navigation';
-        toggle.querySelector('span').textContent = collapsed ? '›' : '‹';
         if (management) {
           if (collapsed) {
             expandedManagementState = management.open;
@@ -283,7 +296,6 @@
       const toggle = document.querySelector('[data-work-sidebar-toggle]');
       if (!sidebar || !toggle) return;
 
-      const icon = toggle.querySelector('[data-work-sidebar-icon]');
       const storageKey = 'bidlens.workSidebarCollapsed';
 
       function applyState(collapsed) {
@@ -294,7 +306,6 @@
           collapsed ? 'Expand My Shortlist sidebar' : 'Collapse My Shortlist sidebar'
         );
         toggle.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
-        if (icon) icon.textContent = collapsed ? '‹' : '›';
       }
 
       applyState(document.documentElement.classList.contains('work-sidebar-is-collapsed'));

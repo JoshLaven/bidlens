@@ -6,9 +6,6 @@ from unittest.mock import MagicMock, patch
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from bidlens.routes import settings
-
-
 class _Url:
     def __init__(self, path="/", query="org_id=7"):
         self.path = path
@@ -74,6 +71,7 @@ class NavigationShellTests(unittest.TestCase):
         self.assertIn(">Archive<", html)
         self.assertNotIn("Triage <em>(Admin only)</em>", html)
         self.assertNotIn("Workspace Management", html)
+        self.assertNotIn(">Workspace<", html)
 
     def test_admin_sidebar_includes_admin_destinations(self):
         html = self.env.from_string("{% extends 'base.html' %}{% block content %}{% endblock %}").render(
@@ -86,7 +84,8 @@ class NavigationShellTests(unittest.TestCase):
         self.assertIn("Opportunities", html)
         self.assertIn("Triage <em>(Admin only)</em>", html)
         self.assertIn('primary-sidebar-link--management active', html)
-        self.assertIn(">Workspace Management<", html)
+        self.assertIn(">Workspace<", html)
+        self.assertNotIn(">Workspace Management<", html)
         self.assertIn("<details class=\"primary-sidebar-management\" open>", html)
         self.assertIn("/company-profile?org_id=7", html)
         self.assertIn("/admin/organizations/7/users?org_id=7", html)
@@ -108,6 +107,7 @@ class NavigationShellTests(unittest.TestCase):
         self.assertNotIn('Pursuit Lanes</a>', html)
         self.assertIn('Import History</strong>', html)
         self.assertIn('data-primary-sidebar-toggle', html)
+        self.assertIn('class="sidebar-collapse-icon"', html)
         self.assertIn('aria-label="Collapse navigation"', html)
         self.assertIn("/platform", html)
         self.assertIn(">My Settings<", html)
@@ -184,7 +184,7 @@ class NavigationShellTests(unittest.TestCase):
         self.assertNotIn(">My Shortlist<", html)
         self.assertNotIn("Triage <em>(Admin only)</em>", html)
         self.assertNotIn(">Archive<", html)
-        self.assertNotIn(">Workspace Management<", html)
+        self.assertNotIn(">Workspace<", html)
         self.assertNotIn(">My Settings<", html)
         self.assertIn(">Logout<", html)
 
@@ -201,7 +201,7 @@ class NavigationShellTests(unittest.TestCase):
         self.assertIn(">My Shortlist<", html)
         self.assertIn("Triage <em>(Admin only)</em>", html)
         self.assertIn(">Archive<", html)
-        self.assertIn(">Workspace Management<", html)
+        self.assertIn(">Workspace<", html)
 
     def test_setup_back_link_only_renders_for_pre_live_workspace(self):
         template = self.env.from_string(
@@ -382,6 +382,8 @@ class NavigationShellTests(unittest.TestCase):
         self.assertNotIn("btn btn-sm btn-outline-secondary\">Opportunity Discovery", html)
 
     def test_administration_redirects_to_organization(self):
+        from bidlens.routes import settings
+
         user = self._user(role="admin")
         with patch.object(settings, "require_user", return_value=user):
             response = asyncio.run(settings.administration_page(
