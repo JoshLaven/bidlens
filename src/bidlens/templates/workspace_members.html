@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_workspace_management_hero.html" import workspace_management_hero %}
+{% from "_setup_back_link.html" import setup_back_link with context %}
 {% set hide_context_sidebar = true %}
 {% block title %}Users - BidLens{% endblock %}
 
@@ -8,6 +9,7 @@
 
 <div class="admin-page-layout workspace-management-page organization-overview workspace-members-page">
   <div class="admin-page-content">
+    {{ setup_back_link() }}
     {{ workspace_management_hero('Users', 'Invite users and manage access to this workspace.', workspace.updated_at if workspace else none) }}
 
     {% if page_message %}<div class="alert alert-success">{{ page_message }}</div>{% endif %}

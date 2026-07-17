@@ -23,6 +23,7 @@ from bidlens.models import (
     User,
     Vote,
     Workspace,
+    WorkspaceInvitation,
 )
 from bidlens.routes.home import go_live, home_page, organization_setup_page
 from bidlens.routes import opportunities
@@ -137,6 +138,32 @@ class HomeContextTests(unittest.TestCase):
         self.assertTrue(context["can_go_live"])
         self.assertIsNone(context["operational_home_context"])
         self.assertIn("Opportunity Discovery enabled", [item["title"] for item in context["completed"]])
+
+    def test_pending_invitation_completes_users_setup_task_and_remains_editable(self):
+        workspace = Workspace(organization_id=self.org.id, name="Home Workspace", slug="home-workspace")
+        self.db.add(workspace)
+        self.db.flush()
+        self.db.add(WorkspaceInvitation(
+            organization_id=self.org.id,
+            workspace_id=workspace.id,
+            email="pending@home.test",
+            role="member",
+            status="pending",
+            token="pending-token",
+        ))
+        self.db.commit()
+
+        context = self._context()
+        steps = {item["key"]: item for item in context["next_steps"]}
+        completed = {item["key"]: item for item in context["completed"]}
+
+        self.assertNotIn("invite-team", steps)
+        self.assertIn("invite-team", completed)
+        self.assertEqual(
+            completed["invite-team"]["cta_url"],
+            f"/admin/organizations/{self.org.id}/users?org_id={self.org.id}",
+        )
+        self.assertIn("pending", completed["invite-team"]["description"].lower())
 
     def test_required_completion_makes_pre_live_workspace_ready_to_go_live(self):
         self._profile()

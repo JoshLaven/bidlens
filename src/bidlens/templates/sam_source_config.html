@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_setup_back_link.html" import setup_back_link with context %}
 {% set hide_context_sidebar = true %}
 {% block title %}SAM.gov Saved Searches - BidLens{% endblock %}
 {% block content %}
@@ -6,6 +7,7 @@
 {% set org_q = '&org_id=' ~ org_id if org_id else '' %}
 <div class="admin-page-layout">
   <div class="admin-page-content">
+    {{ setup_back_link() }}
     <a href="/opportunity-discovery{% if org_id %}?org_id={{ org_id }}{% endif %}#sam-gov" class="back-link">← Opportunity Discovery</a>
     <div class="page-header admin-page-header">
       <div>

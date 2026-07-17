@@ -17,7 +17,6 @@ from ..models import Event, Organization, OrganizationMembership, Plan, User, Wo
 from ..services.platform import (
     PROFESSIONAL_PLAN_CODE,
     get_or_create_plan,
-    post_setup_completion_url,
     unique_workspace_slug,
 )
 from ..tenancy import (
@@ -79,15 +78,9 @@ def _members_redirect_url(
     *,
     message: str,
 ) -> str:
-    live_url = (
+    return (
         f"/admin/organizations/{organization_id}/users"
         f"{_org_suffix(request, organization_id)}&message={message}"
-    )
-    return post_setup_completion_url(
-        db,
-        user,
-        organization_id=organization_id,
-        live_url=live_url,
     )
 
 

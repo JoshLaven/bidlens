@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_workspace_management_hero.html" import workspace_management_hero %}
+{% from "_setup_back_link.html" import setup_back_link with context %}
 {% set hide_context_sidebar = true %}
 {% block title %}Organization - BidLens{% endblock %}
 
@@ -8,6 +9,7 @@
 {% set org_q = '?org_id=' ~ org_id %}
 <div class="admin-page-layout workspace-management-page organization-overview">
   <div class="admin-page-content">
+    {{ setup_back_link() }}
     {{ workspace_management_hero('Organization', 'Company information used for opportunity matching, enrichment, and routing.', profile.updated_at if profile and profile.updated_at else none) }}
 
     {% if saved %}<div class="alert alert-success">Organization saved.</div>{% endif %}
@@ -28,7 +30,7 @@
               <button type="submit" class="btn btn-primary">Save Changes</button>
             </div>
             <div class="organization-edit-website form-group">
-              <label for="website_url">Website</label>
+              <label for="website_url">Website <span class="muted">(optional)</span></label>
               <input id="website_url" name="website_url" type="url" value="{{ profile_form.website_url }}" placeholder="https://example.com">
             </div>
             <div class="organization-summary-metadata organization-summary-metadata--edit">
@@ -101,10 +103,10 @@
           <span>award{{ '' if recent_work.awards|length == 1 else 's' }} available</span>
           <div class="company-profile-work-list">{% for award in recent_work.awards[:3] %}<div class="company-profile-work-row"><strong>{{ award.title }}</strong><span>{{ award.agency or 'Agency unavailable' }}</span></div>{% endfor %}</div>
         {% elif recent_work.identifiers %}
-          <p>Identifiers are ready for public award enrichment when matching records are available.</p>
+          <p>Optional federal identifiers are ready for award enrichment when matching records are available.</p>
           <div class="company-profile-identifier-pills">{% for identifier in recent_work.identifiers %}<span>{{ identifier.label }} {{ identifier.value }}</span>{% endfor %}</div>
         {% else %}
-          <p class="organization-unset">Add UEI, CAGE, or DUNS to connect public award context.</p>
+          <p class="organization-unset">Optional. Add UEI, CAGE, or DUNS later to connect public award context.</p>
         {% endif %}
       </section>
     </div>

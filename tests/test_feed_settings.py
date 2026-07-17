@@ -127,7 +127,7 @@ class FeedSettingsTests(unittest.TestCase):
             ))
         lane = self.db.query(PursuitLane).one()
         self.assertEqual(lane.organization_id, self.org.id)
-        self.assertEqual(response.headers["location"], f"/settings?org_id={self.org.id}")
+        self.assertEqual(response.headers["location"], f"/settings?org_id={self.org.id}&saved=1")
 
 
 if __name__ == "__main__":

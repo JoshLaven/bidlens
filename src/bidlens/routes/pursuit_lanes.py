@@ -3,11 +3,11 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+from urllib.parse import parse_qsl, urlencode
 
 from ..auth import attach_request_user_context, get_current_user
 from ..database import get_db
 from ..models import OrganizationMembership, OpportunityPursuitLaneMatch, PursuitLane, User
-from ..services.platform import post_setup_completion_url
 from ..services.pursuit_lanes import (
     parse_list,
     refresh_lane_matches,
@@ -51,17 +51,23 @@ def _can_manage_lanes(db: Session, user: User) -> bool:
     return bool(membership)
 
 
-def _redirect(request: Request, db: Session | None = None, user: User | None = None) -> RedirectResponse:
-    suffix = f"?{request.url.query}" if request.url.query else ""
-    live_url = f"/settings{suffix}"
-    if db is not None and user is not None:
-        live_url = post_setup_completion_url(
-            db,
-            user,
-            organization_id=_user_org_id(user),
-            live_url=live_url,
-        )
-    return RedirectResponse(url=live_url, status_code=303)
+def _redirect(
+    request: Request,
+    db: Session | None = None,
+    user: User | None = None,
+    *,
+    saved: bool = False,
+) -> RedirectResponse:
+    params = [
+        (key, value)
+        for key, value in parse_qsl(str(request.url.query or ""), keep_blank_values=False)
+        if key != "saved"
+    ]
+    if saved:
+        params.append(("saved", "1"))
+    query = urlencode(params)
+    suffix = f"?{query}" if query else ""
+    return RedirectResponse(url=f"/settings{suffix}", status_code=303)
 
 
 @router.get("/pursuit-lanes")
@@ -143,7 +149,7 @@ async def create_pursuit_lane(
     db.flush()
     refresh_lane_matches(db, org_id, lane)
     db.commit()
-    return _redirect(request, db, user)
+    return _redirect(request, db, user, saved=True)
 
 
 @router.post("/pursuit-lanes/{lane_id}")
@@ -185,7 +191,7 @@ async def update_pursuit_lane(
     lane.is_active = bool(is_active)
     refresh_lane_matches(db, org_id, lane)
     db.commit()
-    return _redirect(request, db, user)
+    return _redirect(request, db, user, saved=True)
 
 
 @router.post("/pursuit-lanes/my-lanes")
@@ -207,7 +213,7 @@ async def update_my_lanes(
         lane_ids=lane_ids,
     )
     db.commit()
-    return _redirect(request, db, user)
+    return _redirect(request, db, user, saved=True)
 
 
 @router.post("/pursuit-lanes/rematch")
@@ -218,4 +224,4 @@ async def rematch_pursuit_lanes(request: Request, db: Session = Depends(get_db))
     if _can_manage_lanes(db, user):
         refresh_org_lane_matches(db, _user_org_id(user))
         db.commit()
-    return _redirect(request, db, user)
+    return _redirect(request, db, user, saved=True)

@@ -21,6 +21,7 @@ from ..models import (
     PursuitLane,
     SamSourceConfig,
     Workspace,
+    WorkspaceInvitation,
 )
 from .feed_queries import feed_awaiting_review_query
 from .salesforce import SalesforceService
@@ -182,12 +183,16 @@ def _completed_item(
     title: str,
     completed_at: datetime | None = None,
     description: str | None = None,
+    cta_label: str = "Edit",
+    cta_url: str | None = None,
 ) -> dict[str, Any]:
     return {
         "key": key,
         "title": title,
         "description": description,
         "completed_at": completed_at,
+        "cta_label": cta_label,
+        "cta_url": cta_url,
     }
 
 
@@ -611,6 +616,15 @@ def get_home_context(
         .scalar()
         or 0
     )
+    pending_invitation_count = (
+        db.query(func.count(WorkspaceInvitation.id))
+        .filter(
+            WorkspaceInvitation.organization_id == organization_id,
+            WorkspaceInvitation.status == "pending",
+        )
+        .scalar()
+        or 0
+    )
     lane_count = (
         db.query(func.count(PursuitLane.id))
         .filter(PursuitLane.organization_id == organization_id)
@@ -653,6 +667,7 @@ def get_home_context(
             key="organization-created",
             title="Organization created",
             completed_at=organization.created_at,
+            cta_url=_workspace_url("/company-profile", organization_id),
         )
     ]
     if active_profile is None:
@@ -660,7 +675,7 @@ def get_home_context(
             key="company-profile",
             title="Configure Organization",
             label="Required",
-            description="Confirm the website and federal identifiers BidLens cannot reliably infer.",
+            description="Confirm the organization identity BidLens uses for matching and enrichment. Website and federal identifiers can be added now or later.",
             cta_label="Organization",
             cta_url=_workspace_url("/company-profile", organization_id),
             priority=10,
@@ -670,6 +685,7 @@ def get_home_context(
             key="company-profile",
             title="Organization configured",
             completed_at=active_profile.updated_at,
+            cta_url=_workspace_url("/company-profile", organization_id),
         ))
 
     if not source_labels:
@@ -688,9 +704,11 @@ def get_home_context(
             title="Opportunity Discovery enabled",
             completed_at=last_import_at,
             description="BidLens has at least one source to monitor for opportunities.",
+            cta_url=_workspace_url("/opportunity-discovery", organization_id),
         ))
 
-    if member_count <= 1:
+    users_setup_complete = member_count > 1 or pending_invitation_count > 0
+    if not users_setup_complete:
         recommendations.append(_recommendation(
             key="invite-team",
             title="Invite your team",
@@ -704,7 +722,12 @@ def get_home_context(
         completed.append(_completed_item(
             key="invite-team",
             title="Users invited",
-            description="More than one team member can use this workspace.",
+            description=(
+                "A user invitation is pending."
+                if pending_invitation_count
+                else "More than one team member can use this workspace."
+            ),
+            cta_url=_workspace_url(f"/admin/organizations/{organization_id}/users", organization_id),
         ))
 
     if not salesforce_connected:
@@ -721,6 +744,7 @@ def get_home_context(
         completed.append(_completed_item(
             key="business-systems",
             title="Business systems connected",
+            cta_url=_workspace_url("/outbound-integrations", organization_id),
         ))
 
     if not _has_setup_event(db, organization_id, "feed_rules_configured"):
@@ -737,6 +761,7 @@ def get_home_context(
         completed.append(_completed_item(
             key="feed-rules",
             title="Feed rules configured",
+            cta_url=_workspace_url("/settings", organization_id),
         ))
 
     if lane_count == 0:
@@ -753,6 +778,7 @@ def get_home_context(
         completed.append(_completed_item(
             key="pursuit-lanes",
             title="Pursuit lanes configured",
+            cta_url=_workspace_url("/pursuit-lanes", organization_id),
         ))
 
     recommendations.sort(key=lambda item: item["priority"])

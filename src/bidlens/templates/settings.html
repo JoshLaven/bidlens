@@ -1,13 +1,18 @@
 {% extends "base.html" %}
+{% from "_setup_back_link.html" import setup_back_link with context %}
 {% set hide_context_sidebar = true %}
 {% block title %}Feed Configuration - BidLens{% endblock %}
 {% block content %}
 <div class="admin-page-layout">
   <div class="admin-page-content">
+    {{ setup_back_link() }}
     <div class="page-header">
       <h1>Feed Configuration</h1>
       <p class="page-subtitle">Configure how opportunities move through review, qualification, and workspace routing.</p>
     </div>
+    {% if request.query_params.get('saved') == '1' %}
+      <div class="alert alert-success">Feed configuration saved.</div>
+    {% endif %}
 
 <form method="POST" action="/settings{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="form admin-rules-form">
   {% if is_admin %}

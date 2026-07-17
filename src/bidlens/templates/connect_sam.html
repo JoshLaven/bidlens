@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_setup_back_link.html" import setup_back_link with context %}
 {% block title %}Connect SAM.gov - BidLens{% endblock %}
 
 {% block content %}
@@ -6,6 +7,7 @@
 {% set org_q = '?org_id=' ~ org_id if org_id else '' %}
 
 <div class="setup-connect-shell">
+  {{ setup_back_link() }}
   <header class="setup-connect-hero">
     <div>
       <span class="setup-connect-eyebrow">Inbound Source</span>
@@ -101,7 +103,7 @@
         <div class="setup-flow-step-heading">
           <span>Done</span>
           <h2>Save SAM.gov source</h2>
-          <p>After saving, SAM.gov will appear as connected and you’ll return to Connect Opportunity Sources.</p>
+          <p>After saving, SAM.gov will appear as connected. You can keep refining this source or return to Setup when ready.</p>
         </div>
         <div class="setup-flow-grid">
           <div class="form-group">

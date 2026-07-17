@@ -36,7 +36,7 @@ class ConnectSourcesTests(unittest.TestCase):
         self.db.close()
         self.engine.dispose()
 
-    def test_sam_setup_creates_source_and_returns_to_organization_setup_pre_live(self):
+    def test_sam_setup_creates_source_and_stays_on_opportunity_discovery_pre_live(self):
         request = SimpleNamespace(query_params={})
 
         with patch("bidlens.routes.connect_sources.require_admin", return_value=self.admin):
@@ -62,12 +62,12 @@ class ConnectSourcesTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 303)
-        self.assertEqual(response.headers["location"], f"/organization-setup?org_id={self.org.id}")
+        self.assertEqual(response.headers["location"], f"/opportunity-discovery?org_id={self.org.id}&saved=sam#sam-gov")
         self.assertEqual(config.naics_codes, ["541611", "541990"])
         self.assertEqual(config.notice_types, ["Solicitation", "Sources Sought"])
         self.assertEqual(event.payload["source"], "sam.gov")
 
-    def test_grants_enable_is_one_click_and_returns_to_organization_setup_pre_live(self):
+    def test_grants_enable_is_one_click_and_stays_on_opportunity_discovery_pre_live(self):
         request = SimpleNamespace(query_params={})
 
         with patch("bidlens.routes.connect_sources.require_admin", return_value=self.admin):
@@ -89,7 +89,7 @@ class ConnectSourcesTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 303)
-        self.assertEqual(response.headers["location"], f"/organization-setup?org_id={self.org.id}")
+        self.assertEqual(response.headers["location"], f"/opportunity-discovery?org_id={self.org.id}&saved=grants#grants-gov")
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].payload["source"], "grants.gov")
         self.assertEqual(events[0].payload["configuration_flow"], "one_click_enable")

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_workspace_management_hero.html" import workspace_management_hero %}
+{% from "_setup_back_link.html" import setup_back_link with context %}
 {% set hide_context_sidebar = true %}
 {% block title %}Opportunity Sources - BidLens{% endblock %}
 {% block content %}
@@ -10,6 +11,7 @@
 
 <div class="admin-page-layout workspace-management-page">
   <div class="admin-page-content">
+    {{ setup_back_link() }}
     {{ workspace_management_hero('Opportunity Sources', 'Configure where BidLens discovers and imports opportunities.') }}
 
     <nav class="market-view-tabs" aria-label="Opportunity Sources views">

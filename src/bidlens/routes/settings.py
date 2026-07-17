@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..auth import attach_request_user_context, get_current_user
 from ..models import Event, OrgProfile, OrganizationMembership, PursuitLane
-from ..services.platform import post_setup_completion_url
 from ..services.pursuit_lanes import set_user_my_lanes, user_my_lanes
 from .pursuit_lanes import lane_management_context
 
@@ -44,17 +43,14 @@ def _is_admin(user) -> bool:
 
 
 def _settings_redirect_url(request: Request) -> str:
-    query = str(request.url.query or "").strip()
+    params = [
+        (key, value)
+        for key, value in parse_qsl(str(request.url.query or ""), keep_blank_values=False)
+        if key != "saved"
+    ]
+    params.append(("saved", "1"))
+    query = urlencode(params)
     return f"/settings?{query}" if query else "/settings"
-
-
-def _post_settings_save_url(request: Request, db: Session, user) -> str:
-    return post_setup_completion_url(
-        db,
-        user,
-        organization_id=_user_org_id(user),
-        live_url=_settings_redirect_url(request),
-    )
 
 
 def _my_lanes_redirect_url(request: Request) -> str:
@@ -311,4 +307,4 @@ async def settings_save(
 
     db.commit()
 
-    return RedirectResponse(url=_post_settings_save_url(request, db, user), status_code=303)
+    return RedirectResponse(url=_settings_redirect_url(request), status_code=303)

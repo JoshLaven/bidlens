@@ -202,6 +202,56 @@ class NavigationShellTests(unittest.TestCase):
         self.assertIn(">Archive<", html)
         self.assertIn(">Workspace Management<", html)
 
+    def test_setup_back_link_only_renders_for_pre_live_workspace(self):
+        template = self.env.from_string(
+            "{% from '_setup_back_link.html' import setup_back_link with context %}{{ setup_back_link() }}"
+        )
+        pre_live_user = self._user(role="admin")
+        pre_live_user.current_organization_is_live = False
+        live_user = self._user(role="admin")
+
+        pre_live_html = template.render(request=_Request("/settings"), user=pre_live_user)
+        live_html = template.render(request=_Request("/settings"), user=live_user)
+
+        self.assertIn("← Back to Setup", pre_live_html)
+        self.assertIn('href="/organization-setup?org_id=7"', pre_live_html)
+        self.assertNotIn("Back to Setup", live_html)
+
+    def test_completed_setup_items_remain_editable(self):
+        user = self._user(role="admin")
+        user.current_organization_is_live = False
+
+        html = self.env.get_template("organization_setup.html").render(
+            request=_Request("/organization-setup"),
+            user=user,
+            active_page="home",
+            home={
+                "workspace_summary": {
+                    "organization_id": 7,
+                    "organization_name": "Test Workspace",
+                    "headline": "Welcome to BidLens.",
+                    "description": "Let’s get your organization ready.",
+                },
+                "operational_snapshot": {},
+                "recommendations": [],
+                "completed": [
+                    {
+                        "title": "Users invited",
+                        "description": "A user invitation is pending.",
+                        "completed_at": None,
+                        "cta_label": "Edit",
+                        "cta_url": "/admin/organizations/7/users?org_id=7",
+                    }
+                ],
+                "can_go_live": False,
+            },
+        )
+
+        self.assertIn("✓", html)
+        self.assertIn("Users invited", html)
+        self.assertIn('href="/admin/organizations/7/users?org_id=7"', html)
+        self.assertIn("Edit →", html)
+
     def test_administration_redirects_to_organization(self):
         user = self._user(role="admin")
         with patch.object(settings, "require_user", return_value=user):

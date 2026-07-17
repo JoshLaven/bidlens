@@ -39,7 +39,7 @@ class FeedRulesOnboardingTests(unittest.TestCase):
     def _request(self):
         return SimpleNamespace(url=SimpleNamespace(query=f"org_id={self.org.id}"))
 
-    def test_pre_live_feed_rules_save_records_completion_and_returns_to_setup(self):
+    def test_pre_live_feed_rules_save_records_completion_and_stays_on_settings(self):
         with patch("bidlens.routes.settings.require_user", return_value=self.admin):
             response = asyncio.run(settings_save(
                 self._request(),
@@ -62,7 +62,7 @@ class FeedRulesOnboardingTests(unittest.TestCase):
             .one()
         )
         self.assertEqual(response.status_code, 303)
-        self.assertEqual(response.headers["location"], f"/organization-setup?org_id={self.org.id}")
+        self.assertEqual(response.headers["location"], f"/settings?org_id={self.org.id}&saved=1")
         self.assertEqual(event.payload["source"], "settings")
 
     def test_live_feed_rules_save_preserves_settings_redirect(self):
@@ -86,7 +86,7 @@ class FeedRulesOnboardingTests(unittest.TestCase):
             ))
 
         self.assertEqual(response.status_code, 303)
-        self.assertEqual(response.headers["location"], f"/settings?org_id={self.org.id}")
+        self.assertEqual(response.headers["location"], f"/settings?org_id={self.org.id}&saved=1")
 
 
 if __name__ == "__main__":

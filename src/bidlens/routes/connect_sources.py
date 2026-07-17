@@ -17,7 +17,6 @@ from ..services.sam_source_config import (
     config_form_values,
     validate_sam_config_input,
 )
-from ..services.platform import post_setup_completion_url
 from ..services.salesforce import SalesforceService
 
 
@@ -56,12 +55,7 @@ def _opportunity_discovery_url(
 
 
 def _post_source_setup_url(request: Request, db: Session, user, org_id: int, *, saved: str, fragment: str) -> str:
-    return post_setup_completion_url(
-        db,
-        user,
-        organization_id=org_id,
-        live_url=_opportunity_discovery_url(request, org_id, saved=saved, fragment=fragment),
-    )
+    return _opportunity_discovery_url(request, org_id, saved=saved, fragment=fragment)
 
 
 def _source_context(db: Session, org_id: int) -> dict:

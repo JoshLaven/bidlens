@@ -73,9 +73,14 @@
                 <p>{{ item.description }}</p>
               {% endif %}
             </div>
-            {% if item.completed_at %}
-              <time class="home-completed-date" datetime="{{ item.completed_at.isoformat() }}">{{ item.completed_at.strftime("%b %d, %Y") }}</time>
-            {% endif %}
+            <div class="home-completed-actions">
+              {% if item.completed_at %}
+                <time class="home-completed-date" datetime="{{ item.completed_at.isoformat() }}">{{ item.completed_at.strftime("%b %d, %Y") }}</time>
+              {% endif %}
+              {% if item.cta_url %}
+                <a href="{{ item.cta_url }}" class="btn btn-sm btn-outline-secondary">{{ item.cta_label or 'Edit' }} →</a>
+              {% endif %}
+            </div>
           </article>
         {% endfor %}
       </div>
