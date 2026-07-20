@@ -34,7 +34,7 @@ class MyShortlistToolbarTemplateTests(unittest.TestCase):
 
     def test_shortlist_cards_reuse_feed_checkbox_spacing(self):
         self.assertIn(
-            '.opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"])',
+            '.opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"], [data-card-view="user_archive"])',
             self.styles,
         )
         self.assertIn("padding-left: 44px;", self.styles)

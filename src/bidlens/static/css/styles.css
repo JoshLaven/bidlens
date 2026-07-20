@@ -7766,21 +7766,32 @@ details[open] .accordion-summary::after {
 }
 
 /* ── Unified opportunity card ─────────────────────────────── */
+#opportunity-list {
+  width: 100%;
+  max-width: 1040px;
+  margin-inline: auto;
+}
+
 .opp-card {
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(176, 191, 208, 0.38);
   border-radius: 8px;
   box-shadow: 0 8px 20px rgba(17, 32, 51, 0.045);
-  padding: 16px 16px 13px 24px;
-  margin-bottom: 12px;
+  padding: 12px 15px 9px 21px;
+  margin-bottom: 9px;
   transition: box-shadow 0.2s ease, transform 0.2s ease, opacity 0.2s ease, border-color 0.2s ease;
   transform: translate3d(0, 0, 0);
   position: relative;
   overflow: visible;
+  z-index: 0;
 }
 .opp-card:hover {
   box-shadow: 0 14px 32px rgba(17, 32, 51, 0.085);
   border-color: rgba(47, 111, 206, 0.22);
+  z-index: 30;
+}
+.opp-card:focus-within {
+  z-index: 35;
 }
 .opp-card--pursue {
   border-left-color: rgba(176, 191, 208, 0.38);
@@ -7835,10 +7846,11 @@ details[open] .accordion-summary::after {
 }
 
 .opp-card-title {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  display: block;
+  max-width: 100%;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 1.18rem;
   font-weight: 760;
   color: var(--gray-900);
@@ -7851,10 +7863,47 @@ details[open] .accordion-summary::after {
   color: var(--primary);
 }
 
+.opp-card-title-wrap {
+  position: relative;
+  display: block;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.opp-card-title-tooltip {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  z-index: 220;
+  width: max-content;
+  max-width: min(520px, calc(100vw - 64px));
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--gray-900);
+  box-shadow: var(--shadow-lg);
+  color: white;
+  font-size: 0.74rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(3px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.opp-card-title-wrap:hover .opp-card-title-tooltip,
+.opp-card-title-wrap:focus-within .opp-card-title-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .opp-card-top {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 132px;
-  gap: 20px;
+  gap: 15px;
   align-items: start;
 }
 
@@ -7867,12 +7916,12 @@ details[open] .accordion-summary::after {
 }
 
 .opp-card-title-group {
-  display: inline-flex;
+  display: flex;
   align-items: flex-start;
-  gap: 7px;
+  gap: 6px;
   max-width: 100%;
   min-width: 0;
-  width: fit-content;
+  width: 100%;
 }
 
 .opp-card-meta-line {
@@ -7887,13 +7936,13 @@ details[open] .accordion-summary::after {
 .opp-card-meta-line--collapsed {
   align-items: flex-start;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 
 .opp-card-metadata-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex-wrap: wrap;
   min-width: 0;
 }
@@ -7910,9 +7959,22 @@ details[open] .accordion-summary::after {
   gap: 4px;
   color: var(--gray-600);
   font-size: 0.7rem;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.25;
   white-space: nowrap;
+}
+
+.opp-card-due-icon {
+  width: 12px;
+  height: 12px;
+  color: var(--primary);
+  fill: none;
+  flex: 0 0 auto;
+  opacity: 0.76;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
 }
 
 .opp-card-source-update {
@@ -7937,21 +7999,6 @@ details[open] .accordion-summary::after {
 .opp-card-due-meta.due-past,
 .opp-card-due-meta.due-past span {
   color: var(--gray-500);
-}
-
-.opp-card-crm-inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--gray-500);
-  font-size: 0.68rem;
-  font-weight: 600;
-  line-height: 1.25;
-}
-
-.opp-card-crm-inline::before {
-  color: var(--gray-300);
-  content: "•";
 }
 
 .opportunity-type-pill {
@@ -7991,6 +8038,7 @@ details[open] .accordion-summary::after {
   position: relative;
   flex-shrink: 0;
   margin-top: -1px;
+  z-index: 210;
 }
 
 .opp-icon-button {
@@ -8060,7 +8108,7 @@ details[open] .accordion-summary::after {
   color: var(--gray-700);
   line-height: 1.42;
   white-space: normal;
-  z-index: 40;
+  z-index: 230;
   opacity: 0;
   pointer-events: none;
   transform: translateY(4px);
@@ -8111,9 +8159,9 @@ details[open] .accordion-summary::after {
 }
 
 .opp-card-agency {
-  font-size: 0.74rem;
+  font-size: 0.78rem;
   color: var(--gray-500);
-  line-height: 1.2;
+  line-height: 1.18;
 }
 
 .opp-card-team-interest {
@@ -8208,7 +8256,7 @@ details[open] .accordion-summary::after {
 
 .opp-card-row {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   padding-left: 0;
 }
 
@@ -8255,19 +8303,23 @@ details[open] .accordion-summary::after {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 6px;
+  gap: 10px;
   flex-shrink: 0;
   width: 132px;
   justify-self: end;
 }
 
 .opp-card-button {
-  padding: 5px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 12px;
   font-size: 0.7rem;
   font-weight: 700;
   border-radius: 999px;
-  min-height: 26px;
+  min-height: 28px;
   line-height: 1;
+  text-align: center;
 }
 
 .opp-card-button[aria-busy="true"] {
@@ -8277,7 +8329,7 @@ details[open] .accordion-summary::after {
 }
 
 .opp-card-button--primary {
-  min-width: 112px;
+  min-width: 116px;
   justify-content: center;
 }
 
@@ -8285,6 +8337,7 @@ details[open] .accordion-summary::after {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  justify-content: flex-end;
 }
 
 .opp-card-pass-label {
@@ -8297,8 +8350,9 @@ details[open] .accordion-summary::after {
 }
 
 .opp-card-button--secondary {
-  min-height: 25px;
-  padding: 0 9px;
+  min-width: 116px;
+  min-height: 28px;
+  padding: 0 12px;
   border-radius: 999px;
   font-size: 0.68rem;
   font-weight: 700;
@@ -8353,6 +8407,37 @@ details[open] .accordion-summary::after {
   margin-top: 4px;
 }
 
+.opp-email-action {
+  position: relative;
+}
+
+.opp-action-tooltip {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 220;
+  width: max-content;
+  max-width: 180px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: var(--gray-900);
+  box-shadow: var(--shadow-lg);
+  color: white;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(3px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.opp-email-action:hover .opp-action-tooltip,
+.opp-email-action:focus-visible .opp-action-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .opp-card-archived-label {
   font-size: 0.6875rem;
   font-weight: 600;
@@ -8363,8 +8448,8 @@ details[open] .accordion-summary::after {
 
 /* Accordion expand */
 .opp-card-more {
-  margin-top: 8px;
-  padding-top: 7px;
+  margin-top: 5px;
+  padding-top: 4px;
   border-top: 1px solid rgba(17, 24, 39, 0.08);
 }
 .opp-card-more summary {
@@ -8374,7 +8459,7 @@ details[open] .accordion-summary::after {
   padding: 0;
   user-select: none;
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   width: 100%;
@@ -8387,10 +8472,23 @@ details[open] .accordion-summary::after {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  justify-self: center;
   font-size: 0.6875rem;
   font-weight: 600;
   color: var(--gray-700);
   letter-spacing: 0.02em;
+}
+
+.opp-card-more-label-text--expanded {
+  display: none;
+}
+
+.opp-card-more[open] .opp-card-more-label-text--collapsed {
+  display: none;
+}
+
+.opp-card-more[open] .opp-card-more-label-text--expanded {
+  display: inline;
 }
 
 .opp-card-more-label::after {
@@ -9782,6 +9880,10 @@ details[open] .accordion-summary::after {
   justify-items: start;
 }
 
+.queue-filter-stack--admin {
+  gap: 9px;
+}
+
 .queue-toolbar-heading {
   color: var(--gray-500);
   font-size: 0.72rem;
@@ -9794,6 +9896,20 @@ details[open] .accordion-summary::after {
 .queue-toolbar-column--filters .stage-filter {
   min-width: 0;
   margin: 0;
+}
+
+.queue-filter-stack--admin .stage-filter {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 10px;
+  width: 100%;
+}
+
+.queue-filter-empty {
+  color: var(--gray-500);
+  font-size: 0.78rem;
+  font-weight: 650;
 }
 
 .queue-toolbar-tabs {
@@ -9940,6 +10056,7 @@ details[open] .accordion-summary::after {
 
 .queue-export-icon-action {
   display: inline-grid;
+  position: relative;
   width: 32px;
   height: 32px;
   place-items: center;
@@ -9951,6 +10068,44 @@ details[open] .accordion-summary::after {
   font-weight: 800;
   line-height: 1;
   text-decoration: none;
+}
+
+.queue-export-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.queue-export-tooltip {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 220;
+  width: max-content;
+  max-width: 180px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: var(--gray-900);
+  box-shadow: var(--shadow-lg);
+  color: white;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(3px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.queue-export-icon-action:hover .queue-export-tooltip,
+.queue-export-icon-action:focus-visible .queue-export-tooltip,
+.queue-export-icon-action:focus-within .queue-export-tooltip {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .queue-export-icon-action:hover {
@@ -11034,11 +11189,11 @@ details[open] .accordion-summary::after {
 
 .opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"], [data-card-view="user_archive"]) {
   margin-bottom: 8px;
-  padding: 11px 14px 8px 20px;
+  padding: 9px 14px 7px 20px;
   box-shadow: 0 5px 16px rgba(17, 32, 51, 0.035);
 }
 
-.opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"])::before {
+.opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"])::before {
   position: absolute;
   top: 9px;
   bottom: 9px;
@@ -11054,14 +11209,14 @@ details[open] .accordion-summary::after {
   transition: opacity 170ms ease, transform 170ms ease;
 }
 
-.opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"]):is(:hover, :focus-within)::before {
+.opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"]):is(:hover, :focus-within)::before {
   opacity: 1;
   transform: scaleY(1);
 }
 
-.opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"]) {
-  padding-top: 11px;
-  padding-bottom: 8px;
+.opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"], [data-card-view="user_archive"]) {
+  padding-top: 9px;
+  padding-bottom: 7px;
   padding-left: 44px;
 }
 
@@ -11093,7 +11248,7 @@ details[open] .accordion-summary::after {
 
 .opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"], [data-card-view="user_archive"]) .opp-card-top {
   grid-template-columns: minmax(0, 1fr) 132px;
-  gap: 14px;
+  gap: 12px;
 }
 
 .opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"], [data-card-view="user_archive"]) .opp-card-title {
@@ -11103,7 +11258,7 @@ details[open] .accordion-summary::after {
 }
 
 .opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"], [data-card-view="user_archive"]) .opp-card-meta-line {
-  margin: 5px 0 0;
+  margin: 6px 0 0;
 }
 
 .opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"], [data-card-view="user_archive"]) .opp-card-row {
@@ -11112,38 +11267,30 @@ details[open] .accordion-summary::after {
 
 .opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"], [data-card-view="user_archive"]) .opp-card-actions {
   width: 132px;
-  min-height: 52px;
+  min-height: 50px;
   padding-left: 13px;
   border-left: 1px solid rgba(17, 24, 39, 0.08);
-  gap: 3px;
+  gap: 10px;
   justify-content: center;
 }
 
 .opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"], [data-card-view="user_archive"]) .opp-card-button {
-  min-height: 23px;
-  padding-block: 3px;
+  min-height: 27px;
+  padding-block: 4px;
 }
 
 .opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"], [data-card-view="user_archive"]) .opp-card-more {
-  margin-top: 5px;
-  padding-top: 5px;
-}
-
-.opp-card[data-card-view="feed"] .opp-card-meta-line {
-  margin-top: 5px;
+  margin-top: 4px;
+  padding-top: 3px;
 }
 
 .opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="user_archive"]) .opp-card-agency {
   color: var(--gray-700);
-  font-size: 0.75rem;
+  font-size: 0.78rem;
 }
 
 .opp-card[data-card-view="feed"] .opp-card-row {
   margin-bottom: 3px;
-}
-
-.opp-card[data-card-view="feed"] .opp-card-actions-secondary--feed {
-  justify-content: flex-end;
 }
 
 @media (max-width: 720px) {

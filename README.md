@@ -232,9 +232,17 @@ Platform Owners can inspect durable operational job history at:
 
 The page is read-only and Platform-only. It uses `JobRun` as the primary source for cross-workspace diagnostics, with filters for organization, job type, status, and date range. Run details show readable aggregate metrics from `details_json` and safe error information. Workspace Admins and Members should not have access.
 
-## Salesforce OAuth POC Setup
+## Salesforce Integration
 
-BidLens uses the Salesforce OAuth 2.0 Authorization Code flow for the local CRM update proof-of-concept. This avoids the disabled Username-Password flow and lets a Salesforce user authorize BidLens in the browser.
+BidLens uses the Salesforce OAuth 2.0 Authorization Code flow with PKCE. Each
+workspace has its own Salesforce connection record, so one customer workspace
+cannot read or reuse another workspace's Salesforce authorization.
+
+The OAuth callback stores safe connection metadata and encrypted Salesforce
+tokens in the application database. Access and refresh tokens are never rendered
+in the UI. Credential encryption is derived from `SECRET_KEY`, so rotating
+`SECRET_KEY` requires a credential-rotation plan or existing encrypted
+Salesforce tokens will no longer decrypt.
 
 Connected App settings:
 
@@ -242,14 +250,41 @@ Connected App settings:
 - Callback URL: set this to the exact `SALESFORCE_REDIRECT_URI` value used by BidLens.
 - OAuth scopes: include `api` and `refresh_token` / `offline_access`.
 - Client type: confidential app with a consumer secret.
-- The authorizing Salesforce user needs access to query `Opportunity.External_Source_ID_c__c` and update `Opportunity.Intake_Status__c`.
+- The authorizing Salesforce user needs access to describe, query, create, and update `Opportunity` records.
+- The authorizing Salesforce user needs field access for `Opportunity.External_Source_ID_c__c`, `Opportunity.Intake_Status__c`, and `Opportunity.Intake_Source_c__c`.
 
-Local authorization:
+Expected Salesforce Opportunity configuration:
+
+- `StageName` includes `Prospecting`.
+- `Intake_Status__c` supports `Prospect_Feed`.
+- `Intake_Source_c__c` has at least one active value; `BidLens` is preferred.
+- `External_Source_ID_c__c` should be configured as an External ID and should be unique if the customer wants Salesforce to enforce duplicate protection.
+
+Workspace authorization:
 
 1. Start BidLens with the Salesforce environment variables configured.
-2. While logged in to BidLens, open `/api/salesforce/oauth/start`.
-3. Sign in to Salesforce and approve the Connected App.
-4. After the callback succeeds, use the temporary "Push to CRM" button. The local POC stores the OAuth token in process memory, so restart requires authorizing again.
+2. Sign in to BidLens as a workspace admin.
+3. Open Workspace Management → Integrations → Salesforce, or during pre-live setup open Connect Business Systems.
+4. Click Connect Salesforce.
+5. Sign in to Salesforce and approve the Connected App.
+6. After the callback succeeds, BidLens stores the workspace-scoped encrypted connection and returns to the setup or Salesforce configuration page.
+
+Connection lifecycle:
+
+- Connected workspaces can test the connection from `/workspace-management/business-systems/salesforce`.
+- Reconnect / Reauthorize starts a new OAuth flow for the same workspace.
+- Disconnect clears the locally stored encrypted access and refresh tokens while preserving existing local Salesforce opportunity references and sync history.
+- If Salesforce revokes or expires the refresh token, BidLens marks the connection as requiring reauthorization.
+
+Current Salesforce capabilities:
+
+- Interested and qualified opportunities may be created in or linked to Salesforce.
+- Existing Salesforce Opportunities are matched by `External_Source_ID_c__c`.
+- Linked opportunities store the Salesforce Opportunity ID and URL in BidLens.
+- Source updates for linked opportunities may push changes to Salesforce `Name`, `CloseDate`, and `Description`.
+- BidLens records Salesforce sync outcomes in opportunity history and source-update audit events.
+- BidLens does not currently perform general bidirectional synchronization.
+- Field mapping, default owner, default record type, sync direction, and automatic push rules are placeholders for a future release.
 
 ## Rotating SAM API Key
 

@@ -28,6 +28,8 @@
 {% set preview_has_sam_fallback = opp.preview_has_sam_fallback %}
 {% set source_value = opp.source or '' %}
 {% set source_label = 'SAM' if source_value == 'sam' else 'GovWin' if source_value == 'govwin_export' else 'Grants.gov' if source_value == 'grants_gov' else source_value %}
+{% set source_link_url = opp.source_url or opp.sam_url %}
+{% set source_link_label = 'View on SAM.gov' if source_value == 'sam' else 'View on Grants.gov' if source_value == 'grants_gov' else 'View on GovWin' if source_value == 'govwin_export' else 'View Source' %}
 {% set opportunity_type_label = opp.normalized_opportunity_type or 'RFP' %}
 {% set primary_pursuit_lane = pursuit_lanes[0] if pursuit_lanes else none %}
 <div
@@ -53,7 +55,14 @@
     <div class="opp-card-main">
       <div class="opp-card-heading">
         <div class="opp-card-title-group">
-          <a href="/opportunity/{{ opp.id }}" class="opp-card-title">{{ opp.title }}</a>
+          <span class="opp-card-title-wrap">
+            <a
+              href="/opportunity/{{ opp.id }}"
+              class="opp-card-title"
+              aria-describedby="opp-title-tooltip-{{ opp.id }}"
+            >{{ opp.title }}</a>
+            <span id="opp-title-tooltip-{{ opp.id }}" class="opp-card-title-tooltip" role="tooltip">{{ opp.title }}</span>
+          </span>
           <div class="opp-preview" data-preview-id="{{ opp.id }}">
             <button
               type="button"
@@ -70,13 +79,13 @@
               <div class="opp-preview-title">{{ opp.title }}</div>
               {% if preview_has_sam_fallback %}
                 <p>Detailed description available on SAM.gov</p>
-                {% if opp.source_url or opp.sam_url %}
-                  <a href="{{ opp.source_url or opp.sam_url }}" target="_blank" rel="noreferrer" class="opp-preview-link">View Source</a>
-                {% endif %}
               {% elif preview_text %}
                 <p>{{ preview_text[:300] }}{% if preview_text|length > 300 %}…{% endif %}</p>
               {% else %}
                 <p>No description available.</p>
+              {% endif %}
+              {% if source_link_url %}
+                <a href="{{ source_link_url }}" target="_blank" rel="noreferrer" class="opp-preview-link">{{ source_link_label }} ↗</a>
               {% endif %}
             </div>
           </div>
@@ -86,6 +95,10 @@
         <div class="opp-card-agency" title="{{ agency_display }}">{{ agency_display|truncate(60, False, '…') }}</div>
         <div class="opp-card-metadata-row">
           <span class="opp-card-due-meta">
+            <svg class="opp-card-due-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="4" y="5" width="16" height="15" rx="2"></rect>
+              <path d="M8 3v4M16 3v4M4 10h16"></path>
+            </svg>
             {% if opp.response_deadline %}
               Due {{ opp.response_deadline.strftime('%b') }} {{ opp.response_deadline.day }}
             {% else %}
@@ -103,16 +116,6 @@
             <span class="opp-card-source-update">{{ opp.updated_since_import_label or 'Updated since import' }}</span>
           {% endif %}
         </div>
-        {% if view == 'my_shortlist' %}
-          <span class="opp-card-crm-inline" data-salesforce-link-container {% if not has_salesforce_linkage %}hidden{% endif %}>
-            <span data-salesforce-status>{{ salesforce_status }}</span>
-            {% if salesforce_url %}
-              <a href="{{ salesforce_url }}" target="_blank" rel="noreferrer" class="opp-card-crm-link" data-salesforce-link>Open in Salesforce</a>
-            {% else %}
-              <a href="#" target="_blank" rel="noreferrer" class="opp-card-crm-link" data-salesforce-link hidden></a>
-            {% endif %}
-          </span>
-        {% endif %}
       </div>
       {% if view not in ['triage', 'feed', 'my_shortlist', 'user_archive'] %}
         <div
@@ -156,13 +159,13 @@
         <div class="opp-preview-title">{{ opp.title }}</div>
         {% if preview_has_sam_fallback %}
           <p>Detailed description available on SAM.gov</p>
-          {% if opp.source_url or opp.sam_url %}
-            <a href="{{ opp.source_url or opp.sam_url }}" target="_blank" rel="noreferrer" class="opp-preview-link">View Source</a>
-          {% endif %}
         {% elif preview_text %}
           <p>{{ preview_text[:300] }}{% if preview_text|length > 300 %}…{% endif %}</p>
         {% else %}
           <p>No description available.</p>
+        {% endif %}
+        {% if source_link_url %}
+          <a href="{{ source_link_url }}" target="_blank" rel="noreferrer" class="opp-preview-link">{{ source_link_label }} ↗</a>
         {% endif %}
       </div>
 
@@ -202,7 +205,7 @@
               onclick="voteOpp('{{ opp.id }}', 'PURSUE')">
         {% if opp.user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}
       </button>
-      <div class="opp-card-actions-secondary{% if view == 'feed' %} opp-card-actions-secondary--feed{% endif %}">
+      <div class="opp-card-actions-secondary">
         {% if view not in ['feed', 'my_shortlist'] %}
           <span class="opp-card-pass-label" data-pass-helper {% if opp.user_vote == 'PASS' %}hidden{% endif %}>Not relevant?</span>
         {% endif %}
@@ -225,7 +228,11 @@
   {# === EXPANDABLE DETAILS === #}
   <details class="opp-card-more">
     <summary>
-      <span class="opp-card-more-label">Details</span>
+      <span class="opp-card-more-balance" aria-hidden="true"></span>
+      <span class="opp-card-more-label">
+        <span class="opp-card-more-label-text opp-card-more-label-text--collapsed">More Info</span>
+        <span class="opp-card-more-label-text opp-card-more-label-text--expanded">Less Info</span>
+      </span>
       <div class="opp-footer-utilities">
         {% if view in ['feed', 'my_shortlist', 'user_archive'] %}
           <div class="opp-card-team-interest-control opp-footer-team-interest" data-team-interest>
@@ -267,14 +274,15 @@
         {% endif %}
         <button
           type="button"
-          class="opp-icon-button opp-footer-icon"
-          title="Email opportunity"
-          aria-label="Email opportunity"
+          class="opp-icon-button opp-footer-icon opp-email-action"
+          aria-label="Email Opportunity"
+          aria-describedby="opp-email-tooltip-{{ opp.id }}"
           onclick='event.preventDefault(); event.stopPropagation(); openOpportunityEmail({ title: {{ opp.title|tojson }}, agency: {{ agency_display|tojson }}, due: {{ due_label|tojson }}, path: {{ ("/opportunity/" ~ opp.id)|tojson }}, samUrl: {{ (opp.source_url or opp.sam_url or "")|tojson }} })'>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <rect x="3" y="5" width="18" height="14" rx="2"></rect>
             <path d="m4 7 8 6 8-6"></path>
           </svg>
+          <span id="opp-email-tooltip-{{ opp.id }}" class="opp-action-tooltip" role="tooltip">Email Opportunity</span>
         </button>
       </div>
     </summary>

@@ -1,21 +1,35 @@
 {% extends "base.html" %}
 {% from "_opp_card.html" import opp_card %}
-{% from "_queue_layout.html" import queue_heading, queue_search, queue_toolbar, queue_count, queue_pagination %}
+{% from "_queue_layout.html" import queue_heading, queue_search, queue_toolbar, queue_count, queue_pagination, queue_export_action %}
 {% block title %}Triage - BidLens{% endblock %}
 {% block content %}
 {% set org_id_param = request.query_params.get('org_id') %}
+{% set org_param = '&org_id=' ~ org_id_param if org_id_param else '' %}
+{% set q_param = '&q=' ~ (q|urlencode) if q else '' %}
+{% set lane_param = '&lane_id=' ~ lane_id if lane_id else '' %}
+{% set sort_params = '&sort=' ~ sort ~ '&direction=' ~ direction %}
+{% set stage_param = '&stages=' ~ stages_value %}
+{% set source_param = '&sources=' ~ sources_value if sources_value else '' %}
+{% set export_url = '/opportunities/export.csv?view=triage' ~ sort_params ~ q_param ~ org_param ~ lane_param ~ stage_param ~ source_param %}
 
 {{ queue_heading('Triage', 'Review newly imported opportunities before they enter the Feed.') }}
-{{ queue_search('/triage', 'triage-search-input', q, sort, direction, none, org_id_param, none, stages_value, sources_value) }}
-{{ queue_toolbar('/triage', 'triage', sort, direction, q, none, org_id_param, none, none, stages_value, sources_value, selected_stages, none, true, false, source_options, selected_sources) }}
-
-{% if triage_enabled and user.current_role == 'admin' %}
-  {% include "_source_controls.html" %}
-{% endif %}
+{{ queue_search('/triage', 'triage-search-input', q, sort, direction, none, org_id_param, lane_id, stages_value, sources_value) }}
+{{ queue_toolbar('/triage', 'triage', sort, direction, q, none, org_id_param, lane_id, active_lanes, stages_value, sources_value, selected_stages, none, true, false, source_options, selected_sources, admin_filter_bar=true) }}
 
 <div class="feed-queue-summary">
-  {{ queue_count(result_count, q) }}
+  <div class="feed-results-left">
+    <label class="feed-select-all">
+      <input
+        type="checkbox"
+        data-triage-select-all
+        {% if not opportunities %}disabled{% endif %}
+      >
+      <span>Select All</span>
+    </label>
+    {{ queue_count(result_count, q) }}
+  </div>
   <div class="triage-bulk-actions" data-triage-bulk-actions>
+    {{ queue_export_action(export_url) }}
     <button
       type="button"
       class="btn btn-sm btn-primary"
@@ -32,22 +46,6 @@
     >
       Reject selected
     </button>
-    <button
-      type="button"
-      class="btn btn-sm btn-outline-secondary"
-      data-triage-visible="qualify"
-      {% if not opportunities %}disabled{% endif %}
-    >
-      Qualify all visible
-    </button>
-    <button
-      type="button"
-      class="btn btn-sm btn-outline-secondary"
-      data-triage-visible="reject"
-      {% if not opportunities %}disabled{% endif %}
-    >
-      Reject all visible
-    </button>
   </div>
 </div>
 
@@ -63,7 +61,7 @@
   <h2>No opportunities waiting for triage</h2>
   <p>New imports will appear here before they enter the Feed.</p>
 </div>
-{{ queue_pagination('/triage', page, total_pages, result_count, page_size, sort, direction, q, none, org_id_param, none, stages_value, sources_value) }}
+{{ queue_pagination('/triage', page, total_pages, result_count, page_size, sort, direction, q, none, org_id_param, lane_id, stages_value, sources_value) }}
 {% endblock %}
 
 {% block scripts %}
@@ -83,31 +81,21 @@ function updateTriageBulkActions() {
       ? `${actionLabel} selected (${selectedCount})`
       : `${actionLabel} selected`;
   });
-  document.querySelectorAll('[data-triage-visible]').forEach((button) => {
-    button.disabled = checkboxes.length === 0;
-  });
+  const selectAll = document.querySelector('[data-triage-select-all]');
+  if (selectAll) {
+    selectAll.disabled = checkboxes.length === 0;
+    selectAll.checked = checkboxes.length > 0 && selectedCount === checkboxes.length;
+    selectAll.indeterminate = selectedCount > 0 && selectedCount < checkboxes.length;
+  }
 }
 
-async function bulkSetQualificationStatus(action, mode) {
+async function bulkSetQualificationStatus(action) {
   const checkboxes = triageCheckboxes();
-  const selected = mode === 'visible'
-    ? checkboxes
-    : checkboxes.filter((checkbox) => checkbox.checked);
+  const selected = checkboxes.filter((checkbox) => checkbox.checked);
   const oppIds = selected.map((checkbox) => Number(checkbox.value));
   if (!oppIds.length) return;
 
-  if (
-    mode === 'visible'
-    && !window.confirm(
-      `${action === 'qualify' ? 'Qualify' : 'Reject'} all ${oppIds.length} visible opportunities?`
-    )
-  ) {
-    return;
-  }
-
-  const actionButtons = document.querySelectorAll(
-    '[data-triage-selected], [data-triage-visible]'
-  );
+  const actionButtons = document.querySelectorAll('[data-triage-selected]');
   actionButtons.forEach((button) => {
     button.disabled = true;
   });
@@ -171,14 +159,15 @@ async function setQualificationStatus(oppId, action) {
 document.querySelectorAll('[data-triage-checkbox]').forEach((checkbox) => {
   checkbox.addEventListener('change', updateTriageBulkActions);
 });
+document.querySelector('[data-triage-select-all]')?.addEventListener('change', (event) => {
+  triageCheckboxes().forEach((checkbox) => {
+    checkbox.checked = event.target.checked;
+  });
+  updateTriageBulkActions();
+});
 document.querySelectorAll('[data-triage-selected]').forEach((button) => {
   button.addEventListener('click', () => {
-    bulkSetQualificationStatus(button.dataset.triageSelected, 'selected');
-  });
-});
-document.querySelectorAll('[data-triage-visible]').forEach((button) => {
-  button.addEventListener('click', () => {
-    bulkSetQualificationStatus(button.dataset.triageVisible, 'visible');
+    bulkSetQualificationStatus(button.dataset.triageSelected);
   });
 });
 const bulkTriageMessage = window.sessionStorage.getItem('bidlensBulkTriageMessage');

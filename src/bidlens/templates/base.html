@@ -707,25 +707,34 @@
       if (label) label.textContent = next === 1 ? 'opportunity' : 'opportunities';
     }
 
+    function opportunitySourceLinkLabel(url) {
+      const value = String(url || '').toLowerCase();
+      if (value.includes('grants.gov')) return 'View on Grants.gov ↗';
+      if (value.includes('sam.gov')) return 'View on SAM.gov ↗';
+      if (value.includes('govwin')) return 'View on GovWin ↗';
+      return 'View Source ↗';
+    }
+
     function renderPreviewContent(target, data) {
       if (!target || !data) return;
 
       const titleHtml = `<div class="opp-preview-title">${escapeHtml(data.title || '')}</div>`;
+      const sourceUrl = data.source_url || data.sam_url || '';
+      const sourceLinkHtml = sourceUrl
+        ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noreferrer" class="opp-preview-link">${opportunitySourceLinkLabel(sourceUrl)}</a>`
+        : '';
 
       if (data.state === 'text') {
-        target.innerHTML = `${titleHtml}<p>${escapeHtml(data.description)}</p>`;
+        target.innerHTML = `${titleHtml}<p>${escapeHtml(data.description)}</p>${sourceLinkHtml}`;
         return;
       }
 
       if (data.state === 'sam_fallback') {
-        const linkHtml = data.sam_url
-          ? `<a href="${escapeHtml(data.sam_url)}" target="_blank" rel="noreferrer" class="opp-preview-link">View on SAM.gov</a>`
-          : '';
-        target.innerHTML = `${titleHtml}<p>${escapeHtml(data.description)}</p>${linkHtml}`;
+        target.innerHTML = `${titleHtml}<p>${escapeHtml(data.description)}</p>${sourceLinkHtml}`;
         return;
       }
 
-      target.innerHTML = `${titleHtml}<p>No description available.</p>`;
+      target.innerHTML = `${titleHtml}<p>No description available.</p>${sourceLinkHtml}`;
     }
 
     async function loadPreview(oppId) {

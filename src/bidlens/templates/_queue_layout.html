@@ -12,9 +12,21 @@
     href="{{ export_url }}"
     class="queue-export-icon-action"
     aria-label="Export CSV"
-    title="Export CSV"
+    aria-describedby="queue-export-tooltip"
   >
-    <span aria-hidden="true">⇩</span>
+    <svg
+      class="queue-export-icon"
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      focusable="false"
+    >
+      <path d="M7 3.5h7.5L19 8v12.5H7z"></path>
+      <path d="M14.5 3.5V8H19"></path>
+      <path d="M10 12h6"></path>
+      <path d="M10 15h6"></path>
+      <path d="M10 18h4"></path>
+    </svg>
+    <span id="queue-export-tooltip" class="queue-export-tooltip" role="tooltip">Export CSV</span>
   </a>
 {% endmacro %}
 
@@ -47,8 +59,9 @@
   </form>
 {% endmacro %}
 
-{% macro stage_filter_chips(route, selected_stages, stages_value, sort, direction, q, org_id=none, lane_id=none, sources_value=none) %}
+{% macro stage_filter_chips(route, selected_stages, stages_value, sort, direction, q, org_id=none, lane_id=none, sources_value=none, current_tab=none) %}
   <form method="GET" action="{{ route }}" class="stage-filter" data-stage-filter-form>
+    {% if current_tab %}<input type="hidden" name="tab" value="{{ current_tab }}">{% endif %}
     <input type="hidden" name="stages" value="{{ stages_value }}" data-stage-filter-value>
     <input type="hidden" name="sort" value="{{ sort }}">
     <input type="hidden" name="direction" value="{{ direction }}">
@@ -90,8 +103,9 @@
   </script>
 {% endmacro %}
 
-{% macro source_filter_chips(route, source_options, selected_sources, sources_value, stages_value, sort, direction, q, org_id=none, lane_id=none) %}
+{% macro source_filter_chips(route, source_options, selected_sources, sources_value, stages_value, sort, direction, q, org_id=none, lane_id=none, current_tab=none) %}
   <form method="GET" action="{{ route }}" class="stage-filter source-filter" data-source-filter-form>
+    {% if current_tab %}<input type="hidden" name="tab" value="{{ current_tab }}">{% endif %}
     <input type="hidden" name="sources" value="{{ sources_value }}" data-source-filter-value>
     <input type="hidden" name="stages" value="{{ stages_value }}">
     <input type="hidden" name="sort" value="{{ sort }}">
@@ -133,7 +147,53 @@
   </script>
 {% endmacro %}
 
-{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none, my_lanes=none, show_filters=true, feed_sort_options=false, source_options=none, selected_sources=none, show_tabs=true) %}
+{% macro lane_filter_chips(route, id_prefix, active_lanes, lane_id, stages_value, sources_value, sort, direction, q, org_id=none, current_tab=none) %}
+  {% set selected_lane = lane_id|string if lane_id else '' %}
+  <form method="GET" action="{{ route }}" class="stage-filter lane-filter" data-lane-filter-form>
+    {% if current_tab %}<input type="hidden" name="tab" value="{{ current_tab }}">{% endif %}
+    <input type="hidden" name="lane_id" value="{{ selected_lane }}" data-lane-filter-value>
+    <input type="hidden" name="stages" value="{{ stages_value }}">
+    {% if sources_value is not none %}<input type="hidden" name="sources" value="{{ sources_value }}">{% endif %}
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="direction" value="{{ direction }}">
+    <input type="hidden" name="q" value="{{ q }}">
+    {% if org_id %}<input type="hidden" name="org_id" value="{{ org_id }}">{% endif %}
+    <span class="stage-filter-label">Lane</span>
+    <div class="stage-filter-chips" aria-label="Filter opportunities by pursuit lane">
+      {% if active_lanes %}
+        {% for lane in active_lanes %}
+          {% set lane_value = lane.id|string %}
+          <button
+            type="button"
+            class="stage-filter-chip lane-filter-chip{% if selected_lane == lane_value %} is-selected{% endif %}"
+            data-lane-filter-chip="{{ lane_value }}"
+            aria-pressed="{{ 'true' if selected_lane == lane_value else 'false' }}"
+          >
+            <span class="stage-filter-check" aria-hidden="true">✓</span>
+            {{ lane.name }}
+          </button>
+        {% endfor %}
+      {% else %}
+        <span class="queue-filter-empty">No active lanes</span>
+      {% endif %}
+    </div>
+  </form>
+  <script>
+    (() => {
+      const form = document.currentScript.previousElementSibling;
+      if (!form?.matches('[data-lane-filter-form]')) return;
+      form.querySelectorAll('[data-lane-filter-chip]').forEach((chip) => {
+        chip.addEventListener('click', () => {
+          const alreadySelected = chip.getAttribute('aria-pressed') === 'true';
+          form.querySelector('[data-lane-filter-value]').value = alreadySelected ? '' : chip.dataset.laneFilterChip;
+          form.requestSubmit();
+        });
+      });
+    })();
+  </script>
+{% endmacro %}
+
+{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none, my_lanes=none, show_filters=true, feed_sort_options=false, source_options=none, selected_sources=none, show_tabs=true, admin_filter_bar=false) %}
   {% set show_filter_controls = show_filters and (selected_stages is not none or active_lanes or my_lanes or source_options) %}
   <div class="queue-toolbar{% if not show_filter_controls %} queue-toolbar--sort-only{% endif %}" aria-label="Queue organization controls">
     <div class="queue-toolbar-column queue-toolbar-column--sort">
@@ -178,18 +238,25 @@
 
     {% if show_filter_controls %}
       <div class="queue-toolbar-column queue-toolbar-column--filters">
-        {% if selected_stages is not none or source_options %}
+        {% if admin_filter_bar %}
+          <div class="queue-filter-stack queue-filter-stack--admin">
+            <span class="queue-toolbar-heading">Filters</span>
+            {{ stage_filter_chips(route, selected_stages or [], stages_value, sort, direction, q, org_id, lane_id, sources_value, current_tab) }}
+            {{ source_filter_chips(route, source_options or [], selected_sources or [], sources_value, stages_value, sort, direction, q, org_id, lane_id, current_tab) }}
+            {{ lane_filter_chips(route, id_prefix, active_lanes or [], lane_id, stages_value, sources_value, sort, direction, q, org_id, current_tab) }}
+          </div>
+        {% elif selected_stages is not none or source_options %}
           <div class="queue-filter-stack">
             <span class="queue-toolbar-heading">Filters</span>
             {% if selected_stages is not none %}
-              {{ stage_filter_chips(route, selected_stages, stages_value, sort, direction, q, org_id, lane_id, sources_value) }}
+              {{ stage_filter_chips(route, selected_stages, stages_value, sort, direction, q, org_id, lane_id, sources_value, current_tab) }}
             {% endif %}
             {% if source_options %}
-              {{ source_filter_chips(route, source_options, selected_sources or [], sources_value, stages_value, sort, direction, q, org_id, lane_id) }}
+              {{ source_filter_chips(route, source_options, selected_sources or [], sources_value, stages_value, sort, direction, q, org_id, lane_id, current_tab) }}
             {% endif %}
           </div>
         {% endif %}
-        {% if active_lanes or my_lanes %}
+        {% if not admin_filter_bar and (active_lanes or my_lanes) %}
           {% set my_lane_ids = my_lanes|map(attribute='id')|list if my_lanes else [] %}
           {% set selected_lane = lane_id|string if lane_id else '' %}
           <form method="GET" action="{{ route }}" class="queue-lane-filter-form">

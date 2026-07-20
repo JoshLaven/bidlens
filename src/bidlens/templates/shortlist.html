@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_opp_card.html" import opp_card %}
+{% from "_queue_layout.html" import queue_export_action %}
 {% block title %}Interested - BidLens{% endblock %}
 {% block content %}
 {% set export_url = '/opportunities/export.csv?view=shortlist&tab=' ~ current_tab ~ '&sort=' ~ sort ~ '&show_past_due=' ~ show_past_due %}
@@ -31,7 +32,7 @@
 </div>
 
 <div class="feed-toolbar-actions">
-  <a href="{{ export_url }}" class="btn btn-sm btn-outline-secondary">Export CSV</a>
+  {{ queue_export_action(export_url) }}
 </div>
 
 <div id="opportunity-list" data-list-view="shortlist">

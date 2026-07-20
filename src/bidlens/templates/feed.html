@@ -9,11 +9,12 @@
 {% set org_param = '&org_id=' ~ org_id_param if org_id_param else '' %}
 {% set sort_params = '&sort=' ~ sort ~ '&direction=' ~ direction %}
 {% set stage_param = '&stages=' ~ stages_value %}
-{% set export_url = '/opportunities/export.csv?view=feed' ~ sort_params ~ lane_param ~ q_param ~ org_param ~ stage_param %}
+{% set source_param = '&sources=' ~ sources_value if sources_value is defined and sources_value else '' %}
+{% set export_url = '/opportunities/export.csv?view=feed' ~ sort_params ~ lane_param ~ q_param ~ org_param ~ stage_param ~ source_param %}
 
 {{ queue_heading('Feed', 'Review active opportunities and move the right ones forward.') }}
-{{ queue_search('/', 'feed-search-input', q, sort, direction, none, org_id_param, lane_id, stages_value) }}
-{{ queue_toolbar('/', 'feed', sort, direction, q, none, org_id_param, lane_id, active_lanes, stages_value, none, selected_stages, my_lanes, show_filters=(user.current_role == 'admin'), feed_sort_options=true) }}
+{{ queue_search('/', 'feed-search-input', q, sort, direction, none, org_id_param, lane_id, stages_value, sources_value if user.current_role == 'admin' else none) }}
+{{ queue_toolbar('/', 'feed', sort, direction, q, none, org_id_param, lane_id, active_lanes, stages_value, sources_value if user.current_role == 'admin' else none, selected_stages, my_lanes, show_filters=(user.current_role == 'admin'), feed_sort_options=true, source_options=source_options if user.current_role == 'admin' else none, selected_sources=selected_sources if user.current_role == 'admin' else none, admin_filter_bar=(user.current_role == 'admin')) }}
 
 {% if not triage_enabled and user.current_role == 'admin' %}
   {% include "_source_controls.html" %}

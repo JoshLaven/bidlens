@@ -507,6 +507,7 @@ def _export_view_query(
     lane_id: str | None = None,
     search: str = "",
     stages=None,
+    sources: str | None = None,
 ):
     if view == "shortlist":
         q = _team_interest_query(db, user, tab)
@@ -518,6 +519,20 @@ def _export_view_query(
         q = _apply_feed_search(q, search_term=search)
         q = _apply_lane_filter(q, db, user, lane_id=lane_id)
         q = _apply_stage_filter(q, stages)
+        if _is_admin(user):
+            q = _apply_triage_source_filter(q, _normalize_triage_source_filters(sources))
+    elif view == "triage":
+        q = (
+            db.query(Opportunity)
+            .filter(Opportunity.organization_id == _user_org_id(user))
+            .filter(Opportunity.decision_state != "ARCHIVED")
+            .filter(Opportunity.qualification_status == QUALIFICATION_UNREVIEWED)
+        )
+        q = _exclude_inactive_govwin_stages(q)
+        q = _apply_feed_search(q, search_term=search)
+        q = _apply_lane_filter(q, db, user, lane_id=lane_id)
+        q = _apply_stage_filter(q, stages)
+        q = _apply_triage_source_filter(q, _normalize_triage_source_filters(sources))
     else:
         q = _feed_query(db, user)
         q = apply_org_filters(q, db, user)
@@ -525,6 +540,8 @@ def _export_view_query(
         q = _apply_feed_search(q, search_term=search)
         q = _apply_past_due_filter(q)
         q = _apply_stage_filter(q, stages)
+        if _is_admin(user):
+            q = _apply_triage_source_filter(q, _normalize_triage_source_filters(sources))
 
     return q
 
@@ -1347,6 +1364,7 @@ async def feed(
     lane_id: str | None = None,
     q: str = "",
     stages: str | None = None,
+    sources: str | None = None,
     stage: str | None = None,
     page: int = 1,
     db: Session = Depends(get_db),
@@ -1373,7 +1391,10 @@ async def feed(
     selected_stages = _normalize_stage_filters(
         stages if stages is not None else ([stage] if stage and stage != "All" else None)
     )
+    selected_sources = _normalize_triage_source_filters(sources) if _is_admin(user) else TRIAGE_SOURCE_FILTERS
     query = _apply_stage_filter(query, selected_stages)
+    if _is_admin(user):
+        query = _apply_triage_source_filter(query, selected_sources)
     query = _apply_feed_ordering(query, sort=selected_sort, direction=selected_direction)
 
     result_count = query.count()
@@ -1396,6 +1417,9 @@ async def feed(
         "q": search_query,
         "selected_stages": selected_stages,
         "stages_value": ",".join(selected_stages),
+        "source_options": TRIAGE_SOURCE_OPTIONS if _is_admin(user) else None,
+        "selected_sources": selected_sources if _is_admin(user) else (),
+        "sources_value": ",".join(selected_sources) if _is_admin(user) else "",
         "result_count": result_count,
         "page": current_page,
         "page_size": FEED_PAGE_SIZE,
@@ -1417,6 +1441,7 @@ async def triage_queue(
     q: str = "",
     stages: str | None = None,
     sources: str | None = None,
+    lane_id: str | None = None,
     stage: str | None = None,
     page: int = 1,
     db: Session = Depends(get_db),
@@ -1454,6 +1479,7 @@ async def triage_queue(
     query = _apply_feed_search(query, search_term=q)
     query = _apply_stage_filter(query, selected_stages)
     query = _apply_triage_source_filter(query, selected_sources)
+    query = _apply_lane_filter(query, db, user, lane_id=lane_id)
     query = _apply_feed_ordering(query, sort=selected_sort, direction=selected_direction)
     result_count = query.count()
     current_page, total_pages, offset = _pagination_values(
@@ -1477,6 +1503,8 @@ async def triage_queue(
         "source_options": TRIAGE_SOURCE_OPTIONS,
         "selected_sources": selected_sources,
         "sources_value": ",".join(selected_sources),
+        "lane_id": lane_id,
+        "active_lanes": _active_lanes(db, user),
         "result_count": result_count,
         "page": current_page,
         "page_size": TRIAGE_PAGE_SIZE,
@@ -1552,6 +1580,7 @@ async def my_shortlist(
     direction: str = "desc",
     q: str = "",
     stages: str | None = None,
+    sources: str | None = None,
     stage: str | None = None,
     lane_id: str | None = None,
     page: int = 1,
@@ -1569,10 +1598,13 @@ async def my_shortlist(
     selected_stages = _normalize_stage_filters(
         stages if stages is not None else ([stage] if stage and stage != "All" else None)
     )
+    selected_sources = _normalize_triage_source_filters(sources) if _is_admin(user) else TRIAGE_SOURCE_FILTERS
     query = _my_shortlist_query(db, user, tab)
     query = _apply_feed_search(query, search_term=q)
     query = _apply_lane_filter(query, db, user, lane_id=lane_id)
     query = _apply_stage_filter(query, selected_stages)
+    if _is_admin(user):
+        query = _apply_triage_source_filter(query, selected_sources)
     query = _apply_feed_ordering(query, sort=selected_sort, direction=selected_direction)
     result_count = query.count()
     current_page, total_pages, offset = _pagination_values(
@@ -1597,6 +1629,9 @@ async def my_shortlist(
         "q": q,
         "selected_stages": selected_stages,
         "stages_value": ",".join(selected_stages),
+        "source_options": TRIAGE_SOURCE_OPTIONS if _is_admin(user) else None,
+        "selected_sources": selected_sources if _is_admin(user) else (),
+        "sources_value": ",".join(selected_sources) if _is_admin(user) else "",
         "result_count": result_count,
         "page": current_page,
         "page_size": FEED_PAGE_SIZE,
@@ -1617,6 +1652,7 @@ async def archive(
     q: str = "",
     stages: str | None = None,
     sources: str | None = None,
+    lane_id: str | None = None,
     stage: str | None = None,
     db: Session = Depends(get_db),
 ):
@@ -1641,6 +1677,8 @@ async def archive(
     )
     query = _user_archive_query(db, user, tab)
     query = _apply_feed_search(query, search_term=q)
+    if _is_admin(user):
+        query = _apply_lane_filter(query, db, user, lane_id=lane_id)
     query = _apply_stage_filter(query, selected_stages)
     if _is_admin(user):
         query = _apply_triage_source_filter(query, selected_sources)
@@ -1663,6 +1701,8 @@ async def archive(
         "q": q,
         "selected_stages": selected_stages,
         "stages_value": ",".join(selected_stages),
+        "lane_id": lane_id,
+        "active_lanes": _active_lanes(db, user) if _is_admin(user) else [],
         "source_options": TRIAGE_SOURCE_OPTIONS if _is_admin(user) else None,
         "selected_sources": selected_sources if _is_admin(user) else (),
         "sources_value": ",".join(selected_sources) if _is_admin(user) else "",
@@ -1687,11 +1727,14 @@ async def export_opportunities_csv(
     lane_id: str | None = None,
     q: str = "",
     stages: str | None = None,
+    sources: str | None = None,
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
+    if view == "triage" and not _is_admin(user):
+        return RedirectResponse(url="/", status_code=303)
 
     q = _export_view_query(
         db,
@@ -1709,6 +1752,7 @@ async def export_opportunities_csv(
         lane_id=lane_id,
         search=q,
         stages=stages,
+        sources=sources,
     )
 
     rows = q.all()

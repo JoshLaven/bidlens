@@ -54,6 +54,22 @@ OPENAI_MODEL=<optional>
 COMPANY_PROFILE_WEBHOOK_URL=<optional>
 ```
 
+Configure the Salesforce variables when a private-beta workspace will connect
+to Salesforce. `SALESFORCE_INSTANCE_URL` should be the Salesforce My Domain
+login URL for the connected app, and `SALESFORCE_REDIRECT_URI` must exactly
+match the callback URL configured in Salesforce, for example:
+
+```text
+https://<railway-public-domain>/api/salesforce/oauth/callback
+```
+
+Salesforce OAuth is workspace-scoped. Workspace admins connect Salesforce from
+Workspace Management → Integrations → Salesforce, or from the pre-live Connect
+Business Systems setup step. BidLens stores the resulting Salesforce access and
+refresh tokens encrypted in PostgreSQL, never in process memory or local files.
+Disconnecting Salesforce clears the locally stored encrypted tokens while
+preserving existing Salesforce Opportunity IDs, URLs, and sync history.
+
 Do not upload `.env.railway.local`; it is only for local developer shells.
 
 ## Migrations

@@ -22,7 +22,13 @@ class PageHeaderSystemTests(unittest.TestCase):
         self.assertNotIn("queue-export-button", source)
         self.assertIn("queue_export_action", source)
         self.assertIn('aria-label="Export CSV"', source)
-        self.assertIn('title="Export CSV"', source)
+        self.assertIn('aria-describedby="queue-export-tooltip"', source)
+        self.assertIn('class="queue-export-tooltip"', source)
+        self.assertIn('role="tooltip">Export CSV</span>', source)
+        self.assertNotIn('title="Export CSV"', source)
+        self.assertIn('class="queue-export-icon"', source)
+        self.assertIn('viewBox="0 0 24 24"', source)
+        self.assertNotIn("⇩", source)
 
     def test_operational_pages_use_shared_header_and_expected_copy(self):
         expected = {
@@ -57,24 +63,27 @@ class PageHeaderSystemTests(unittest.TestCase):
         shortlist = (TEMPLATES / "my_shortlist.html").read_text()
         triage = (TEMPLATES / "triage.html").read_text()
         archive = (TEMPLATES / "archive.html").read_text()
+        legacy_shortlist = (TEMPLATES / "shortlist.html").read_text()
 
         self.assertIn("queue_export_action(export_url)", feed)
         self.assertIn("queue_export_action(export_url)", shortlist)
         self.assertIn("/opportunities/export.csv?view=feed", feed)
         self.assertIn("/opportunities/export.csv?view=my_shortlist", shortlist)
+        self.assertIn("/opportunities/export.csv?view=triage", triage)
         self.assertIn("data-feed-bulk-actions", feed)
         self.assertIn("data-shortlist-bulk-actions", shortlist)
-        self.assertNotIn("queue_export_action", triage)
+        self.assertIn("queue_export_action(export_url)", triage)
+        self.assertIn("queue_export_action(export_url)", legacy_shortlist)
         self.assertNotIn("queue_export_action", archive)
-        self.assertNotIn("/opportunities/export.csv", triage)
         self.assertNotIn("/opportunities/export.csv", archive)
+        self.assertNotIn(">Export CSV</a>", legacy_shortlist)
 
     def test_workspace_management_pages_use_administrative_hero(self):
         expected = {
             "company_profile.html": "Company information used for opportunity matching, enrichment, and routing.",
             "workspace_members.html": "Invite users and manage access to this workspace.",
             "govwin_import.html": "Configure where BidLens discovers and imports opportunities.",
-            "pursuit_lanes.html": "Control how opportunities enter the Feed and how they are organized.",
+            "pursuit_lanes.html": "Configure how this workspace reviews and organizes incoming opportunities.",
             "import_history.html": "Review opportunity imports and source-processing activity.",
             "integrations.html": "Connect and manage the systems BidLens works with.",
             "market_activity.html": "Explore market activity and the organizational intelligence BidLens has captured.",
@@ -94,6 +103,9 @@ class PageHeaderSystemTests(unittest.TestCase):
         self.assertIn(".bidlens-page-header--operational", source)
         self.assertIn(".workspace-management-hero", source)
         self.assertIn(".home-brief-header", source)
+        self.assertIn(".queue-export-tooltip", source)
+        self.assertIn(".queue-export-icon-action:hover .queue-export-tooltip", source)
+        self.assertIn(".queue-export-icon-action:focus-visible .queue-export-tooltip", source)
 
 
 if __name__ == "__main__":

@@ -8,11 +8,12 @@
 {% set q_param = '&q=' ~ (q|urlencode) if q else '' %}
 {% set lane_param = '&lane_id=' ~ lane_id if lane_id else '' %}
 {% set stage_param = '&stages=' ~ stages_value %}
-{% set export_url = '/opportunities/export.csv?view=my_shortlist&sort=' ~ sort ~ '&direction=' ~ direction ~ q_param ~ org_param ~ lane_param ~ stage_param %}
+{% set source_param = '&sources=' ~ sources_value if sources_value is defined and sources_value else '' %}
+{% set export_url = '/opportunities/export.csv?view=my_shortlist&sort=' ~ sort ~ '&direction=' ~ direction ~ q_param ~ org_param ~ lane_param ~ stage_param ~ source_param %}
 
 {{ queue_heading('My Shortlist', 'Opportunities you are actively considering or pursuing.') }}
-{{ queue_search('/my-shortlist', 'shortlist-search-input', q, sort, direction, none, org_id_param, lane_id, stages_value) }}
-{{ queue_toolbar('/my-shortlist', 'shortlist', sort, direction, q, none, org_id_param, lane_id, active_lanes, stages_value, none, selected_stages, my_lanes, show_filters=(user.current_role == 'admin'), feed_sort_options=true) }}
+{{ queue_search('/my-shortlist', 'shortlist-search-input', q, sort, direction, none, org_id_param, lane_id, stages_value, sources_value if user.current_role == 'admin' else none) }}
+{{ queue_toolbar('/my-shortlist', 'shortlist', sort, direction, q, none, org_id_param, lane_id, active_lanes, stages_value, sources_value if user.current_role == 'admin' else none, selected_stages, my_lanes, show_filters=(user.current_role == 'admin'), feed_sort_options=true, source_options=source_options if user.current_role == 'admin' else none, selected_sources=selected_sources if user.current_role == 'admin' else none, admin_filter_bar=(user.current_role == 'admin')) }}
 
 <div class="feed-queue-summary">
   <div class="feed-results-left">
