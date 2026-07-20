@@ -359,7 +359,7 @@ class SalesforceService:
         }
         required_fields = self._required_createable_fields(fields)
         valid_stage_names = self._picklist_values(fields, "StageName")
-        intake_source_values = self._picklist_values(fields, "Intake_Source_c__c")
+        intake_source_values = self._picklist_values(fields, "Intake_Source__c")
         selected_intake_source = (
             "BidLens"
             if "BidLens" in intake_source_values
@@ -369,9 +369,9 @@ class SalesforceService:
             "Name",
             "StageName",
             "CloseDate",
-            "External_Source_ID_c__c",
+            "External_Source_ID__c",
             "Intake_Status__c",
-            "Intake_Source_c__c",
+            "Intake_Source__c",
             "Description",
         }
         missing_required_fields = [
@@ -382,9 +382,9 @@ class SalesforceService:
         mapped_field_names = (
             "StageName",
             "CloseDate",
-            "External_Source_ID_c__c",
+            "External_Source_ID__c",
             "Intake_Status__c",
-            "Intake_Source_c__c",
+            "Intake_Source__c",
         )
         unavailable_mapped_fields = [
             field_name
@@ -415,16 +415,16 @@ class SalesforceService:
         return SalesforceOpportunity(
             id=record["Id"],
             name=record.get("Name"),
-            external_source_id=record.get("External_Source_ID_c__c"),
+            external_source_id=record.get("External_Source_ID__c"),
             intake_status=record.get("Intake_Status__c"),
         )
 
     def find_opportunity_by_external_source_id(self, source_record_id: str) -> SalesforceOpportunity | None:
         escaped_source_id = self._escape_soql_literal(source_record_id)
         soql = (
-            "SELECT Id, Name, External_Source_ID_c__c, Intake_Status__c "
+            "SELECT Id, Name, External_Source_ID__c, Intake_Status__c "
             "FROM Opportunity "
-            f"WHERE External_Source_ID_c__c = '{escaped_source_id}' "
+            f"WHERE External_Source_ID__c = '{escaped_source_id}' "
             "LIMIT 1"
         )
         response = requests.get(

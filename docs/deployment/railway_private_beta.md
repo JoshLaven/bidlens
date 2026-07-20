@@ -70,6 +70,9 @@ refresh tokens encrypted in PostgreSQL, never in process memory or local files.
 Disconnecting Salesforce clears the locally stored encrypted tokens while
 preserving existing Salesforce Opportunity IDs, URLs, and sync history.
 
+For the full customer and operator setup procedure, see
+[BidLens Salesforce V1 Setup Guide](../integrations/salesforce_setup_guide.md).
+
 Do not upload `.env.railway.local`; it is only for local developer shells.
 
 ## Migrations

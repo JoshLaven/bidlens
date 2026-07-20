@@ -496,7 +496,7 @@ def _configuration_center_context(
             "mappings": (
                 ("Default Stage", "Prospecting"),
                 ("Default Intake Status", PROSPECT_FEED_STATUS),
-                ("External Source ID", "External_Source_ID_c__c ← source_record_id"),
+                ("External Source ID", "External_Source_ID__c ← source_record_id"),
                 ("Close Date", "Opportunity response deadline"),
             ),
         },

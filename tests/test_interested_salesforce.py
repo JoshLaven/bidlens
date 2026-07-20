@@ -244,7 +244,7 @@ class InterestedSalesforceTests(unittest.TestCase):
         self.assertEqual(result["salesforce_outcome"], "created")
         self.assertEqual(self.opp.salesforce_opportunity_id, "006-created")
         payload = service.create_opportunity.call_args.args[0]
-        self.assertEqual(payload["External_Source_ID_c__c"], "notice-1001")
+        self.assertEqual(payload["External_Source_ID__c"], "notice-1001")
         self.assertEqual(self._salesforce_history_actions(), ["created"])
 
     def test_interest_is_user_scoped_while_salesforce_link_is_shared(self):
@@ -528,7 +528,7 @@ class InterestedSalesforceTests(unittest.TestCase):
         self.assertTrue(result["created"])
         self.assertEqual(result["salesforce_opportunity_id"], "006-created")
         payload = service.create_opportunity.call_args.args[0]
-        self.assertEqual(payload["External_Source_ID_c__c"], "notice-1001")
+        self.assertEqual(payload["External_Source_ID__c"], "notice-1001")
 
     def test_explicit_crm_routes_reject_non_admin_direct_calls(self):
         with patch.object(api, "require_user", return_value=self.member):

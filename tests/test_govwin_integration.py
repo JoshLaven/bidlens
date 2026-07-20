@@ -312,7 +312,7 @@ class GovWinIntegrationRouteTests(unittest.TestCase):
                     [{"active": True, "value": "Prospecting"}]
                     if name == "StageName"
                     else [{"active": True, "value": "BidLens"}]
-                    if name == "Intake_Source_c__c"
+                    if name == "Intake_Source__c"
                     else []
                 ),
             }
@@ -320,9 +320,9 @@ class GovWinIntegrationRouteTests(unittest.TestCase):
                 "Name",
                 "StageName",
                 "CloseDate",
-                "External_Source_ID_c__c",
+                "External_Source_ID__c",
                 "Intake_Status__c",
-                "Intake_Source_c__c",
+                "Intake_Source__c",
             )
         ]
         service.describe_opportunity = MagicMock(return_value={"fields": fields})

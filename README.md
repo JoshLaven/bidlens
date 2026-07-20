@@ -234,6 +234,9 @@ The page is read-only and Platform-only. It uses `JobRun` as the primary source 
 
 ## Salesforce Integration
 
+For customer-facing setup instructions, see
+[BidLens Salesforce V1 Setup Guide](docs/integrations/salesforce_setup_guide.md).
+
 BidLens uses the Salesforce OAuth 2.0 Authorization Code flow with PKCE. Each
 workspace has its own Salesforce connection record, so one customer workspace
 cannot read or reuse another workspace's Salesforce authorization.
@@ -251,14 +254,14 @@ Connected App settings:
 - OAuth scopes: include `api` and `refresh_token` / `offline_access`.
 - Client type: confidential app with a consumer secret.
 - The authorizing Salesforce user needs access to describe, query, create, and update `Opportunity` records.
-- The authorizing Salesforce user needs field access for `Opportunity.External_Source_ID_c__c`, `Opportunity.Intake_Status__c`, and `Opportunity.Intake_Source_c__c`.
+- The authorizing Salesforce user needs field access for `Opportunity.External_Source_ID__c`, `Opportunity.Intake_Status__c`, and `Opportunity.Intake_Source__c`.
 
 Expected Salesforce Opportunity configuration:
 
 - `StageName` includes `Prospecting`.
 - `Intake_Status__c` supports `Prospect_Feed`.
-- `Intake_Source_c__c` has at least one active value; `BidLens` is preferred.
-- `External_Source_ID_c__c` should be configured as an External ID and should be unique if the customer wants Salesforce to enforce duplicate protection.
+- `Intake_Source__c` has at least one active value; `BidLens` is preferred.
+- `External_Source_ID__c` should be configured as an External ID and should be unique if the customer wants Salesforce to enforce duplicate protection.
 
 Workspace authorization:
 
@@ -279,7 +282,7 @@ Connection lifecycle:
 Current Salesforce capabilities:
 
 - Interested and qualified opportunities may be created in or linked to Salesforce.
-- Existing Salesforce Opportunities are matched by `External_Source_ID_c__c`.
+- Existing Salesforce Opportunities are matched by `External_Source_ID__c`.
 - Linked opportunities store the Salesforce Opportunity ID and URL in BidLens.
 - Source updates for linked opportunities may push changes to Salesforce `Name`, `CloseDate`, and `Description`.
 - BidLens records Salesforce sync outcomes in opportunity history and source-update audit events.

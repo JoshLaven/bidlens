@@ -102,7 +102,7 @@ def build_salesforce_create_payload(
         "Name": _salesforce_opportunity_name(opp),
         "StageName": "Prospecting",
         "CloseDate": close_date.isoformat(),
-        "External_Source_ID_c__c": (opp.source_record_id or "").strip(),
+        "External_Source_ID__c": (opp.source_record_id or "").strip(),
         "Intake_Status__c": PROSPECT_FEED_STATUS,
     }
     description = _best_description_text(opp)
@@ -111,7 +111,7 @@ def build_salesforce_create_payload(
 
     required_fields = service.required_createable_opportunity_fields()
     valid_stage_names = service.stage_name_values()
-    intake_source_values = service.opportunity_picklist_values("Intake_Source_c__c")
+    intake_source_values = service.opportunity_picklist_values("Intake_Source__c")
     selected_intake_source = _select_intake_source_value(intake_source_values)
     if "Prospecting" not in valid_stage_names:
         raise SalesforceCreateValidationError({
@@ -121,11 +121,11 @@ def build_salesforce_create_payload(
         })
     if not selected_intake_source:
         raise SalesforceCreateValidationError({
-            "message": "Salesforce Intake_Source_c__c has no active picklist values.",
+            "message": "Salesforce Intake_Source__c has no active picklist values.",
             "intake_source_values": intake_source_values,
             "created": False,
         })
-    payload["Intake_Source_c__c"] = selected_intake_source
+    payload["Intake_Source__c"] = selected_intake_source
 
     provided_fields = set(payload)
     missing_required_fields = [
