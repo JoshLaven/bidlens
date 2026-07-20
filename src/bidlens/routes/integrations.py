@@ -525,6 +525,38 @@ def _redirect_with_status(
     return RedirectResponse(url=live_url, status_code=303)
 
 
+def _salesforce_configuration_context(
+    request: Request,
+    db: Session,
+    user,
+    *,
+    validation_result: dict[str, Any] | None = None,
+    validation_timestamp: datetime | None = None,
+) -> dict[str, Any]:
+    organization_id = _user_org_id(user)
+    connection = db.query(SalesforceConnection).filter(
+        SalesforceConnection.workspace_id == organization_id
+    ).first()
+    status = connection.status if connection else "not_connected"
+    last_sync = db.query(func.max(Opportunity.salesforce_synced_at)).filter(
+        Opportunity.organization_id == organization_id,
+        Opportunity.salesforce_synced_at.is_not(None),
+    ).scalar()
+    return {
+        "request": request,
+        "user": user,
+        "active_page": "integrations",
+        "connection": connection,
+        "connection_status": status,
+        "last_sync": last_sync,
+        "connected_success": request.query_params.get("connected") == "1",
+        "tested": request.query_params.get("tested"),
+        "disconnected": request.query_params.get("disconnected") == "1",
+        "validation_result": validation_result,
+        "validation_timestamp": validation_timestamp,
+    }
+
+
 @router.get("/integrations")
 async def integrations_page(request: Request, db: Session = Depends(get_db)):
     user, redirect = _admin_or_redirect(request, db)
@@ -555,26 +587,45 @@ async def salesforce_configuration_page(request: Request, db: Session = Depends(
     user, redirect = _admin_or_redirect(request, db)
     if redirect:
         return redirect
+    return templates.TemplateResponse(
+        "salesforce_configuration.html",
+        _salesforce_configuration_context(request, db, user),
+    )
+
+
+@router.post("/workspace-management/business-systems/salesforce/validate")
+async def validate_salesforce_setup(request: Request, db: Session = Depends(get_db)):
+    user, redirect = _admin_or_redirect(request, db)
+    if redirect:
+        return redirect
     organization_id = _user_org_id(user)
-    connection = db.query(SalesforceConnection).filter(
-        SalesforceConnection.workspace_id == organization_id
-    ).first()
-    status = connection.status if connection else "not_connected"
-    last_sync = db.query(func.max(Opportunity.salesforce_synced_at)).filter(
-        Opportunity.organization_id == organization_id,
-        Opportunity.salesforce_synced_at.is_not(None),
-    ).scalar()
-    return templates.TemplateResponse("salesforce_configuration.html", {
-        "request": request,
-        "user": user,
-        "active_page": "integrations",
-        "connection": connection,
-        "connection_status": status,
-        "last_sync": last_sync,
-        "connected_success": request.query_params.get("connected") == "1",
-        "tested": request.query_params.get("tested"),
-        "disconnected": request.query_params.get("disconnected") == "1",
-    })
+    service = SalesforceService(db=db, workspace_id=organization_id)
+    try:
+        validation_result = service.validate_readiness()
+        db.commit()
+    except Exception:
+        db.rollback()
+        validation_result = {
+            "overall_status": "action_required",
+            "overall_label": "Action required",
+            "checks": [{
+                "key": "unexpected_response",
+                "label": "Unexpected Salesforce response",
+                "status": "failed",
+                "message": "BidLens could not complete Salesforce readiness validation.",
+                "detail": "Try again or contact BidLens support if the issue persists.",
+            }],
+        }
+    return templates.TemplateResponse(
+        "salesforce_configuration.html",
+        _salesforce_configuration_context(
+            request,
+            db,
+            user,
+            validation_result=validation_result,
+            validation_timestamp=datetime.utcnow(),
+        ),
+    )
 
 
 @router.post("/workspace-management/business-systems/salesforce/test")

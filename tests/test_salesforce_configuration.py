@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 import hashlib
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -73,7 +74,56 @@ class SalesforceConfigurationTests(unittest.TestCase):
             connected_success=False,
             tested=None,
             disconnected=False,
+            validation_result=None,
+            validation_timestamp=None,
         )
+
+    def _salesforce_fields(self, *, missing=(), stage_values=None, intake_status_values=None, intake_source_values=None, extra_required=None):
+        missing = set(missing)
+        stage_values = ["Prospecting"] if stage_values is None else stage_values
+        intake_status_values = ["Prospect_Feed"] if intake_status_values is None else intake_status_values
+        intake_source_values = ["BidLens"] if intake_source_values is None else intake_source_values
+
+        def field(name, label, *, createable=True, updateable=True, nillable=True, values=None):
+            return {
+                "name": name,
+                "label": label,
+                "createable": createable,
+                "updateable": updateable,
+                "nillable": nillable,
+                "defaultedOnCreate": False,
+                "picklistValues": [
+                    {"active": True, "value": value}
+                    for value in (values or [])
+                ],
+            }
+
+        fields = [
+            field("Name", "Opportunity Name", nillable=False),
+            field("StageName", "Stage", updateable=False, nillable=False, values=stage_values),
+            field("CloseDate", "Close Date", nillable=False),
+            field("Description", "Description"),
+            field("External_Source_ID__c", "External Source ID", updateable=False),
+            field("Intake_Status__c", "Intake Status", values=intake_status_values),
+            field("Intake_Source__c", "Intake Source", updateable=False, values=intake_source_values),
+        ]
+        fields = [item for item in fields if item["name"] not in missing]
+        fields.extend(extra_required or [])
+        return {
+            "queryable": True,
+            "createable": True,
+            "updateable": True,
+            "fields": fields,
+        }
+
+    def _readiness_service(self, *, status="connected", token="access-secret"):
+        self._connection(self.org_a, status=status, token=token)
+        service = SalesforceService(db=self.db, workspace_id=self.org_a.id)
+        service.test_connection = Mock(return_value={"ok": True})
+        service.describe_opportunity = Mock(return_value=self._salesforce_fields())
+        service.create_opportunity = Mock(side_effect=AssertionError("validation must not create Salesforce records"))
+        service.update_opportunity = Mock(side_effect=AssertionError("validation must not update Salesforce records"))
+        return service
 
     def test_connections_and_tokens_are_workspace_scoped(self):
         a = self._connection(self.org_a, token="workspace-a-secret")
@@ -124,6 +174,291 @@ class SalesforceConfigurationTests(unittest.TestCase):
             SalesforceService(db=self.db, workspace_id=self.org_a.id).test_connection()
         self.assertEqual(connection.status, "connected")
         self.assertIsNotNone(connection.last_connection_success_at)
+
+    def test_readiness_validation_ready_for_fully_configured_salesforce(self):
+        service = self._readiness_service()
+
+        result = service.validate_readiness()
+
+        self.assertEqual(result["overall_status"], "ready")
+        messages = [check["message"] for check in result["checks"]]
+        self.assertIn("Opportunity object is accessible.", messages)
+        self.assertIn("Required field External Source ID is available.", messages)
+        service.test_connection.assert_called_once()
+        service.describe_opportunity.assert_called_once()
+        service.create_opportunity.assert_not_called()
+        service.update_opportunity.assert_not_called()
+
+    def test_readiness_validation_missing_required_field_requires_action(self):
+        service = self._readiness_service()
+        service.describe_opportunity.return_value = self._salesforce_fields(
+            missing={"External_Source_ID__c"}
+        )
+
+        result = service.validate_readiness()
+
+        self.assertEqual(result["overall_status"], "action_required")
+        self.assertTrue(any(
+            check["status"] == "failed"
+            and "External Source ID" in check["message"]
+            for check in result["checks"]
+        ))
+
+    def test_readiness_validation_missing_bidlens_intake_source_requires_action(self):
+        service = self._readiness_service()
+        service.describe_opportunity.return_value = self._salesforce_fields(
+            intake_source_values=["Partner"]
+        )
+
+        result = service.validate_readiness()
+
+        self.assertEqual(result["overall_status"], "action_required")
+        self.assertTrue(any(
+            check["status"] == "failed"
+            and "Missing Intake Source value: BidLens" in check["message"]
+            for check in result["checks"]
+        ))
+
+    def test_readiness_validation_missing_prospecting_requires_action(self):
+        service = self._readiness_service()
+        service.describe_opportunity.return_value = self._salesforce_fields(
+            stage_values=["Qualification"]
+        )
+
+        result = service.validate_readiness()
+
+        self.assertEqual(result["overall_status"], "action_required")
+        self.assertTrue(any(
+            check["status"] == "failed"
+            and "Missing Stage value: Prospecting" in check["message"]
+            for check in result["checks"]
+        ))
+
+    def test_readiness_validation_missing_prospect_feed_requires_action(self):
+        service = self._readiness_service()
+        service.describe_opportunity.return_value = self._salesforce_fields(
+            intake_status_values=["New"]
+        )
+
+        result = service.validate_readiness()
+
+        self.assertEqual(result["overall_status"], "action_required")
+        self.assertTrue(any(
+            check["status"] == "failed"
+            and "Missing Intake Status value: Prospect_Feed" in check["message"]
+            for check in result["checks"]
+        ))
+
+    def test_readiness_validation_surfaces_additional_required_fields(self):
+        service = self._readiness_service()
+        service.describe_opportunity.return_value = self._salesforce_fields(
+            extra_required=[{
+                "name": "Customer_Required__c",
+                "label": "Customer Required",
+                "createable": True,
+                "updateable": True,
+                "nillable": False,
+                "defaultedOnCreate": False,
+                "picklistValues": [],
+            }]
+        )
+
+        result = service.validate_readiness()
+
+        self.assertEqual(result["overall_status"], "action_required")
+        self.assertTrue(any(
+            check["status"] == "failed"
+            and "additional Opportunity fields" in check["message"]
+            and "Customer_Required__c" in (check.get("detail") or "")
+            for check in result["checks"]
+        ))
+
+    def test_readiness_validation_handles_reauthorization_required(self):
+        service = self._readiness_service(status="reauthorization_required")
+
+        result = service.validate_readiness()
+
+        self.assertEqual(result["overall_status"], "action_required")
+        self.assertTrue(any(
+            "requires reauthorization" in check["message"]
+            for check in result["checks"]
+        ))
+        service.test_connection.assert_not_called()
+        service.describe_opportunity.assert_not_called()
+
+    def test_admin_can_run_workspace_scoped_validation(self):
+        validation = {
+            "overall_status": "ready",
+            "overall_label": "Ready",
+            "checks": [{
+                "key": "connection",
+                "label": "Salesforce connection",
+                "status": "passed",
+                "message": "Salesforce is connected for this workspace.",
+                "detail": None,
+            }],
+        }
+        service = Mock()
+        service.validate_readiness.return_value = validation
+        with patch.object(integrations, "SalesforceService", return_value=service) as service_class, patch.object(
+            integrations, "_admin_or_redirect", return_value=(self.admin, None)
+        ):
+            response = asyncio.run(integrations.validate_salesforce_setup(
+                SimpleNamespace(query_params={"org_id": str(self.org_a.id)}),
+                self.db,
+            ))
+
+        self.assertEqual(response.status_code, 200)
+        service_class.assert_called_once_with(db=self.db, workspace_id=self.org_a.id)
+        service.validate_readiness.assert_called_once()
+        body = response.body.decode()
+        self.assertIn("Salesforce Readiness", body)
+        self.assertIn("Ready", body)
+
+    def test_integrations_page_exposes_only_configure_for_salesforce(self):
+        html = integrations.templates.env.get_template("integrations.html").render(
+            request=SimpleNamespace(query_params={"org_id": str(self.org_a.id)}),
+            user=self.admin,
+            center=SimpleNamespace(
+                salesforce=SimpleNamespace(
+                    health=SimpleNamespace(
+                        level="healthy",
+                        label="Connected",
+                        summary="Salesforce is connected.",
+                        checks=[],
+                    ),
+                    connected=True,
+                    connection_health="Connected",
+                    instance_url="https://workspace-a.my.salesforce.com",
+                    mappings=[],
+                    validation_error=None,
+                )
+            ),
+        )
+
+        self.assertIn(">Configure<", html)
+        self.assertNotIn("Validate Setup", html)
+        self.assertNotIn("Inspect Opportunity Requirements", html)
+        self.assertNotIn("opportunity-create-requirements", html)
+
+    def test_readiness_actions_are_consolidated_on_configuration_page(self):
+        connection = self._connection(self.org_a)
+        html = self._render("connected", connection)
+
+        self.assertNotIn("id=\"salesforce-actions-heading\"", html)
+        ordered_actions = [
+            "Validate Setup",
+            "Test Connection",
+            "Reconnect / Reauthorize",
+            "Open Salesforce",
+            "Disconnect",
+        ]
+        positions = [html.index(action) for action in ordered_actions]
+        self.assertEqual(positions, sorted(positions))
+
+    def test_ready_validation_renders_customer_friendly_summary(self):
+        connection = self._connection(self.org_a)
+        html = integrations.templates.env.get_template("salesforce_configuration.html").render(
+            request=SimpleNamespace(query_params={"org_id": str(self.org_a.id)}),
+            user=self.admin,
+            connection=connection,
+            connection_status="connected",
+            last_sync=None,
+            connected_success=False,
+            tested=None,
+            disconnected=False,
+            validation_timestamp=datetime.utcnow(),
+            validation_result={
+                "overall_status": "ready",
+                "overall_label": "Ready",
+                "checks": [
+                    {"key": "connection", "label": "Salesforce connection", "status": "passed", "message": "Salesforce is connected for this workspace.", "detail": None},
+                    {"key": "field_External_Source_ID__c", "label": "External Source ID", "status": "passed", "message": "Required field External Source ID is available.", "detail": None},
+                ],
+            },
+        )
+
+        self.assertIn("Connected to Salesforce", html)
+        self.assertIn("Opportunity object accessible", html)
+        self.assertIn("Required BidLens fields found", html)
+        self.assertIn("Required picklist values found", html)
+        self.assertIn("Ready to receive BidLens opportunities", html)
+        self.assertNotIn("Required field External Source ID is available.", html)
+
+    def test_action_required_validation_renders_only_items_needing_attention(self):
+        connection = self._connection(self.org_a)
+        html = integrations.templates.env.get_template("salesforce_configuration.html").render(
+            request=SimpleNamespace(query_params={"org_id": str(self.org_a.id)}),
+            user=self.admin,
+            connection=connection,
+            connection_status="connected",
+            last_sync=None,
+            connected_success=False,
+            tested=None,
+            disconnected=False,
+            validation_timestamp=datetime.utcnow(),
+            validation_result={
+                "overall_status": "action_required",
+                "overall_label": "Action required",
+                "checks": [
+                    {"key": "connection", "label": "Salesforce connection", "status": "passed", "message": "Salesforce is connected for this workspace.", "detail": None},
+                    {"key": "field_External_Source_ID__c", "label": "External Source ID", "status": "failed", "message": "Missing required field: External Source ID.", "detail": None},
+                ],
+            },
+        )
+
+        self.assertIn("Missing required field: External Source ID.", html)
+        self.assertNotIn("Salesforce is connected for this workspace.", html)
+        self.assertNotIn("Passed ·", html)
+
+    def test_ui_no_longer_references_inspect_opportunity_requirements(self):
+        for relative_path in [
+            "src/bidlens/templates/integrations.html",
+            "src/bidlens/templates/integrations 2.html",
+            "src/bidlens/templates/salesforce_admin.html",
+            "src/bidlens/templates/salesforce_configuration.html",
+        ]:
+            contents = Path(relative_path).read_text()
+            self.assertNotIn("Inspect Opportunity Requirements", contents)
+            self.assertNotIn("opportunity-create-requirements", contents)
+
+    def test_member_cannot_run_validation(self):
+        with patch.object(integrations, "get_current_user", return_value=self.member), patch.object(
+            integrations, "attach_request_user_context", return_value=self.member
+        ):
+            response = asyncio.run(integrations.validate_salesforce_setup(
+                SimpleNamespace(query_params={"org_id": str(self.org_a.id)}),
+                self.db,
+            ))
+
+        self.assertEqual(response.status_code, 303)
+
+    def test_validation_rendering_does_not_expose_stored_secrets(self):
+        connection = self._connection(self.org_a, token="never-render-me")
+        html = integrations.templates.env.get_template("salesforce_configuration.html").render(
+            request=SimpleNamespace(query_params={"org_id": str(self.org_a.id)}),
+            user=self.admin,
+            connection=connection,
+            connection_status="connected",
+            last_sync=None,
+            connected_success=False,
+            tested=None,
+            disconnected=False,
+            validation_timestamp=datetime.utcnow(),
+            validation_result={
+                "overall_status": "ready",
+                "overall_label": "Ready",
+                "checks": [{
+                    "key": "connection",
+                    "label": "Salesforce connection",
+                    "status": "passed",
+                    "message": "Salesforce is connected for this workspace.",
+                    "detail": None,
+                }],
+            },
+        )
+        self.assertNotIn("never-render-me", html)
+        self.assertNotIn("refresh-never-render-me", html)
 
     def test_only_workspace_admin_can_open_configuration(self):
         with patch.object(integrations, "get_current_user", return_value=self.admin), patch.object(

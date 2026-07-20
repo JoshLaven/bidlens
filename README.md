@@ -275,6 +275,7 @@ Workspace authorization:
 Connection lifecycle:
 
 - Connected workspaces can test the connection from `/workspace-management/business-systems/salesforce`.
+- Workspace Admins can use Validate Setup on the Salesforce configuration page to verify OAuth access, Opportunity fields, and required picklist values without creating Salesforce records.
 - Reconnect / Reauthorize starts a new OAuth flow for the same workspace.
 - Disconnect clears the locally stored encrypted access and refresh tokens while preserving existing local Salesforce opportunity references and sync history.
 - If Salesforce revokes or expires the refresh token, BidLens marks the connection as requiring reauthorization.

@@ -379,6 +379,7 @@ It shows:
 - Connected Date.
 - Last Successful Connection.
 - Last Successful Sync.
+- Salesforce Readiness.
 - Basic Sync Behavior.
 - Future Configuration placeholders.
 
@@ -391,6 +392,24 @@ After connecting:
 3. Confirm BidLens shows Salesforce connection verified.
 
 If Test Connection fails, use the troubleshooting section below.
+
+### Validate Setup
+
+Use Validate Setup after connecting Salesforce and after any Salesforce schema,
+permission, Connected App, or picklist change.
+
+Validate Setup is deeper than Test Connection. It checks OAuth access,
+Opportunity metadata, required fields, required picklist values, and additional
+required Opportunity fields. It does not create or modify Salesforce records.
+
+1. Open Workspace Management → Integrations → Salesforce.
+2. Click Validate Setup in the Salesforce Readiness section.
+3. Review the overall result:
+   - Ready
+   - Ready with warnings
+   - Action required
+4. Review each Passed, Warning, or Failed check.
+5. Correct any failed Salesforce configuration items before relying on sync.
 
 ### Reconnect or Reauthorize
 
@@ -424,6 +443,8 @@ Use this test after setup to confirm the integration works end to end.
 3. Confirm Connected Organization shows the expected Salesforce instance URL.
 4. Click Test Connection.
 5. Confirm the page reports Salesforce connection verified.
+6. Click Validate Setup.
+7. Confirm the Salesforce Readiness result is Ready before testing Opportunity sync.
 
 ### Step B: Confirm Opportunity eligibility
 
@@ -636,7 +657,7 @@ Corrective steps:
 
 Symptom:
 
-- Opportunity creation fails or Inspect Opportunity Requirements reports unavailable mapped fields.
+- Opportunity creation fails or Validate Setup reports unavailable mapped fields.
 
 Likely cause:
 
@@ -808,7 +829,7 @@ Likely cause:
 
 Corrective steps:
 
-1. Inspect Opportunity Requirements from the BidLens Integrations page.
+1. Run Validate Setup from Workspace Management → Integrations → Salesforce.
 2. Confirm all required fields and picklist values.
 3. Confirm the authorizing user has object and field write permissions.
 4. Retry the sync.
@@ -879,6 +900,7 @@ Current limitations:
 - [ ] Confirm Connection Status is Connected.
 - [ ] Review Connected Organization metadata.
 - [ ] Click Test Connection.
+- [ ] Click Validate Setup and confirm Salesforce Readiness is Ready.
 - [ ] Confirm a qualified, non-archived opportunity with a source record ID can create/link in Salesforce.
 - [ ] Confirm Salesforce Opportunity ID and URL appear in BidLens.
 - [ ] Confirm a supported later source update can sync to Salesforce.

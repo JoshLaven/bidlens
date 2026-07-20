@@ -51,25 +51,87 @@
     </section>
     {% endif %}
 
-    <section class="configuration-center-section" aria-labelledby="salesforce-actions-heading">
-      <div class="configuration-center-section-heading"><div><span>Management</span><h2 id="salesforce-actions-heading">Actions</h2></div></div>
-      <div class="configuration-connector-actions"><div>
-        {% if connection_status == 'not_connected' %}
-          <a href="/api/salesforce/oauth/start{{ oauth_q }}" class="btn btn-primary">Connect Salesforce</a>
-        {% elif connection_status == 'connected' %}
-          <form method="post" action="/workspace-management/business-systems/salesforce/test{{ org_q }}"><button class="btn btn-primary" type="submit">Test Connection</button></form>
-          <a href="/api/salesforce/oauth/start{{ oauth_q }}" class="btn btn-outline-secondary">Reconnect / Reauthorize</a>
-          {% if connection.instance_url %}<a href="{{ connection.instance_url }}" target="_blank" rel="noreferrer" class="btn btn-outline-secondary">Open Salesforce</a>{% endif %}
-          <form method="post" action="/workspace-management/business-systems/salesforce/disconnect{{ org_q }}" onsubmit="return confirm('Disconnect Salesforce from this workspace? Existing Salesforce records and local history will be preserved.');"><button class="btn btn-outline-danger" type="submit">Disconnect</button></form>
-        {% elif connection_status == 'reauthorization_required' %}
-          <a href="/api/salesforce/oauth/start{{ oauth_q }}" class="btn btn-primary">Reauthorize</a>
-          <form method="post" action="/workspace-management/business-systems/salesforce/disconnect{{ org_q }}" onsubmit="return confirm('Disconnect Salesforce from this workspace? Existing Salesforce records and local history will be preserved.');"><button class="btn btn-outline-danger" type="submit">Disconnect</button></form>
+    <section class="configuration-center-section" aria-labelledby="salesforce-readiness-heading">
+      <div class="configuration-center-section-heading">
+        <div>
+          <span>Validation</span>
+          <h2 id="salesforce-readiness-heading">Salesforce Readiness</h2>
+        </div>
+        <p>Run a deeper read-only check of OAuth, Opportunity access, required fields, and picklist values.</p>
+      </div>
+      <div class="configuration-connector-actions">
+        <div>
+          <form method="post" action="/workspace-management/business-systems/salesforce/validate{{ org_q }}">
+            <button class="btn btn-primary" type="submit">Validate Setup</button>
+          </form>
+          {% if connection_status == 'not_connected' %}
+            <a href="/api/salesforce/oauth/start{{ oauth_q }}" class="btn btn-outline-secondary">Connect Salesforce</a>
+          {% elif connection_status == 'connected' %}
+            <form method="post" action="/workspace-management/business-systems/salesforce/test{{ org_q }}"><button class="btn btn-outline-secondary" type="submit">Test Connection</button></form>
+            <a href="/api/salesforce/oauth/start{{ oauth_q }}" class="btn btn-outline-secondary">Reconnect / Reauthorize</a>
+            {% if connection.instance_url %}<a href="{{ connection.instance_url }}" target="_blank" rel="noreferrer" class="btn btn-outline-secondary">Open Salesforce</a>{% endif %}
+            <form method="post" action="/workspace-management/business-systems/salesforce/disconnect{{ org_q }}" onsubmit="return confirm('Disconnect Salesforce from this workspace? Existing Salesforce records and local history will be preserved.');"><button class="btn btn-outline-danger" type="submit">Disconnect</button></form>
+          {% elif connection_status == 'reauthorization_required' %}
+            <a href="/api/salesforce/oauth/start{{ oauth_q }}" class="btn btn-outline-secondary">Reauthorize</a>
+            <form method="post" action="/workspace-management/business-systems/salesforce/disconnect{{ org_q }}" onsubmit="return confirm('Disconnect Salesforce from this workspace? Existing Salesforce records and local history will be preserved.');"><button class="btn btn-outline-danger" type="submit">Disconnect</button></form>
+          {% else %}
+            <form method="post" action="/workspace-management/business-systems/salesforce/test{{ org_q }}"><button class="btn btn-outline-secondary" type="submit">Test Again</button></form>
+            <a href="/api/salesforce/oauth/start{{ oauth_q }}" class="btn btn-outline-secondary">Reauthorize</a>
+            <form method="post" action="/workspace-management/business-systems/salesforce/disconnect{{ org_q }}" onsubmit="return confirm('Disconnect Salesforce from this workspace? Existing Salesforce records and local history will be preserved.');"><button class="btn btn-outline-danger" type="submit">Disconnect</button></form>
+          {% endif %}
+        </div>
+      </div>
+      {% if validation_result %}
+        {% set readiness_level = 'healthy' if validation_result.overall_status == 'ready' else 'warning' if validation_result.overall_status == 'ready_with_warnings' else 'required' %}
+        <div class="configuration-health-message configuration-health-message--{{ readiness_level }}">
+          <strong>{{ validation_result.overall_label }}</strong>
+          <p>
+            {% if validation_result.overall_status == 'ready' %}
+              Salesforce is configured for BidLens V1.
+            {% elif validation_result.overall_status == 'ready_with_warnings' %}
+              Salesforce can be used, but review the warnings below.
+            {% else %}
+              Review the failed checks below before relying on Salesforce sync.
+            {% endif %}
+          </p>
+          {% if validation_timestamp %}
+            <span>Validated {{ validation_timestamp.strftime('%b %-d, %Y at %-I:%M %p UTC') }}</span>
+          {% endif %}
+        </div>
+        {% if validation_result.overall_status == 'ready' %}
+          <ul class="configuration-health-checks">
+            {% for message in [
+              'Connected to Salesforce',
+              'Opportunity object accessible',
+              'Required BidLens fields found',
+              'Required picklist values found',
+              'Ready to receive BidLens opportunities'
+            ] %}
+              <li class="configuration-health-check configuration-health-check--pass">
+                <span aria-hidden="true"></span>
+                <div><strong>{{ message }}</strong></div>
+              </li>
+            {% endfor %}
+          </ul>
         {% else %}
-          <form method="post" action="/workspace-management/business-systems/salesforce/test{{ org_q }}"><button class="btn btn-primary" type="submit">Test Again</button></form>
-          <a href="/api/salesforce/oauth/start{{ oauth_q }}" class="btn btn-outline-secondary">Reauthorize</a>
-          <form method="post" action="/workspace-management/business-systems/salesforce/disconnect{{ org_q }}" onsubmit="return confirm('Disconnect Salesforce from this workspace? Existing Salesforce records and local history will be preserved.');"><button class="btn btn-outline-danger" type="submit">Disconnect</button></form>
+          <ul class="configuration-health-checks">
+            {% for check in validation_result.checks %}
+              {% if check.status != 'passed' %}
+                {% set check_state = 'warning' if check.status == 'warning' else 'fail' %}
+                <li class="configuration-health-check configuration-health-check--{{ check_state }}">
+                  <span aria-hidden="true"></span>
+                  <div>
+                    <strong>{{ 'Warning' if check.status == 'warning' else 'Action needed' }}</strong>
+                    <small>{{ check.message }}{% if check.detail %} {{ check.detail }}{% endif %}</small>
+                  </div>
+                </li>
+              {% endif %}
+            {% endfor %}
+          </ul>
         {% endif %}
-      </div></div>
+      {% else %}
+        <p class="text-muted">Validation does not create or modify Salesforce records. It only reads connection and Opportunity metadata.</p>
+      {% endif %}
     </section>
 
     <section class="configuration-center-section" aria-labelledby="salesforce-sync-heading">

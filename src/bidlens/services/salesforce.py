@@ -23,6 +23,43 @@ _TOKEN_CACHE: dict[str, str] = {}
 CONNECTION_STATUSES = {
     "not_connected", "connected", "reauthorization_required", "connection_error",
 }
+READINESS_REQUIRED_FIELDS = {
+    "Name": {
+        "label": "Opportunity Name",
+        "createable": True,
+        "updateable": True,
+    },
+    "StageName": {
+        "label": "Stage",
+        "createable": True,
+        "updateable": False,
+    },
+    "CloseDate": {
+        "label": "Close Date",
+        "createable": True,
+        "updateable": True,
+    },
+    "Description": {
+        "label": "Description",
+        "createable": True,
+        "updateable": True,
+    },
+    "External_Source_ID__c": {
+        "label": "External Source ID",
+        "createable": True,
+        "updateable": False,
+    },
+    "Intake_Status__c": {
+        "label": "Intake Status",
+        "createable": True,
+        "updateable": True,
+    },
+    "Intake_Source__c": {
+        "label": "Intake Source",
+        "createable": True,
+        "updateable": False,
+    },
+}
 
 
 class SalesforceConfigError(RuntimeError):
@@ -404,6 +441,287 @@ class SalesforceService:
             "required_fields_verified": not missing_required_fields,
             "field_mappings_valid": not unavailable_mapped_fields,
             "error": None,
+        }
+
+    @staticmethod
+    def _readiness_check(
+        key: str,
+        label: str,
+        status: str,
+        message: str,
+        detail: str | None = None,
+    ) -> dict[str, str | None]:
+        return {
+            "key": key,
+            "label": label,
+            "status": status,
+            "message": message,
+            "detail": detail,
+        }
+
+    @staticmethod
+    def _field_label(field: dict[str, Any] | None, fallback: str) -> str:
+        if field and field.get("label"):
+            return str(field["label"])
+        return fallback
+
+    def validate_readiness(self) -> dict[str, Any]:
+        """Validate whether the connected Salesforce org is ready for BidLens V1.
+
+        This performs read-only Salesforce checks. It may refresh/test OAuth
+        authorization, but it does not create or update Salesforce records.
+        """
+        checks: list[dict[str, str | None]] = []
+
+        if self.connection is None or not self.has_stored_authorization:
+            checks.append(self._readiness_check(
+                "connection",
+                "Salesforce connection",
+                "failed",
+                "Salesforce is not connected for this workspace.",
+            ))
+            return {
+                "overall_status": "action_required",
+                "overall_label": "Action required",
+                "checks": checks,
+            }
+
+        if self.connection.status == "reauthorization_required":
+            checks.append(self._readiness_check(
+                "connection",
+                "Salesforce connection",
+                "failed",
+                "Salesforce requires reauthorization before BidLens can validate setup.",
+            ))
+            return {
+                "overall_status": "action_required",
+                "overall_label": "Action required",
+                "checks": checks,
+            }
+
+        checks.append(self._readiness_check(
+            "connection",
+            "Salesforce connection",
+            "passed",
+            "Salesforce is connected for this workspace.",
+        ))
+
+        try:
+            self.test_connection()
+            checks.append(self._readiness_check(
+                "oauth",
+                "OAuth access",
+                "passed",
+                "Access token can be used or refreshed successfully.",
+            ))
+        except SalesforceConfigError as exc:
+            checks.append(self._readiness_check(
+                "oauth",
+                "OAuth access",
+                "failed",
+                "Salesforce authorization is not usable.",
+                str(exc),
+            ))
+            return {
+                "overall_status": "action_required",
+                "overall_label": "Action required",
+                "checks": checks,
+            }
+        except (SalesforceApiError, requests.RequestException) as exc:
+            checks.append(self._readiness_check(
+                "oauth",
+                "OAuth access",
+                "failed",
+                "Salesforce API is unavailable or rejected the connection test.",
+                str(exc),
+            ))
+            return {
+                "overall_status": "action_required",
+                "overall_label": "Action required",
+                "checks": checks,
+            }
+
+        try:
+            describe = self.describe_opportunity()
+        except (SalesforceApiError, requests.RequestException) as exc:
+            checks.append(self._readiness_check(
+                "opportunity_describe",
+                "Opportunity metadata",
+                "failed",
+                "BidLens could not inspect the Salesforce Opportunity object.",
+                str(exc),
+            ))
+            return {
+                "overall_status": "action_required",
+                "overall_label": "Action required",
+                "checks": checks,
+            }
+
+        object_access_warnings = []
+        if describe.get("queryable") is False:
+            object_access_warnings.append("query")
+        if describe.get("createable") is False:
+            object_access_warnings.append("create")
+        if describe.get("updateable") is False:
+            object_access_warnings.append("update")
+        if object_access_warnings:
+            checks.append(self._readiness_check(
+                "opportunity_access",
+                "Opportunity object access",
+                "failed",
+                "Connected user does not have sufficient Opportunity object access.",
+                f"Missing: {', '.join(object_access_warnings)}",
+            ))
+        else:
+            checks.append(self._readiness_check(
+                "opportunity_access",
+                "Opportunity object access",
+                "passed",
+                "Opportunity object is accessible.",
+            ))
+
+        checks.append(self._readiness_check(
+            "opportunity_describe",
+            "Opportunity metadata",
+            "passed",
+            "Opportunity describe succeeds.",
+        ))
+
+        fields = describe.get("fields") or []
+        field_by_name = {
+            field.get("name"): field
+            for field in fields
+            if field.get("name")
+        }
+
+        for field_name, requirement in READINESS_REQUIRED_FIELDS.items():
+            label = requirement["label"]
+            field = field_by_name.get(field_name)
+            if field is None:
+                checks.append(self._readiness_check(
+                    f"field_{field_name}",
+                    label,
+                    "failed",
+                    f"Missing required field: {label}.",
+                ))
+                continue
+
+            failures = []
+            if field.get("createable") is not True and requirement.get("createable"):
+                failures.append("create")
+            if field.get("updateable") is not True and requirement.get("updateable"):
+                failures.append("update")
+
+            # Field-level readable access is not exposed as a direct boolean in
+            # the describe payload. If the field is returned by describe, BidLens
+            # can at least identify it and validate write metadata.
+            if failures:
+                checks.append(self._readiness_check(
+                    f"field_{field_name}",
+                    self._field_label(field, label),
+                    "failed",
+                    f"Required field {label} is available but lacks required access.",
+                    f"Missing access: {', '.join(failures)}",
+                ))
+            else:
+                checks.append(self._readiness_check(
+                    f"field_{field_name}",
+                    self._field_label(field, label),
+                    "passed",
+                    f"Required field {label} is available.",
+                ))
+
+        valid_stage_names = self._picklist_values(fields, "StageName")
+        if "Prospecting" in valid_stage_names:
+            checks.append(self._readiness_check(
+                "stage_prospecting",
+                "Prospecting stage",
+                "passed",
+                "StageName includes active value Prospecting.",
+            ))
+        else:
+            checks.append(self._readiness_check(
+                "stage_prospecting",
+                "Prospecting stage",
+                "failed",
+                "Missing Stage value: Prospecting.",
+            ))
+
+        intake_status_values = self._picklist_values(fields, "Intake_Status__c")
+        if "Prospect_Feed" in intake_status_values:
+            checks.append(self._readiness_check(
+                "intake_status_prospect_feed",
+                "Prospect_Feed intake status",
+                "passed",
+                "Intake_Status__c includes active value Prospect_Feed.",
+            ))
+        else:
+            checks.append(self._readiness_check(
+                "intake_status_prospect_feed",
+                "Prospect_Feed intake status",
+                "failed",
+                "Missing Intake Status value: Prospect_Feed.",
+            ))
+
+        intake_source_values = self._picklist_values(fields, "Intake_Source__c")
+        if "BidLens" in intake_source_values:
+            checks.append(self._readiness_check(
+                "intake_source_bidlens",
+                "BidLens intake source",
+                "passed",
+                "Intake_Source__c includes active value BidLens.",
+            ))
+        else:
+            checks.append(self._readiness_check(
+                "intake_source_bidlens",
+                "BidLens intake source",
+                "failed",
+                "Missing Intake Source value: BidLens.",
+            ))
+
+        required_fields = self._required_createable_fields(fields)
+        provided_fields = set(READINESS_REQUIRED_FIELDS) | {"Description"}
+        missing_required_fields = [
+            field
+            for field in required_fields
+            if field.get("name") and field["name"] not in provided_fields
+        ]
+        if missing_required_fields:
+            labels = ", ".join(
+                f"{field.get('label') or field.get('name')} ({field.get('name')})"
+                for field in missing_required_fields
+            )
+            checks.append(self._readiness_check(
+                "additional_required_fields",
+                "Additional required fields",
+                "failed",
+                "Salesforce requires additional Opportunity fields that BidLens does not currently populate.",
+                labels,
+            ))
+        else:
+            checks.append(self._readiness_check(
+                "additional_required_fields",
+                "Additional required fields",
+                "passed",
+                "Salesforce does not require additional createable Opportunity fields outside the BidLens payload.",
+            ))
+
+        has_failed = any(check["status"] == "failed" for check in checks)
+        has_warning = any(check["status"] == "warning" for check in checks)
+        if has_failed:
+            overall_status = "action_required"
+            overall_label = "Action required"
+        elif has_warning:
+            overall_status = "ready_with_warnings"
+            overall_label = "Ready with warnings"
+        else:
+            overall_status = "ready"
+            overall_label = "Ready"
+
+        return {
+            "overall_status": overall_status,
+            "overall_label": overall_label,
+            "checks": checks,
         }
 
     @staticmethod
