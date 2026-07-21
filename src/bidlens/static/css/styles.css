@@ -8881,6 +8881,12 @@ details[open] .accordion-summary::after {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.integration-directory-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
 .integration-card {
   display: flex;
   min-height: 218px;
@@ -8894,6 +8900,62 @@ details[open] .accordion-summary::after {
 
 .integration-grid--destinations .integration-card {
   min-height: 170px;
+}
+
+.integration-directory-card {
+  display: grid;
+  min-height: 0;
+  padding: 18px 20px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px 22px;
+  align-items: start;
+  border-radius: 12px;
+}
+
+.integration-directory-card--future {
+  background: rgba(248, 251, 255, 0.76);
+}
+
+.integration-card-identity {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.integration-directory-main {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  grid-column: 1 / -1;
+}
+
+.integration-card-icon {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(47, 111, 206, 0.12), rgba(15, 49, 97, 0.08));
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: -0.02em;
+}
+
+.integration-directory-card--future .integration-card-icon {
+  background: var(--gray-100);
+  color: var(--gray-500);
+}
+
+.integration-directory-actions {
+  display: flex;
+  justify-content: flex-end;
+  grid-column: 2;
 }
 
 .integration-card-heading {
@@ -9614,6 +9676,20 @@ details[open] .accordion-summary::after {
   .integration-card-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .integration-directory-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .integration-directory-main {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .integration-directory-actions {
+    justify-content: flex-start;
+    grid-column: 1;
   }
 
   .integration-credential-form {

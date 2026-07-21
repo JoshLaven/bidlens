@@ -260,7 +260,7 @@ Expected Salesforce Opportunity configuration:
 
 - `StageName` includes `Prospecting`.
 - `Intake_Status__c` supports `Prospect_Feed`.
-- `Intake_Source__c` has at least one active value; `BidLens` is preferred.
+- `Intake_Source__c` includes active values for the opportunity sources BidLens can send: `SAM`, `Grants.gov`, and `GovWin`.
 - `External_Source_ID__c` should be configured as an External ID and should be unique if the customer wants Salesforce to enforce duplicate protection.
 
 Workspace authorization:

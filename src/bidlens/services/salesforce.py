@@ -23,6 +23,14 @@ _TOKEN_CACHE: dict[str, str] = {}
 CONNECTION_STATUSES = {
     "not_connected", "connected", "reauthorization_required", "connection_error",
 }
+BIDLENS_INTAKE_SOURCE_BY_OPPORTUNITY_SOURCE = {
+    "sam": "SAM",
+    "sam.gov": "SAM",
+    "grants_gov": "Grants.gov",
+    "grants.gov": "Grants.gov",
+    "govwin_api": "GovWin",
+    "govwin_export": "GovWin",
+}
 READINESS_REQUIRED_FIELDS = {
     "Name": {
         "label": "Opportunity Name",
@@ -76,6 +84,16 @@ class SalesforceOpportunity:
     name: str | None
     external_source_id: str | None
     intake_status: str | None
+
+
+def supported_bidlens_intake_source_values() -> list[str]:
+    return list(dict.fromkeys(BIDLENS_INTAKE_SOURCE_BY_OPPORTUNITY_SOURCE.values()))
+
+
+def intake_source_value_for_opportunity_source(source: str | None) -> str | None:
+    if not source:
+        return None
+    return BIDLENS_INTAKE_SOURCE_BY_OPPORTUNITY_SOURCE.get(source.strip().lower())
 
 
 def generate_pkce_pair() -> tuple[str, str]:
@@ -397,10 +415,13 @@ class SalesforceService:
         required_fields = self._required_createable_fields(fields)
         valid_stage_names = self._picklist_values(fields, "StageName")
         intake_source_values = self._picklist_values(fields, "Intake_Source__c")
-        selected_intake_source = (
-            "BidLens"
-            if "BidLens" in intake_source_values
-            else intake_source_values[0] if intake_source_values else None
+        selected_intake_source = next(
+            (
+                source_value
+                for source_value in supported_bidlens_intake_source_values()
+                if source_value in intake_source_values
+            ),
+            None,
         )
         provided_fields = {
             "Name",
@@ -664,19 +685,26 @@ class SalesforceService:
             ))
 
         intake_source_values = self._picklist_values(fields, "Intake_Source__c")
-        if "BidLens" in intake_source_values:
+        expected_intake_source_values = supported_bidlens_intake_source_values()
+        missing_intake_source_values = [
+            value for value in expected_intake_source_values
+            if value not in intake_source_values
+        ]
+        if not missing_intake_source_values:
             checks.append(self._readiness_check(
-                "intake_source_bidlens",
-                "BidLens intake source",
+                "intake_source_values",
+                "Intake Source values",
                 "passed",
-                "Intake_Source__c includes active value BidLens.",
+                "BidLens verified that Salesforce contains the opportunity source values required for synchronization.",
+                ", ".join(expected_intake_source_values),
             ))
         else:
             checks.append(self._readiness_check(
-                "intake_source_bidlens",
-                "BidLens intake source",
+                "intake_source_values",
+                "Intake Source values",
                 "failed",
-                "Missing Intake Source value: BidLens.",
+                "Missing Intake Source values.",
+                ", ".join(missing_intake_source_values),
             ))
 
         required_fields = self._required_createable_fields(fields)

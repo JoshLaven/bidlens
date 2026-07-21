@@ -29,6 +29,7 @@ from ..services.salesforce import (
     SalesforceApiError,
     SalesforceConfigError,
     SalesforceService,
+    supported_bidlens_intake_source_values,
 )
 
 
@@ -132,16 +133,19 @@ def _salesforce_operational_snapshot(db: Session, organization_id: int) -> dict[
     service = SalesforceService(db=db, workspace_id=organization_id)
     snapshot = {
         "connected": False,
+        "connection_status": service.connection.status if service.connection else "not_connected",
         "instance_url": service.connected_instance_url,
         "inspection": None,
         "error": None,
     }
     try:
         snapshot["connected"] = service.is_authorized()
+        snapshot["connection_status"] = service.connection.status if service.connection else "not_connected"
         snapshot["instance_url"] = service.connected_instance_url
         if snapshot["connected"]:
             snapshot["inspection"] = service.inspect_opportunity_requirements()
     except (SalesforceApiError, SalesforceConfigError, requests.RequestException) as exc:
+        snapshot["connection_status"] = service.connection.status if service.connection else "connection_error"
         snapshot["error"] = str(exc)
     return snapshot
 
@@ -327,10 +331,17 @@ def _apply_connector_health(
 
     salesforce = center["salesforce"]
     inspection = salesforce.get("inspection") or {}
+    expected_intake_sources = supported_bidlens_intake_source_values()
+    intake_source_values = inspection.get("intake_source_values") or []
+    intake_sources_valid = (
+        all(value in intake_source_values for value in expected_intake_sources)
+        if intake_source_values
+        else bool(inspection.get("selected_intake_source"))
+    )
     requirements_valid = bool(
         inspection.get("required_fields_verified")
         and inspection.get("default_stage_valid")
-        and inspection.get("selected_intake_source")
+        and intake_sources_valid
     )
     mappings_valid = bool(inspection.get("field_mappings_valid"))
     salesforce_checks = [
@@ -385,6 +396,33 @@ def _apply_connector_health(
             "summary": "Connected, but the Opportunity schema does not satisfy BidLens requirements.",
         }
     salesforce["health"] = {**salesforce_health, "checks": salesforce_checks}
+    connection_status = salesforce.get("connection_status")
+    if connection_status == "reauthorization_required":
+        salesforce_directory_status = {
+            "level": "warning",
+            "label": "Requires reauthorization",
+        }
+    elif connection_status == "connection_error" or salesforce.get("validation_error"):
+        salesforce_directory_status = {
+            "level": "warning",
+            "label": "Connection error",
+        }
+    elif not salesforce["connected"]:
+        salesforce_directory_status = {
+            "level": "neutral",
+            "label": "Not connected",
+        }
+    elif requirements_valid and mappings_valid:
+        salesforce_directory_status = {
+            "level": "healthy",
+            "label": "Ready",
+        }
+    else:
+        salesforce_directory_status = {
+            "level": "required",
+            "label": "Configuration required",
+        }
+    salesforce["directory_status"] = salesforce_directory_status
 
     connectors = (sam, grants, govwin, salesforce)
     healthy_count = sum(
@@ -484,6 +522,7 @@ def _configuration_center_context(
         },
         "salesforce": {
             "connected": bool(salesforce_snapshot.get("connected")),
+            "connection_status": salesforce_snapshot.get("connection_status") or "not_connected",
             "instance_url": salesforce_snapshot.get("instance_url"),
             "inspection": salesforce_snapshot.get("inspection"),
             "validation_error": salesforce_snapshot.get("error"),

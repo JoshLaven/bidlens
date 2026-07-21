@@ -83,7 +83,7 @@ class InterestedSalesforceTests(unittest.TestCase):
         service.find_opportunity_by_external_source_id.return_value = None
         service.required_createable_opportunity_fields.return_value = []
         service.stage_name_values.return_value = ["Prospecting"]
-        service.opportunity_picklist_values.return_value = ["BidLens"]
+        service.opportunity_picklist_values.return_value = ["SAM", "Grants.gov", "GovWin"]
         service.create_opportunity.return_value = "006-member-created"
         service.opportunity_record_url.return_value = (
             "https://example.my.salesforce.com/lightning/r/Opportunity/006-member-created/view"
@@ -231,7 +231,7 @@ class InterestedSalesforceTests(unittest.TestCase):
         service.find_opportunity_by_external_source_id.return_value = None
         service.required_createable_opportunity_fields.return_value = []
         service.stage_name_values.return_value = ["Prospecting"]
-        service.opportunity_picklist_values.return_value = ["BidLens"]
+        service.opportunity_picklist_values.return_value = ["SAM", "Grants.gov", "GovWin"]
         service.create_opportunity.return_value = "006-created"
         service.opportunity_record_url.return_value = (
             "https://example.my.salesforce.com/lightning/r/Opportunity/006-created/view"
@@ -245,6 +245,7 @@ class InterestedSalesforceTests(unittest.TestCase):
         self.assertEqual(self.opp.salesforce_opportunity_id, "006-created")
         payload = service.create_opportunity.call_args.args[0]
         self.assertEqual(payload["External_Source_ID__c"], "notice-1001")
+        self.assertEqual(payload["Intake_Source__c"], "SAM")
         self.assertEqual(self._salesforce_history_actions(), ["created"])
 
     def test_interest_is_user_scoped_while_salesforce_link_is_shared(self):
@@ -253,7 +254,7 @@ class InterestedSalesforceTests(unittest.TestCase):
         service.find_opportunity_by_external_source_id.return_value = None
         service.required_createable_opportunity_fields.return_value = []
         service.stage_name_values.return_value = ["Prospecting"]
-        service.opportunity_picklist_values.return_value = ["BidLens"]
+        service.opportunity_picklist_values.return_value = ["SAM", "Grants.gov", "GovWin"]
         service.create_opportunity.return_value = "006-shared-link"
         service.opportunity_record_url.return_value = (
             "https://example.my.salesforce.com/lightning/r/Opportunity/006-shared-link/view"
@@ -338,7 +339,7 @@ class InterestedSalesforceTests(unittest.TestCase):
         service.find_opportunity_by_external_source_id.return_value = None
         service.required_createable_opportunity_fields.return_value = []
         service.stage_name_values.return_value = ["Prospecting"]
-        service.opportunity_picklist_values.return_value = ["BidLens"]
+        service.opportunity_picklist_values.return_value = ["SAM", "Grants.gov", "GovWin"]
         service.create_opportunity.return_value = "006-created"
         service.opportunity_record_url.return_value = (
             "https://example.my.salesforce.com/lightning/r/Opportunity/006-created/view"
@@ -418,7 +419,7 @@ class InterestedSalesforceTests(unittest.TestCase):
         service.find_opportunity_by_external_source_id.return_value = None
         service.required_createable_opportunity_fields.return_value = []
         service.stage_name_values.return_value = ["Prospecting"]
-        service.opportunity_picklist_values.return_value = ["BidLens"]
+        service.opportunity_picklist_values.return_value = ["SAM", "Grants.gov", "GovWin"]
         service.create_opportunity.return_value = "006-admin-created"
         service.opportunity_record_url.return_value = (
             "https://example.my.salesforce.com/lightning/r/Opportunity/006-admin-created/view"
@@ -509,7 +510,7 @@ class InterestedSalesforceTests(unittest.TestCase):
         service.find_opportunity_by_external_source_id.return_value = None
         service.required_createable_opportunity_fields.return_value = []
         service.stage_name_values.return_value = ["Prospecting"]
-        service.opportunity_picklist_values.return_value = ["BidLens"]
+        service.opportunity_picklist_values.return_value = ["SAM", "Grants.gov", "GovWin"]
         service.create_opportunity.return_value = "006-created"
         service.opportunity_record_url.return_value = (
             "https://example.my.salesforce.com/lightning/r/Opportunity/006-created/view"
@@ -529,6 +530,7 @@ class InterestedSalesforceTests(unittest.TestCase):
         self.assertEqual(result["salesforce_opportunity_id"], "006-created")
         payload = service.create_opportunity.call_args.args[0]
         self.assertEqual(payload["External_Source_ID__c"], "notice-1001")
+        self.assertEqual(payload["Intake_Source__c"], "SAM")
 
     def test_explicit_crm_routes_reject_non_admin_direct_calls(self):
         with patch.object(api, "require_user", return_value=self.member):

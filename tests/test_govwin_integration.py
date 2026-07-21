@@ -261,7 +261,7 @@ class GovWinIntegrationRouteTests(unittest.TestCase):
                     "inspection": {
                         "required_fields_verified": True,
                         "default_stage_valid": True,
-                        "selected_intake_source": "BidLens",
+                        "selected_intake_source": "SAM",
                         "field_mappings_valid": True,
                     },
                     "error": None,
@@ -311,7 +311,11 @@ class GovWinIntegrationRouteTests(unittest.TestCase):
                 "picklistValues": (
                     [{"active": True, "value": "Prospecting"}]
                     if name == "StageName"
-                    else [{"active": True, "value": "BidLens"}]
+                    else [
+                        {"active": True, "value": "SAM"},
+                        {"active": True, "value": "Grants.gov"},
+                        {"active": True, "value": "GovWin"},
+                    ]
                     if name == "Intake_Source__c"
                     else []
                 ),
@@ -333,7 +337,7 @@ class GovWinIntegrationRouteTests(unittest.TestCase):
         self.assertTrue(inspection["default_stage_valid"])
         self.assertTrue(inspection["required_fields_verified"])
         self.assertTrue(inspection["field_mappings_valid"])
-        self.assertEqual(inspection["selected_intake_source"], "BidLens")
+        self.assertEqual(inspection["selected_intake_source"], "SAM")
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ from .salesforce import (
     SalesforceApiError,
     SalesforceConfigError,
     SalesforceService,
+    intake_source_value_for_opportunity_source,
 )
 
 
@@ -87,10 +88,11 @@ def salesforce_payload_summary(payload: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
-def _select_intake_source_value(values: list[str]) -> str | None:
-    if "BidLens" in values:
-        return "BidLens"
-    return values[0] if values else None
+def _select_intake_source_value(values: list[str], opportunity_source: str | None) -> str | None:
+    expected_value = intake_source_value_for_opportunity_source(opportunity_source)
+    if expected_value and expected_value in values:
+        return expected_value
+    return None
 
 
 def build_salesforce_create_payload(
@@ -112,7 +114,8 @@ def build_salesforce_create_payload(
     required_fields = service.required_createable_opportunity_fields()
     valid_stage_names = service.stage_name_values()
     intake_source_values = service.opportunity_picklist_values("Intake_Source__c")
-    selected_intake_source = _select_intake_source_value(intake_source_values)
+    expected_intake_source = intake_source_value_for_opportunity_source(opp.source)
+    selected_intake_source = _select_intake_source_value(intake_source_values, opp.source)
     if "Prospecting" not in valid_stage_names:
         raise SalesforceCreateValidationError({
             "message": "Salesforce StageName 'Prospecting' is not valid in this org.",
@@ -121,7 +124,8 @@ def build_salesforce_create_payload(
         })
     if not selected_intake_source:
         raise SalesforceCreateValidationError({
-            "message": "Salesforce Intake_Source__c has no active picklist values.",
+            "message": "Salesforce Intake_Source__c is missing the value required for this opportunity source.",
+            "expected_intake_source": expected_intake_source,
             "intake_source_values": intake_source_values,
             "created": False,
         })

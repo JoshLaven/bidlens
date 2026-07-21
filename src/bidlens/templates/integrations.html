@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_workspace_management_hero.html" import workspace_management_hero %}
+{% from "_integration_directory_card.html" import integration_directory_card %}
 {% set hide_context_sidebar = true %}
 {% block title %}Integrations - BidLens{% endblock %}
 {% block content %}
@@ -24,76 +25,29 @@
     <section class="configuration-center-section" aria-labelledby="destination-connectors-heading">
       <div class="configuration-center-section-heading">
         <div>
-          <span>Outbound connector</span>
-          <h2 id="destination-connectors-heading">CRM Destination</h2>
+          <span>Business systems</span>
+          <h2 id="destination-connectors-heading">Integrations Directory</h2>
         </div>
-        <p>Salesforce receives eligible opportunities when users mark them Interested or admins promote them from BidLens.</p>
+        <p>Available integrations and their current workspace status.</p>
       </div>
 
-      <article class="configuration-connector-card configuration-connector-card--wide" id="salesforce">
-        <header class="configuration-connector-header">
-          <div>
-            <span class="configuration-connector-kicker">Customer relationship management</span>
-            <h3>Salesforce</h3>
-            <p>Finds matching Opportunities by external source ID, then updates or creates records automatically.</p>
-          </div>
-          <span class="configuration-health configuration-health--{{ center.salesforce.health.level }}">
-            <i aria-hidden="true"></i>{{ center.salesforce.health.label }}
-          </span>
-        </header>
-
-        <div class="configuration-connector-sections configuration-connector-sections--wide">
-          <section>
-            <h4>Connection Status</h4>
-            <dl class="configuration-data-list">
-              <div><dt>Connection health</dt><dd>{{ center.salesforce.connection_health }}</dd></div>
-              <div>
-                <dt>{{ 'Connected organization URL' if center.salesforce.connected else 'Configured login URL' }}</dt>
-                <dd>
-                  {% if center.salesforce.instance_url %}
-                    <a href="{{ center.salesforce.instance_url }}" target="_blank" rel="noreferrer">{{ center.salesforce.instance_url }}</a>
-                  {% else %}
-                    Not configured
-                  {% endif %}
-                </dd>
-              </div>
-            </dl>
-          </section>
-          <section>
-            <h4>Current Configuration</h4>
-            <dl class="configuration-data-list">
-              {% for label, value in center.salesforce.mappings %}
-                <div><dt>{{ label }}</dt><dd><code>{{ value }}</code></dd></div>
-              {% endfor %}
-            </dl>
-          </section>
-          <section>
-            <h4>Connector Health</h4>
-            <div class="configuration-health-message configuration-health-message--{{ center.salesforce.health.level }}">
-              <strong>{{ center.salesforce.health.label }}</strong>
-              <p>{{ center.salesforce.health.summary }}</p>
-              {% if center.salesforce.validation_error %}
-                <span>{{ center.salesforce.validation_error }}</span>
-              {% endif %}
-            </div>
-            <ul class="configuration-health-checks">
-              {% for check in center.salesforce.health.checks %}
-                <li class="configuration-health-check configuration-health-check--{{ check.state }}">
-                  <span aria-hidden="true"></span>
-                  <div><strong>{{ check.label }}</strong>{% if check.detail %}<small>{{ check.detail }}</small>{% endif %}</div>
-                </li>
-              {% endfor %}
-            </ul>
-          </section>
-        </div>
-
-        <footer class="configuration-connector-actions">
-          <span>Available Actions</span>
-          <div>
-            <a href="/workspace-management/business-systems/salesforce{{ org_q }}" class="btn btn-sm btn-primary">Configure</a>
-          </div>
-        </footer>
-      </article>
+      <div class="integration-directory-list">
+        {{ integration_directory_card(
+          'salesforce',
+          'Salesforce',
+          'CRM destination for eligible BidLens opportunities.',
+          center.salesforce.directory_status.label,
+          center.salesforce.directory_status.level,
+          'Configure',
+          '/workspace-management/business-systems/salesforce' ~ org_q,
+          'SF'
+        ) }}
+        {{ integration_directory_card('microsoft-365', 'Microsoft 365', 'Identity, email, and collaboration.', 'Coming soon', 'neutral', 'Coming soon', None, 'M365', True) }}
+        {{ integration_directory_card('outlook', 'Outlook', 'Email and calendar integration.', 'Coming soon', 'neutral', 'Coming soon', None, 'O', True) }}
+        {{ integration_directory_card('teams', 'Teams', 'Collaboration and notifications.', 'Coming soon', 'neutral', 'Coming soon', None, 'T', True) }}
+        {{ integration_directory_card('hubspot', 'HubSpot', 'CRM integration for future customer workflows.', 'Coming soon', 'neutral', 'Coming soon', None, 'H', True) }}
+        {{ integration_directory_card('sharepoint', 'SharePoint', 'Document workspace integration for pursuit materials.', 'Coming soon', 'neutral', 'Coming soon', None, 'SP', True) }}
+      </div>
     </section>
   </div>
 </div>

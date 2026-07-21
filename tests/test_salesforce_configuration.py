@@ -82,7 +82,7 @@ class SalesforceConfigurationTests(unittest.TestCase):
         missing = set(missing)
         stage_values = ["Prospecting"] if stage_values is None else stage_values
         intake_status_values = ["Prospect_Feed"] if intake_status_values is None else intake_status_values
-        intake_source_values = ["BidLens"] if intake_source_values is None else intake_source_values
+        intake_source_values = ["SAM", "Grants.gov", "GovWin"] if intake_source_values is None else intake_source_values
 
         def field(name, label, *, createable=True, updateable=True, nillable=True, values=None):
             return {
@@ -204,18 +204,25 @@ class SalesforceConfigurationTests(unittest.TestCase):
             for check in result["checks"]
         ))
 
-    def test_readiness_validation_missing_bidlens_intake_source_requires_action(self):
+    def test_readiness_validation_missing_supported_intake_source_requires_action(self):
         service = self._readiness_service()
         service.describe_opportunity.return_value = self._salesforce_fields(
-            intake_source_values=["Partner"]
+            intake_source_values=["SAM", "Grants.gov"]
         )
 
         result = service.validate_readiness()
 
         self.assertEqual(result["overall_status"], "action_required")
-        self.assertTrue(any(
+        missing_check = next(
+            check for check in result["checks"]
+            if check["key"] == "intake_source_values"
+        )
+        self.assertEqual(missing_check["status"], "failed")
+        self.assertEqual(missing_check["message"], "Missing Intake Source values.")
+        self.assertEqual(missing_check["detail"], "GovWin")
+        self.assertFalse(any(
             check["status"] == "failed"
-            and "Missing Intake Source value: BidLens" in check["message"]
+            and "BidLens" in f"{check['message']} {check.get('detail') or ''}"
             for check in result["checks"]
         ))
 
@@ -323,10 +330,11 @@ class SalesforceConfigurationTests(unittest.TestCase):
                 salesforce=SimpleNamespace(
                     health=SimpleNamespace(
                         level="healthy",
-                        label="Connected",
+                        label="Ready",
                         summary="Salesforce is connected.",
                         checks=[],
                     ),
+                    directory_status=SimpleNamespace(level="healthy", label="Ready"),
                     connected=True,
                     connection_health="Connected",
                     instance_url="https://workspace-a.my.salesforce.com",
@@ -336,10 +344,101 @@ class SalesforceConfigurationTests(unittest.TestCase):
             ),
         )
 
-        self.assertIn(">Configure<", html)
+        self.assertIn("integration-directory-list", html)
+        self.assertIn("integration-directory-card", html)
+        self.assertNotIn("integration-directory-grid", html)
+        self.assertIn("Configure", html)
+        self.assertIn("Configure Salesforce", html)
+        self.assertIn("CRM destination for eligible BidLens opportunities.", html)
+        self.assertIn("configuration-health--healthy", html)
+        self.assertIn("Ready", html)
+        self.assertIn("Microsoft 365", html)
+        self.assertIn("Outlook", html)
+        self.assertIn("Teams", html)
+        self.assertIn("HubSpot", html)
+        self.assertIn("SharePoint", html)
+        self.assertIn("Coming soon", html)
+        self.assertNotIn("Connection Status", html)
+        self.assertNotIn("Current Configuration", html)
+        self.assertNotIn("Connector Health", html)
+        self.assertNotIn("Required Opportunity fields verified", html)
+        self.assertNotIn("External_Source_ID__c", html)
         self.assertNotIn("Validate Setup", html)
         self.assertNotIn("Inspect Opportunity Requirements", html)
         self.assertNotIn("opportunity-create-requirements", html)
+
+    def test_salesforce_directory_status_uses_existing_connection_state(self):
+        cases = [
+            (
+                {
+                    "connected": False,
+                    "connection_status": "not_connected",
+                    "inspection": None,
+                    "error": None,
+                    "instance_url": None,
+                },
+                {"level": "neutral", "label": "Not connected"},
+            ),
+            (
+                {
+                    "connected": False,
+                    "connection_status": "reauthorization_required",
+                    "inspection": None,
+                    "error": None,
+                    "instance_url": "https://workspace-a.my.salesforce.com",
+                },
+                {"level": "warning", "label": "Requires reauthorization"},
+            ),
+            (
+                {
+                    "connected": False,
+                    "connection_status": "connection_error",
+                    "inspection": None,
+                    "error": "Salesforce could not validate the connection.",
+                    "instance_url": "https://workspace-a.my.salesforce.com",
+                },
+                {"level": "warning", "label": "Connection error"},
+            ),
+            (
+                {
+                    "connected": True,
+                    "connection_status": "connected",
+                    "inspection": {
+                        "required_fields_verified": True,
+                        "default_stage_valid": True,
+                        "intake_source_values": ["SAM", "Grants.gov", "GovWin"],
+                        "field_mappings_valid": True,
+                    },
+                    "error": None,
+                    "instance_url": "https://workspace-a.my.salesforce.com",
+                },
+                {"level": "healthy", "label": "Ready"},
+            ),
+            (
+                {
+                    "connected": True,
+                    "connection_status": "connected",
+                    "inspection": {
+                        "required_fields_verified": True,
+                        "default_stage_valid": True,
+                        "intake_source_values": ["SAM", "Grants.gov"],
+                        "field_mappings_valid": True,
+                    },
+                    "error": None,
+                    "instance_url": "https://workspace-a.my.salesforce.com",
+                },
+                {"level": "required", "label": "Configuration required"},
+            ),
+        ]
+        for snapshot, expected_status in cases:
+            center = integrations._configuration_center_context(
+                self.db,
+                organization_id=self.org_a.id,
+                profile=None,
+                salesforce_snapshot=snapshot,
+                now=datetime(2026, 7, 20, 12, 0),
+            )
+            self.assertEqual(center["salesforce"]["directory_status"], expected_status)
 
     def test_readiness_actions_are_consolidated_on_configuration_page(self):
         connection = self._connection(self.org_a)

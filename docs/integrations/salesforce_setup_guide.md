@@ -233,7 +233,7 @@ Do not rename them in Salesforce without changing BidLens code.
 | Description | `Description` | Standard | Standard long text area | Salesforce standard | Writes on create and source update | Not applicable | No | Not applicable |
 | External Source ID | `External_Source_ID__c` | Custom | Text | At least 255 recommended | Writes on create; reads during duplicate lookup | Not applicable | Recommended | Recommended, not required by BidLens |
 | Intake Status | `Intake_Status__c` | Custom | Picklist | Salesforce picklist | Writes on create and promotion; reads during duplicate lookup response | Must accept `Prospect_Feed` | No | Not applicable |
-| Intake Source | `Intake_Source__c` | Custom | Picklist | Salesforce picklist | Reads active picklist values; writes selected value on create | `BidLens` recommended. At least one active value is required. | No | Not applicable |
+| Intake Source | `Intake_Source__c` | Custom | Picklist | Salesforce picklist | Reads active picklist values; writes the opportunity's originating source on create | Must include `SAM`, `Grants.gov`, and `GovWin` | No | Not applicable |
 
 ### Duplicate matching behavior
 
@@ -733,8 +733,8 @@ Likely cause:
 
 Corrective steps:
 
-1. Add `BidLens` as an active `Intake_Source__c` picklist value, recommended.
-2. Confirm the value is available for the relevant record type.
+1. Add the missing opportunity source values as active `Intake_Source__c` picklist values: `SAM`, `Grants.gov`, and `GovWin`.
+2. Confirm those values are available for the relevant record type.
 3. Retry the sync.
 
 ### Additional required Salesforce Opportunity fields
@@ -843,6 +843,7 @@ Current limitations:
 - Field mapping is hard-coded.
 - New Salesforce Opportunities use `StageName = Prospecting`.
 - BidLens writes `Intake_Status__c = Prospect_Feed`.
+- BidLens writes `Intake_Source__c` as the originating opportunity source, such as `SAM`, `Grants.gov`, or `GovWin`; BidLens itself is not an intake source value.
 - Duplicate lookup uses `External_Source_ID__c = BidLens source_record_id`.
 - One Salesforce organization can be connected per BidLens workspace.
 - No general bidirectional sync.
@@ -874,7 +875,7 @@ Current limitations:
   - [ ] `Intake_Source__c`
 - [ ] Confirm `StageName` includes `Prospecting`.
 - [ ] Confirm `Intake_Status__c` accepts `Prospect_Feed`.
-- [ ] Confirm `Intake_Source__c` has at least one active value; `BidLens` recommended.
+- [ ] Confirm `Intake_Source__c` includes active values for `SAM`, `Grants.gov`, and `GovWin`.
 - [ ] Grant field-level access for all required fields.
 - [ ] Provide Consumer Key and Consumer Secret securely to the BidLens operator.
 

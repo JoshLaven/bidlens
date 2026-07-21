@@ -1,0 +1,23 @@
+{% macro integration_directory_card(id, name, description, status_label, status_level='neutral', action_label='Configure', action_url=None, icon_text=None, future=False) %}
+<article class="integration-card integration-directory-card{% if future %} integration-directory-card--future{% endif %}" id="{{ id }}">
+  <div class="integration-directory-main">
+    <div class="integration-card-identity">
+      <span class="integration-card-icon" aria-hidden="true">{{ icon_text or name[:1] }}</span>
+      <div>
+        <div class="integration-card-title"><h3>{{ name }}</h3></div>
+        <p>{{ description }}</p>
+      </div>
+    </div>
+    <span class="configuration-health configuration-health--{{ status_level }}">
+      <i aria-hidden="true"></i>{{ status_label }}
+    </span>
+  </div>
+  <div class="integration-directory-actions">
+    {% if action_url and not future %}
+      <a href="{{ action_url }}" class="btn btn-sm btn-primary" aria-label="{{ action_label }} {{ name }}">{{ action_label }} <span aria-hidden="true">→</span></a>
+    {% else %}
+      <button class="btn btn-sm btn-outline-secondary" type="button" disabled aria-label="{{ name }} {{ action_label }}">{{ action_label }}</button>
+    {% endif %}
+  </div>
+</article>
+{% endmacro %}
