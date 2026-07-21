@@ -5,7 +5,7 @@ import re
 import csv
 import io
 import requests
-from fastapi import APIRouter, Request, Form, Depends
+from fastapi import APIRouter, Request, Form, Depends, HTTPException
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -19,6 +19,7 @@ from ..models import (
     OpportunityStatus,
     OpportunityNote,
     OpportunityHistoryEvent,
+    OpportunityOutcome,
     OrganizationMembership,
 )
 from ..auth import attach_request_user_context, get_current_user
@@ -36,6 +37,13 @@ from ..services.feed_queries import (
     feed_awaiting_review_query,
 )
 from ..services.pursuit_lanes import user_my_lanes
+from ..services.opportunity_outcomes import (
+    OUTCOME_BIDDING,
+    OUTCOME_NO_BID,
+    record_opportunity_outcome,
+    unresolved_past_due_outcome_count,
+    unresolved_past_due_outcomes,
+)
 from ..services.platform import pre_live_admin_setup_url
 from sqlalchemy import and_, or_, select
 from dataclasses import dataclass
@@ -852,7 +860,7 @@ def _my_shortlist_query(db: Session, user, tab: str):
         .filter(Opportunity.organization_id == _user_org_id(user))
         .filter(Opportunity.qualification_status == QUALIFICATION_QUALIFIED)
     )
-    return q
+    return exclude_past_due_opportunities(q)
 
 
 def _best_description_text(opportunity: Opportunity) -> str:
@@ -1709,6 +1717,79 @@ async def archive(
         "result_count": result_count,
         "now": datetime.utcnow(),
     })
+
+
+@router.get("/past-due-outcomes")
+async def past_due_outcomes(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    pre_live_redirect = _pre_live_product_redirect(db, user)
+    if pre_live_redirect:
+        return pre_live_redirect
+
+    opportunities = unresolved_past_due_outcomes(
+        db,
+        organization_id=_user_org_id(user),
+    )
+    resolved_outcomes = (
+        db.query(OpportunityOutcome, Opportunity, User)
+        .join(Opportunity, Opportunity.id == OpportunityOutcome.opportunity_id)
+        .join(User, User.id == OpportunityOutcome.recorded_by)
+        .filter(OpportunityOutcome.organization_id == _user_org_id(user))
+        .order_by(OpportunityOutcome.recorded_at.desc(), OpportunityOutcome.id.desc())
+        .limit(25)
+        .all()
+    )
+    return templates.TemplateResponse("past_due_outcomes.html", {
+        "request": request,
+        "user": user,
+        "opportunities": opportunities,
+        "resolved_outcomes": resolved_outcomes,
+        "active_page": "my_shortlist",
+        "past_due_outcome_count": len(opportunities),
+    })
+
+
+@router.post("/past-due-outcomes/{opp_id}")
+async def record_past_due_outcome(
+    opp_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required")
+
+    payload = await request.json()
+    outcome_type = str(payload.get("outcome_type") or "").strip()
+    if outcome_type not in {OUTCOME_BIDDING, OUTCOME_NO_BID}:
+        raise HTTPException(status_code=400, detail="Invalid outcome")
+
+    try:
+        record_opportunity_outcome(
+            db,
+            organization_id=_user_org_id(user),
+            opportunity_id=opp_id,
+            outcome_type=outcome_type,
+            recorded_by=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    remaining_count = unresolved_past_due_outcome_count(
+        db,
+        organization_id=_user_org_id(user),
+    )
+    return {
+        "ok": True,
+        "opp_id": opp_id,
+        "outcome_type": outcome_type,
+        "remaining_count": remaining_count,
+    }
 
 
 @router.get("/opportunities/export.csv")

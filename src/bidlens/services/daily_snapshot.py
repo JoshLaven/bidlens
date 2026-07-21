@@ -367,6 +367,7 @@ def _shortlist_deadlines(
             Opportunity.organization_id == organization_id,
             Opportunity.decision_state != "ARCHIVED",
             Opportunity.qualification_status == "qualified",
+            Opportunity.response_deadline >= snapshot_date,
             Opportunity.response_deadline <= end_date,
         )
         .order_by(Opportunity.response_deadline.asc(), Opportunity.id.asc())

@@ -131,6 +131,34 @@ class Opportunity(Base):
         back_populates="opportunity",
         cascade="all, delete-orphan",
     )
+    outcomes = relationship(
+        "OpportunityOutcome",
+        back_populates="opportunity",
+        cascade="all, delete-orphan",
+    )
+
+
+class OpportunityOutcome(Base):
+    __tablename__ = "opportunity_outcomes"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "opportunity_id", name="uq_opportunity_outcome_org_opp"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
+    outcome_type = Column(String, nullable=False, index=True)
+    recorded_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    recorded_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    reason_code = Column(String, nullable=True)
+    reason_text = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    opportunity = relationship("Opportunity", back_populates="outcomes")
+    organization = relationship("Organization")
+    recorded_by_user = relationship("User")
 
 
 class OpportunityUpdateEvent(Base):

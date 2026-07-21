@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Past Due Opportunities - BidLens{% endblock %}
+{% block content %}
+<section class="past-due-review" aria-labelledby="past-due-title">
+  <div class="page-hero page-hero--compact">
+    <div>
+      <h1 id="past-due-title">Past Due Opportunities</h1>
+      <p>These opportunities reached their response deadline while on your Shortlist.</p>
+    </div>
+  </div>
+
+  <div id="past-due-review-list" class="past-due-review-list" data-past-due-review-list>
+    {% if opportunities %}
+      {% for opp in opportunities %}
+        <article class="past-due-review-item" id="past-due-outcome-{{ opp.id }}" data-past-due-outcome-item>
+          <div class="past-due-review-item__body">
+            <a href="/opportunity/{{ opp.id }}" class="past-due-review-title">{{ opp.title }}</a>
+            <div class="past-due-review-agency">{{ opp.agency }}</div>
+            <div class="past-due-review-date">
+              Due {{ opp.response_deadline.strftime('%b') }} {{ opp.response_deadline.day }}
+            </div>
+          </div>
+          <div class="past-due-review-actions" aria-label="Record outcome for {{ opp.title }}">
+            <p>Are you bidding this?</p>
+            <div>
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                data-outcome-action="bidding"
+                data-opp-id="{{ opp.id }}"
+                aria-label="Mark {{ opp.title }} as We’re Bidding"
+              >
+                We’re Bidding
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline-secondary btn-sm"
+                data-outcome-action="no_bid"
+                data-opp-id="{{ opp.id }}"
+                aria-label="Mark {{ opp.title }} as No Bid"
+              >
+                No Bid
+              </button>
+            </div>
+            <div class="past-due-review-error" data-outcome-error role="alert" hidden></div>
+          </div>
+        </article>
+      {% endfor %}
+    {% endif %}
+  </div>
+
+  <div id="past-due-review-empty" class="empty-state" {% if opportunities %}hidden{% endif %}>
+    <h2>No past-due outcomes to review</h2>
+    <p>When shortlisted opportunities pass their due date, your workspace can resolve them here.</p>
+  </div>
+
+  <section class="past-due-resolved" aria-labelledby="past-due-resolved-title">
+    <div class="section-heading-row">
+      <div>
+        <p class="section-label">RECORDED OUTCOMES</p>
+        <h2 id="past-due-resolved-title">Previously recorded outcomes</h2>
+      </div>
+    </div>
+    {% if resolved_outcomes %}
+      <div class="past-due-resolved-list">
+        {% for outcome, opp, recorder in resolved_outcomes %}
+          <article class="past-due-resolved-item">
+            <div>
+              <a href="/opportunity/{{ opp.id }}" class="past-due-review-title">{{ opp.title }}</a>
+              <div class="past-due-review-agency">{{ opp.agency }}</div>
+              <div class="past-due-review-date">
+                Recorded {{ outcome.recorded_at.strftime('%b') }} {{ outcome.recorded_at.day }}
+                by {{ recorder.email }}
+              </div>
+            </div>
+            <span class="status-pill status-pill--neutral">
+              {% if outcome.outcome_type == "bidding" %}We’re Bidding{% else %}No Bid{% endif %}
+            </span>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state empty-state--compact">
+        <p>No outcomes have been recorded yet.</p>
+      </div>
+    {% endif %}
+  </section>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('[data-outcome-action]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const oppId = button.dataset.oppId;
+    const outcomeType = button.dataset.outcomeAction;
+    const item = document.getElementById(`past-due-outcome-${oppId}`);
+    const error = item?.querySelector('[data-outcome-error]');
+    if (!oppId || !item || button.disabled) return;
+
+    item.querySelectorAll('[data-outcome-action]').forEach((action) => {
+      action.disabled = true;
+      action.setAttribute('aria-busy', 'true');
+    });
+    if (error) {
+      error.hidden = true;
+      error.textContent = '';
+    }
+
+    try {
+      const response = await fetch(`/past-due-outcomes/${oppId}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({outcome_type: outcomeType}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || 'Unable to record outcome');
+      }
+
+      item.remove();
+      const notification = document.querySelector('[data-past-due-outcome-notification]');
+      if (notification) {
+        const count = Number(data.remaining_count || 0);
+        if (count > 0) {
+          notification.querySelector('[data-past-due-outcome-count]').textContent = String(count);
+        } else {
+          notification.remove();
+        }
+      }
+      if (!document.querySelector('[data-past-due-outcome-item]')) {
+        document.getElementById('past-due-review-empty')?.removeAttribute('hidden');
+      }
+    } catch (err) {
+      if (error) {
+        error.textContent = err?.message || 'Unable to record outcome';
+        error.hidden = false;
+      }
+      item.querySelectorAll('[data-outcome-action]').forEach((action) => {
+        action.disabled = false;
+        action.removeAttribute('aria-busy');
+      });
+    }
+  });
+});
+</script>
+{% endblock %}

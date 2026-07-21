@@ -9,6 +9,7 @@ from .database import get_db
 from .config import SECRET_KEY, SESSION_COOKIE_NAME
 from .models import Opportunity, OrganizationMembership, User
 from .tenancy import current_organization, ensure_email_domain_membership, normalize_email
+from .services.opportunity_outcomes import unresolved_past_due_outcome_count
 from .services.qualification import triage_enabled_for_org
 
 serializer = URLSafeSerializer(SECRET_KEY)
@@ -52,6 +53,13 @@ def attach_request_user_context(request: Request, db: Session, user: User) -> Us
     setattr(user, "current_role", membership.role if membership else "member")
     setattr(user, "triage_enabled", triage_enabled_for_org(db, org.id))
     setattr(user, "triage_unreviewed_count", triage_unreviewed_count)
+    setattr(
+        user,
+        "past_due_outcome_count",
+        unresolved_past_due_outcome_count(db, organization_id=org.id)
+        if membership
+        else 0,
+    )
     setattr(user, "is_platform_admin", is_platform_admin_email(user.email))
     return user
 

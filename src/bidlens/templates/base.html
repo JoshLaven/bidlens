@@ -248,6 +248,16 @@
       </main>
     </div>
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    {% if user and not platform_mode and request_path != '/past-due-outcomes' and user.past_due_outcome_count is defined and user.past_due_outcome_count > 0 %}
+      <a
+        href="/past-due-outcomes{{ nav_org_q }}"
+        class="past-due-outcome-notification"
+        data-past-due-outcome-notification
+        aria-label="View {{ user.past_due_outcome_count }} past due opportunity outcomes"
+      >
+        View Past Due (<span data-past-due-outcome-count>{{ user.past_due_outcome_count }}</span>)
+      </a>
+    {% endif %}
 
     <script>
     (function initializePrimaryNavigation() {
