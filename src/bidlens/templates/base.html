@@ -140,7 +140,7 @@
                     <small class="primary-sidebar-caret" aria-hidden="true">⌄</small>
                   </summary>
                   <div class="primary-sidebar-subnav" aria-label="Workspace">
-                    <a href="/company-profile{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'organization' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'organization' else 'false' }}" title="Overview" data-rail-label="Ov"><strong>Overview</strong></a>
+                    <a href="/company-profile{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'organization' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'organization' else 'false' }}" title="Organization" data-rail-label="Ov"><strong>Organization</strong></a>
                     <a href="/admin/organizations/{{ workspace_nav_org_id }}/users{{ workspace_nav_org_q }}" class="{{ 'active' if workspace_management_child == 'members' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'members' else 'false' }}" title="Users" data-rail-label="Us"><strong>Users</strong></a>
                     <span class="primary-sidebar-subnav-divider" aria-hidden="true"></span>
                     <a href="/opportunity-discovery{{ nav_org_q }}" class="{{ 'active' if workspace_management_child == 'discovery' else '' }}" aria-current="{{ 'page' if workspace_management_child == 'discovery' else 'false' }}" title="Opportunity Sources" data-rail-label="OS"><strong>Opportunity Sources</strong></a>

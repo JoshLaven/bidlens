@@ -10,7 +10,7 @@
 {% set setup_back_url = '/organization-setup?org_id=' ~ org_id if org_id and user.current_organization_is_live is defined and not user.current_organization_is_live else none %}
 <div class="admin-page-layout workspace-management-page">
   <div class="admin-page-content">
-    {{ workspace_management_hero('Import History', 'Review opportunity imports and source-processing activity.', (runs[0].run.finished_at or runs[0].run.started_at) if runs else none, action_url=setup_back_url) }}
+    {{ workspace_management_hero('Import History', 'Review opportunity imports and source-processing activity.',none, action_url=setup_back_url) }}
 
     <nav class="market-view-tabs" aria-label="Opportunity Sources views">
       <a href="/opportunity-discovery{% if request.url.query %}?{{ request.url.query }}{% endif %}">Opportunity Sources</a>
@@ -21,8 +21,7 @@
       <section class="card admin-table-card">
         <div class="card-header">
           <div>
-            <h2>Import History</h2>
-            <p class="muted">Recent source import runs for this workspace.</p>
+            <p class="muted">Recent imports for this workspace.</p>
           </div>
         </div>
         <div class="table-wrap">
