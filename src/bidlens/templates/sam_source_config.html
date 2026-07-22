@@ -1,213 +1,174 @@
 {% extends "base.html" %}
 {% from "_setup_back_link.html" import setup_back_link with context %}
 {% set hide_context_sidebar = true %}
-{% block title %}SAM.gov Saved Searches - BidLens{% endblock %}
+{% block title %}SAM.gov Monitoring - BidLens{% endblock %}
 {% block content %}
 {% set org_id = request.query_params.get('org_id') %}
 {% set org_q = '&org_id=' ~ org_id if org_id else '' %}
+{% set org_name = user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else user.organization.name if user.organization else 'Workspace' %}
+{% set search_name = org_name ~ ' SAM Search' %}
+{% set preserved_notice_types = form_values.notice_types if form_values.notice_types else notice_type_options %}
 <div class="admin-page-layout">
-  <div class="admin-page-content">
-    <a href="/opportunity-discovery{% if org_id %}?org_id={{ org_id }}{% endif %}#sam-gov" class="back-link">← Opportunity Discovery</a>
-    <div class="page-header admin-page-header">
-      <div>
-        <h1>SAM.gov Saved Searches</h1>
-        <p class="page-subtitle">Define the source searches BidLens runs for this workspace.</p>
+  <div class="admin-page-content sam-dashboard-page">
+    <a href="/opportunity-discovery{% if org_id %}?org_id={{ org_id }}{% endif %}#sam-gov" class="detail-back-link">← Opportunity Sources</a>
+    <div class="sam-dashboard-hero">
+      <div class="sam-dashboard-identity">
+        <div class="sam-dashboard-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <circle cx="12" cy="12" r="8.25"></circle>
+            <path d="m9.25 14.75 2.05-5.5 5.45-2.05-2.05 5.5-5.45 2.05Z"></path>
+            <circle cx="12" cy="12" r="1.1"></circle>
+          </svg>
+        </div>
+        <div>
+          <h1>{{ search_name }}</h1>
+        </div>
       </div>
       <div class="setup-task-header-actions">
         {{ setup_back_link() }}
         {% if config %}
-          <button
-            type="button"
-            id="sam-config-run-button"
-            class="btn btn-primary"
-            data-url="/sam/pull-now?search_id={{ config.id }}{{ org_q }}"
-          >Run “{{ config.name }}” now</button>
+          <span class="sam-dashboard-status sam-dashboard-status--enabled" aria-label="SAM.gov monitoring enabled">✓ Enabled</span>
+        {% else %}
+          <span class="sam-dashboard-status sam-dashboard-status--required" aria-label="SAM.gov monitoring configuration required">! Configuration required</span>
         {% endif %}
       </div>
     </div>
 
     {% if saved %}
-      <div class="alert alert-success">SAM.gov saved search saved.</div>
-    {% endif %}
-    {% if not searches %}
-      <div class="sam-config-empty-state">
-        <strong>Create your first SAM.gov saved search</strong>
-        <p>Name the search, select at least one NAICS code, and save realistic intake criteria.</p>
-      </div>
+      <div class="alert alert-success">SAM.gov monitoring saved.</div>
     {% endif %}
 
     <div id="sam-config-pull-result" class="feed-sam-pull-result" hidden></div>
 
-    <div class="sam-config-distinction">
-      <div><strong>SAM.gov saved searches</strong><span>Control what BidLens imports from SAM.gov.</span></div>
-      <div><strong>Organization Profile</strong><span>Stores the provisioned organization and federal identifiers.</span></div>
-      <div><strong>Feed Configuration</strong><span>Control how imported opportunities are displayed and prioritized.</span></div>
-    </div>
-
-    <div class="sam-saved-search-layout">
-      <aside class="card sam-saved-search-list" aria-label="SAM.gov saved searches">
-        <div class="sam-saved-search-list-heading">
+    <section class="card sam-glance-card" aria-labelledby="sam-glance-heading">
+      <h2 id="sam-glance-heading">SAM.gov monitoring at a glance</h2>
+      <div class="sam-glance-grid">
+        <div class="sam-glance-item">
+          <span class="sam-glance-icon sam-glance-icon--blue" aria-hidden="true">□</span>
           <div>
-            <h2>Saved searches</h2>
-            <span>{{ searches|length }} configured</span>
+            <span class="sam-glance-label">Last pull</span>
+            <strong>
+              {% if latest_run %}
+                {{ latest_run.finished_at.strftime('%b %-d, %Y %-I:%M %p') if latest_run.finished_at else latest_run.started_at.strftime('%b %-d, %Y %-I:%M %p') }}
+              {% else %}
+                No pulls yet
+              {% endif %}
+            </strong>
+            {% if latest_run %}
+              <a href="/imports/history/{{ latest_run.id }}">View pull history →</a>
+            {% else %}
+              <span>No history yet</span>
+            {% endif %}
           </div>
-          <a href="/admin/sources/sam?new=1{{ org_q }}" class="btn btn-sm btn-outline-secondary">New search</a>
         </div>
-        {% if searches %}
-          <div class="sam-saved-search-items">
-            {% for search in searches %}
-              <a
-                href="/admin/sources/sam?search_id={{ search.id }}{{ org_q }}"
-                class="sam-saved-search-item {{ 'is-active' if config and search.id == config.id else '' }}"
-              >
-                <strong>{{ search.name }}</strong>
-                <span>{{ search.naics_codes|length }} NAICS · {{ search.posted_days_back }} days · max {{ search.max_records }}</span>
-              </a>
-            {% endfor %}
+        <div class="sam-glance-item">
+          <span class="sam-glance-icon sam-glance-icon--green" aria-hidden="true">↻</span>
+          <div>
+            <span class="sam-glance-label">Schedule</span>
+            <strong>{{ 'Daily scheduled pull' if config else 'Not scheduled yet' }}</strong>
+            <span>{{ 'Changes take effect on the next scheduled pull.' if config else 'Save criteria to enable monitoring.' }}</span>
           </div>
-        {% else %}
-          <p class="muted">No saved searches yet.</p>
-        {% endif %}
-      </aside>
-
-      <form
-        method="post"
-        action="/admin/sources/sam{% if org_id %}?org_id={{ org_id }}{% endif %}"
-        class="card sam-config-form"
-      >
-        <input type="hidden" name="config_id" value="{{ config.id if config else '' }}">
-
-        <section class="sam-config-section">
-          <div class="sam-config-section-heading">
-            <h2>{{ "Edit saved search" if config else "New saved search" }}</h2>
-            <p>Give this search a name that will make sense in Pull History.</p>
+        </div>
+        <div class="sam-glance-item">
+          <span class="sam-glance-icon sam-glance-icon--purple" aria-hidden="true">↗</span>
+          <div>
+            <span class="sam-glance-label">NAICS coverage</span>
+            <strong>{{ config.naics_codes|length if config else 0 }} codes</strong>
+            <span>Organization monitoring criteria</span>
           </div>
-          <label class="sam-config-field">
-            <span>Search name <b>Required</b></span>
-            <input type="text" name="search_name" maxlength="120" value="{{ form_values.search_name }}" placeholder="Federal health evaluation" required>
-            {% if errors.search_name %}<em>{{ errors.search_name }}</em>{% endif %}
+        </div>
+        <div class="sam-glance-item">
+          <span class="sam-glance-icon sam-glance-icon--amber" aria-hidden="true">▽</span>
+          <div>
+            <span class="sam-glance-label">Source status</span>
+            <strong>{{ 'Active' if config else 'Configuration required' }}</strong>
+            <span>{{ 'Monitoring new opportunities' if config else 'Add keywords and NAICS codes' }}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <form
+      method="post"
+      action="/admin/sources/sam{% if org_id %}?org_id={{ org_id }}{% endif %}"
+      class="card sam-search-card"
+    >
+      <input type="hidden" name="config_id" value="{{ config.id if config else '' }}">
+      <input type="hidden" name="search_name" value="{{ search_name }}">
+      <input type="hidden" name="posted_days_back" value="{{ form_values.posted_days_back or 30 }}">
+      <input type="hidden" name="max_records" value="{{ form_values.max_records or 100 }}">
+      <input type="hidden" name="agencies" value="{{ form_values.agencies }}">
+      <input type="hidden" name="set_asides" value="{{ form_values.set_asides }}">
+      <input type="hidden" name="due_days_from" value="{{ form_values.due_days_from }}">
+      <input type="hidden" name="due_days_to" value="{{ form_values.due_days_to }}">
+      {% if form_values.active_only %}
+        <input type="hidden" name="active_only" value="1">
+      {% endif %}
+      {% for notice_type in preserved_notice_types %}
+        <input type="hidden" name="notice_types" value="{{ notice_type }}">
+      {% endfor %}
+
+      <div class="sam-search-heading">
+        <div class="sam-search-heading-icon" aria-hidden="true">◎</div>
+        <div>
+          <h2>Search criteria</h2>
+          <p>Define what your organization is interested in. We’ll handle the rest.</p>
+        </div>
+      </div>
+
+      <div class="sam-criteria-list">
+        <section class="sam-criteria-row">
+          <div class="sam-criteria-label">
+            <span class="sam-criteria-icon" aria-hidden="true">⌕</span>
+            <div>
+              <h3>Keywords</h3>
+              <p>Words and phrases that describe what your organization does.</p>
+            </div>
+          </div>
+          <label class="sam-config-field sam-criteria-control sam-criteria-control--with-action">
+            <span class="sr-only">Keywords</span>
+            <textarea name="keywords" rows="4" placeholder="behavioral health&#10;program evaluation" readonly data-sam-keywords-field>{{ form_values.keywords }}</textarea>
+            <small>Use one keyword or phrase per line.</small>
           </label>
-        </section>
-
-        <section class="sam-config-section">
-          <div class="sam-config-section-heading">
-            <h2>Core search criteria</h2>
-            <p>Search the official 2022 NAICS structure by code or industry keyword.</p>
-          </div>
-          <div class="sam-config-grid">
-            <div class="sam-config-field sam-config-field--wide" data-naics-picker>
-              <span>NAICS codes <b>Required</b></span>
-              <input type="hidden" name="naics_codes" data-naics-value value="{{ form_values.naics_codes|replace('\n', ',') }}">
-              <div class="naics-picker-shell">
-                <div class="naics-picker-chips" data-naics-chips></div>
-                <input
-                  type="search"
-                  data-naics-search
-                  placeholder="Search code or keyword, e.g. 541611 or consulting"
-                  autocomplete="off"
-                  aria-label="Search NAICS codes"
-                  aria-controls="naics-picker-results"
-                >
-              </div>
-              <div id="naics-picker-results" class="naics-picker-results" data-naics-results hidden></div>
-              <small>Selected codes are stored with this saved search. Use the × on a chip to remove it.</small>
-              {% if errors.naics_codes %}<em>{{ errors.naics_codes }}</em>{% endif %}
-            </div>
-            <label class="sam-config-field">
-              <span>Posted date window</span>
-              <div class="sam-config-number-suffix">
-                <input type="number" name="posted_days_back" min="1" max="365" value="{{ form_values.posted_days_back }}" required>
-                <span>days back</span>
-              </div>
-              {% if errors.posted_days_back %}<em>{{ errors.posted_days_back }}</em>{% endif %}
-            </label>
-            <label class="sam-config-field">
-              <span>Max records per pull</span>
-              <input type="number" name="max_records" min="1" max="1000" value="{{ form_values.max_records }}" required>
-              {% if errors.max_records %}<em>{{ errors.max_records }}</em>{% endif %}
-            </label>
+          <div class="sam-criteria-action">
+            <button type="button" class="btn btn-outline-secondary sam-criteria-edit-button" data-sam-keywords-edit>✎ Edit</button>
           </div>
         </section>
 
-        <section class="sam-config-section">
-          <div class="sam-config-section-heading">
-            <h2>Optional targeting</h2>
-            <p>Multiple values use OR matching within each field.</p>
-          </div>
-          <div class="sam-config-grid">
-            <label class="sam-config-field">
-              <span>Keywords</span>
-              <textarea name="keywords" rows="4" placeholder="behavioral health&#10;program evaluation">{{ form_values.keywords }}</textarea>
-              <small>Matches opportunity title or available description text.</small>
-            </label>
-            <label class="sam-config-field">
-              <span>Agencies</span>
-              <textarea name="agencies" rows="4" placeholder="Department of Health and Human Services">{{ form_values.agencies }}</textarea>
-              <small>Optional source-side agency targeting.</small>
-            </label>
-            <label class="sam-config-field">
-              <span>Set-aside filters</span>
-              <textarea name="set_asides" rows="4" placeholder="SBA&#10;8(a)">{{ form_values.set_asides }}</textarea>
-              <small>Enter SAM.gov set-aside codes or descriptions.</small>
-            </label>
-            <div class="sam-config-field">
-              <span>Notice types</span>
-              <div class="sam-notice-type-list">
-                {% for notice_type in notice_type_options %}
-                  <label>
-                    <input type="checkbox" name="notice_types" value="{{ notice_type }}" {{ "checked" if notice_type in form_values.notice_types else "" }}>
-                    <span>{{ notice_type }}</span>
-                  </label>
-                {% endfor %}
-              </div>
-              {% if errors.notice_types %}<em>{{ errors.notice_types }}</em>{% endif %}
+        <section class="sam-criteria-row">
+          <div class="sam-criteria-label">
+            <span class="sam-criteria-icon" aria-hidden="true">▦</span>
+            <div>
+              <h3>NAICS codes</h3>
+              <p>Industries that match your business or capabilities.</p>
             </div>
           </div>
-        </section>
-
-        <section class="sam-config-section">
-          <div class="sam-config-section-heading">
-            <h2>Deadline and status</h2>
-            <p>Optionally restrict response deadlines relative to the pull date.</p>
-          </div>
-          <div class="sam-config-grid sam-config-grid--compact">
-            <label class="sam-config-field">
-              <span>Due date start</span>
-              <div class="sam-config-number-suffix">
-                <input type="number" name="due_days_from" min="0" max="365" value="{{ form_values.due_days_from }}">
-                <span>days from pull</span>
-              </div>
-              {% if errors.due_days_from %}<em>{{ errors.due_days_from }}</em>{% endif %}
-            </label>
-            <label class="sam-config-field">
-              <span>Due date end</span>
-              <div class="sam-config-number-suffix">
-                <input type="number" name="due_days_to" min="0" max="365" value="{{ form_values.due_days_to }}">
-                <span>days from pull</span>
-              </div>
-              {% if errors.due_days_to %}<em>{{ errors.due_days_to }}</em>{% endif %}
-            </label>
-            <label class="sam-config-toggle">
-              <input type="checkbox" name="active_only" value="1" {{ "checked" if form_values.active_only else "" }}>
-              <span><strong>Active opportunities only</strong><small>Exclude records SAM.gov marks inactive or archived.</small></span>
-            </label>
+          <div class="sam-config-field sam-criteria-control" data-naics-picker>
+            <span class="sr-only">NAICS codes Required</span>
+            <input type="hidden" name="naics_codes" data-naics-value value="{{ form_values.naics_codes|replace('\n', ',') }}">
+            <div class="naics-picker-shell">
+              <div class="naics-picker-chips" data-naics-chips></div>
+              <input
+                type="search"
+                data-naics-search
+                placeholder="+ Add NAICS code"
+                autocomplete="off"
+                aria-label="Search NAICS codes"
+                aria-controls="naics-picker-results"
+              >
+            </div>
+            <div id="naics-picker-results" class="naics-picker-results" data-naics-results hidden></div>
+            <small>Search the official 2022 NAICS structure by code or industry keyword.</small>
+            {% if errors.naics_codes %}<em>{{ errors.naics_codes }}</em>{% endif %}
           </div>
         </section>
+      </div>
 
-        <div class="sam-config-actions">
-          <button type="submit" class="btn btn-primary">{{ "Save changes" if config else "Create saved search" }}</button>
-          {% if latest_run %}
-            <a href="/imports/history/{{ latest_run.id }}" class="btn btn-outline-secondary">View latest pull</a>
-          {% endif %}
-        </div>
-      </form>
-    </div>
-
-    {% if config %}
-      <form method="post" action="/admin/sources/sam/{{ config.id }}/delete{% if org_id %}?org_id={{ org_id }}{% endif %}" class="sam-saved-search-delete" onsubmit="return confirm('Delete this saved search?');">
-        <button type="submit" class="btn btn-sm btn-danger">Delete “{{ config.name }}”</button>
-      </form>
-    {% endif %}
+      <div class="sam-dashboard-actions">
+        <span>✓ Changes take effect on the next scheduled pull.</span>
+        <button type="submit" class="btn btn-primary">Save changes</button>
+      </div>
+    </form>
   </div>
 </div>
 {% endblock %}
@@ -281,28 +242,17 @@
   sync();
 })();
 
-document.getElementById("sam-config-run-button")?.addEventListener("click", async (event) => {
-  const button = event.currentTarget;
-  const originalLabel = button.textContent;
-  const result = document.getElementById("sam-config-pull-result");
-  button.disabled = true;
-  button.textContent = "Running pull…";
-  result.hidden = false;
-  result.className = "feed-sam-pull-result";
-  result.textContent = "Running the selected SAM.gov saved search.";
-  try {
-    const response = await fetch(button.dataset.url, { method: "POST" });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message || payload.detail || "SAM.gov pull failed.");
-    result.classList.add("is-success");
-    result.innerHTML = `<strong>${payload.message || "SAM.gov pull completed."}</strong>${payload.run_id ? `<br><a href="/imports/history/${payload.run_id}">View pull run ${payload.run_id} →</a>` : ""}`;
-  } catch (error) {
-    result.classList.add("is-error");
-    result.textContent = error.message || "SAM.gov pull failed.";
-  } finally {
-    button.disabled = false;
-    button.textContent = originalLabel;
-  }
-});
+(() => {
+  const button = document.querySelector("[data-sam-keywords-edit]");
+  const field = document.querySelector("[data-sam-keywords-field]");
+  if (!button || !field) return;
+  button.addEventListener("click", () => {
+    field.readOnly = false;
+    field.classList.add("is-editing");
+    button.hidden = true;
+    field.focus();
+  });
+})();
+
 </script>
 {% endblock %}
