@@ -441,8 +441,8 @@ class SamSourceConfigurationTests(unittest.TestCase):
         self.assertEqual(config.naics_codes, ["541611", "541690"])
         self.assertEqual(response.status_code, 303)
 
-    @patch("bidlens.routes.sam._record_sam_source_activity")
-    @patch("bidlens.routes.sam.ingest_sam")
+    @patch("bidlens.services.sam_pulls.record_source_activity")
+    @patch("bidlens.services.sam_pulls.ingest_sam")
     @patch("bidlens.routes.sam.current_org_id")
     def test_manual_pull_uses_saved_workspace_config(
         self,
@@ -526,9 +526,9 @@ class SamSourceConfigurationTests(unittest.TestCase):
             "message": "Pull completed.",
         }
 
-        sam._record_sam_source_activity(
+        sam.record_sam_source_activity(
             self.db,
-            org_id=self.org.id,
+            organization_id=self.org.id,
             user_id=self.admin.id,
             result=result,
         )

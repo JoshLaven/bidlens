@@ -180,6 +180,7 @@ Use `bidlens.services.job_runs.start_job_run`, `complete_job_run`, and `fail_job
 The hosted web process should serve web requests only. Operational work can be run independently with:
 
 ```bash
+PYTHONPATH=src python -m bidlens.jobs.run_sam_refresh
 PYTHONPATH=src python -m bidlens.jobs.run_sam_ingest
 PYTHONPATH=src python -m bidlens.jobs.run_grants_ingest
 PYTHONPATH=src python -m bidlens.jobs.run_daily_snapshots
@@ -205,6 +206,15 @@ AUTO_CREATE_SCHEMA=false
 ENABLE_INTERNAL_SCHEDULER=false
 ```
 
+For Railway Cron, use the production-safe SAM refresh command:
+
+```bash
+PYTHONPATH=src python -m bidlens.jobs.run_sam_refresh
+```
+
+Schedule it with cron expression `0 12 * * *` for approximately 5:00 AM
+Phoenix time. Keep `ENABLE_INTERNAL_SCHEDULER=false` on the Railway web service.
+
 Each standalone job creates one `JobRun` per eligible organization. SAM.gov and Grants.gov jobs also preserve their existing `IngestionRun` records for source-specific ingestion history. Daily Snapshot creates one organization-level `JobRun` with aggregate user counts.
 
 Exit-code policy:
@@ -215,6 +225,7 @@ Exit-code policy:
 These commands are intended to become Railway cron commands in a later phase. Candidate cron commands:
 
 ```bash
+PYTHONPATH=src python -m bidlens.jobs.run_sam_refresh
 PYTHONPATH=src python -m bidlens.jobs.run_sam_ingest
 PYTHONPATH=src python -m bidlens.jobs.run_grants_ingest
 PYTHONPATH=src python -m bidlens.jobs.run_daily_snapshots

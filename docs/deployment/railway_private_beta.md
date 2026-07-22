@@ -107,8 +107,60 @@ After deployment:
 
 ## Operational Jobs
 
-The private beta web service can run without the internal scheduler. Later,
-separate Railway cron or worker services should run:
+The private beta web service should run without the internal scheduler. Keep
+`ENABLE_INTERNAL_SCHEDULER=false` on the Railway web service so the web process
+does not create duplicate APScheduler instances.
+
+### Daily SAM.gov Refresh
+
+Use a separate Railway Cron Job for the V1 daily SAM.gov refresh.
+
+Railway Cron command:
+
+```bash
+PYTHONPATH=src python -m bidlens.jobs.run_sam_refresh
+```
+
+Cron schedule:
+
+```text
+0 12 * * *
+```
+
+This runs at 12:00 UTC, which is approximately 5:00 AM Phoenix time. Arizona
+does not observe daylight saving time.
+
+The cron service must use the same production database and source credentials
+as the web service, including:
+
+```bash
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DB
+SECRET_KEY=<same production secret key policy as web service>
+SAM_API_KEY=<SAM.gov API key>
+AUTO_CREATE_SCHEMA=false
+ENABLE_INTERNAL_SCHEDULER=false
+SESSION_COOKIE_SECURE=true
+```
+
+Do not include secrets directly in the command. Store them as Railway
+environment variables.
+
+Manual validation command:
+
+```bash
+PYTHONPATH=src python -m bidlens.jobs.run_sam_refresh
+```
+
+The command runs the scheduled SAM operational job once, processes eligible
+live organizations, records normal JobRun and pull-history records, then exits.
+It is safe to invoke once daily because BidLens uses the existing SAM ingestion
+deduplication and source-record upsert behavior. Individual organization
+failures are recorded and isolated; a job-level startup/database failure returns
+a nonzero exit code.
+
+### Other Operational Jobs
+
+Other standalone jobs can be run by separate Railway cron or worker services:
 
 ```bash
 PYTHONPATH=src python -m bidlens.jobs.run_sam_ingest

@@ -11,6 +11,7 @@ from bidlens.database import Base
 from bidlens.models import (
     DailySnapshot,
     GrantsSourceConfig,
+    IngestionRun,
     JobRun,
     Organization,
     OrganizationMembership,
@@ -46,8 +47,8 @@ class OperationalJobTests(unittest.TestCase):
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine, class_=TrackingSession)
         self.db = self.Session()
-        self.org = Organization(name="Job Org", slug="job-org")
-        self.other_org = Organization(name="Other Job Org", slug="other-job-org")
+        self.org = Organization(name="Job Org", slug="job-org", is_live=True)
+        self.other_org = Organization(name="Other Job Org", slug="other-job-org", is_live=True)
         self.db.add_all([self.org, self.other_org])
         self.db.flush()
         self.org_id = self.org.id
@@ -127,7 +128,7 @@ class OperationalJobTests(unittest.TestCase):
             "search_requests_made": 2,
         }
 
-        with patch("bidlens.services.operational_jobs.ingest_sam", return_value=result):
+        with patch("bidlens.services.operational_jobs.execute_sam_source_pull", return_value=result):
             exit_code = operational_jobs.run_sam_ingest_job(session_factory=self.Session)
 
         self.assertEqual(exit_code, 0)
@@ -154,7 +155,7 @@ class OperationalJobTests(unittest.TestCase):
             "stopped_due_to_rate_limit": True,
         }
 
-        with patch("bidlens.services.operational_jobs.ingest_sam", return_value=result):
+        with patch("bidlens.services.operational_jobs.execute_sam_source_pull", return_value=result):
             exit_code = operational_jobs.run_sam_ingest_job(session_factory=self.Session)
 
         self.assertEqual(exit_code, 0)
@@ -178,7 +179,7 @@ class OperationalJobTests(unittest.TestCase):
             "errors": 0,
         }
 
-        with patch("bidlens.services.operational_jobs.ingest_sam", side_effect=[RuntimeError("api_key=secret"), success]):
+        with patch("bidlens.services.operational_jobs.execute_sam_source_pull", side_effect=[RuntimeError("api_key=secret"), success]):
             output = io.StringIO()
             with redirect_stdout(output):
                 exit_code = operational_jobs.run_sam_ingest_job(session_factory=self.Session)
@@ -187,6 +188,33 @@ class OperationalJobTests(unittest.TestCase):
         self.assertNotIn("secret", output.getvalue())
         runs = self.db.query(JobRun).filter(JobRun.job_type == JOB_TYPE_SAM_INGEST).order_by(JobRun.organization_id).all()
         self.assertEqual([run.status for run in runs], [JOB_STATUS_FAILED, JOB_STATUS_SUCCESS])
+        failed_history = (
+            self.db.query(IngestionRun)
+            .filter(
+                IngestionRun.source == "sam.gov",
+                IngestionRun.organization_id == self.org_id,
+                IngestionRun.status == "failed",
+            )
+            .one()
+        )
+        self.assertIn("Scheduled saved search", failed_history.filename)
+        self.assertIn("api_key=[redacted]", failed_history.notes)
+        self.assertNotIn("secret", failed_history.notes)
+
+    def test_sam_scheduler_skips_pre_live_organizations(self):
+        self.org.is_live = False
+        self.db.commit()
+        self._sam_config(self.org_id)
+
+        with patch("bidlens.services.operational_jobs.execute_sam_source_pull") as execute_pull:
+            exit_code = operational_jobs.run_sam_ingest_job(session_factory=self.Session)
+
+        self.assertEqual(exit_code, 0)
+        execute_pull.assert_not_called()
+        self.assertEqual(
+            self.db.query(JobRun).filter(JobRun.job_type == JOB_TYPE_SAM_INGEST).count(),
+            0,
+        )
 
     def test_grants_success_records_job_run_and_ingestion_run(self):
         self._grants_config(self.org_id)

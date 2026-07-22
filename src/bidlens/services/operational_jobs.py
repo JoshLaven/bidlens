@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from ..database import SessionLocal
 from ..grants_gov_client import DEFAULT_GRANTS_POSTED_DAYS_BACK, DEFAULT_GRANTS_ROWS
 from ..ingest_grants_gov import ingest_grants_gov
-from ..ingest_sam import ingest_sam
 from ..models import (
     DailySnapshot,
     GrantsSourceConfig,
@@ -37,7 +36,7 @@ from .job_runs import (
     sanitize_error_message,
     start_job_run,
 )
-from .sam_source_config import ingest_kwargs
+from .sam_pulls import execute_sam_source_pull, record_sam_failure_activity
 
 
 def _print(message: str) -> None:
@@ -244,6 +243,8 @@ def run_sam_ingest_job(
     try:
         config_rows = (
             list_db.query(SamSourceConfig.id, SamSourceConfig.organization_id)
+            .join(Organization, Organization.id == SamSourceConfig.organization_id)
+            .filter(Organization.is_live.is_(True))
             .order_by(SamSourceConfig.organization_id.asc(), SamSourceConfig.id.asc())
             .all()
         )
@@ -277,18 +278,28 @@ def run_sam_ingest_job(
             for config_id in config_ids:
                 try:
                     config = db.query(SamSourceConfig).filter(SamSourceConfig.id == config_id).one()
-                    result = ingest_sam(
+                    result = execute_sam_source_pull(
                         db,
                         organization_id=config.organization_id,
-                        saved_search_name=config.name,
+                        config=config,
                         run_type="Scheduled",
-                        source_config_id=config.id,
-                        **ingest_kwargs(config),
+                        manual_pull=False,
                     )
                     statuses.append(_job_run_status(result.get("status")))
                     details_by_config.append(_sam_details(result, source_configs_processed=1))
                 except Exception as exc:
                     db.rollback()
+                    try:
+                        failure_config = db.query(SamSourceConfig).filter(SamSourceConfig.id == config_id).first()
+                        record_sam_failure_activity(
+                            db,
+                            organization_id=organization_id,
+                            config=failure_config,
+                            error=exc,
+                            run_type="Scheduled",
+                        )
+                    except Exception:
+                        db.rollback()
                     statuses.append(JOB_STATUS_FAILED)
                     details_by_config.append({
                         "source_configs_processed": 1,

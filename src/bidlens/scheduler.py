@@ -19,7 +19,7 @@ def start_scheduler():
     print("[SCHEDULER] start_scheduler() called")
     sched = BackgroundScheduler(timezone="UTC")
 
-    # Temporarily run once daily while SAM quota usage is being characterized.
+    # V1 source refresh schedule: run SAM.gov once daily, then Grants.gov.
     sched.add_job(run_sam_ingest, CronTrigger(hour=1, minute=0))
     sched.add_job(run_grants_ingest, CronTrigger(hour=1, minute=30))
 
