@@ -4874,17 +4874,32 @@ h2 {
 .source-config-list {
     overflow: hidden;
     border: 1px solid rgba(176, 191, 208, 0.38);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.72);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.82);
+    box-shadow: 0 14px 32px rgba(17, 32, 51, 0.07);
+}
+
+.source-config-header {
+    display: grid;
+    grid-template-columns: minmax(250px, 1.45fr) minmax(150px, 0.9fr) minmax(150px, 0.95fr) minmax(150px, 0.95fr) minmax(120px, 0.65fr);
+    gap: 24px;
+    align-items: center;
+    padding: 14px 20px;
+    border-bottom: 1px solid rgba(176, 191, 208, 0.38);
+    color: var(--gray-500);
+    font-size: 0.72rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
 }
 
 .source-config-row {
     display: grid;
-    grid-template-columns: minmax(180px, 0.9fr) minmax(360px, 1.7fr) auto;
-    gap: 22px;
+    grid-template-columns: minmax(250px, 1.45fr) minmax(150px, 0.9fr) minmax(150px, 0.95fr) minmax(150px, 0.95fr) minmax(120px, 0.65fr);
+    gap: 24px;
     align-items: center;
     min-width: 0;
-    padding: 17px 18px;
+    padding: 22px 20px;
     border-bottom: 1px solid rgba(176, 191, 208, 0.3);
 }
 
@@ -4893,62 +4908,98 @@ h2 {
 }
 
 .source-config-identity {
+    display: flex;
+    gap: 16px;
+    align-items: center;
     min-width: 0;
+}
+
+.source-config-icon {
+    display: inline-flex;
+    flex: 0 0 54px;
+    align-items: center;
+    justify-content: center;
+    width: 54px;
+    height: 54px;
+    border-radius: 12px;
+    background: rgba(239, 246, 255, 0.95);
+    color: var(--primary);
+    font-size: 1rem;
+    font-weight: 900;
+}
+
+.source-config-icon--grants {
+    background: rgba(225, 246, 252, 0.95);
+    font-size: 1.35rem;
+}
+
+.source-config-icon--govwin,
+.source-config-icon--manual {
+    background: rgba(243, 232, 255, 0.95);
+    color: #7c3aed;
+}
+
+.source-config-icon--manual {
+    font-size: 1.65rem;
 }
 
 .source-config-identity h3 {
     margin: 0 0 3px;
     color: var(--gray-900);
-    font-size: 0.98rem;
+    font-size: 1.06rem;
 }
 
 .source-config-identity p {
     margin: 0 0 8px;
     color: var(--gray-500);
-    font-size: 0.82rem;
+    font-size: 0.92rem;
     line-height: 1.4;
 }
 
 .source-config-meta {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(100px, 1fr));
-    gap: 16px;
+    display: contents;
     margin: 0;
 }
 
+.source-config-meta > div {
+    min-width: 0;
+}
+
 .source-config-meta dt {
-    margin-bottom: 3px;
-    color: var(--gray-500);
-    font-size: 0.67rem;
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
 }
 
 .source-config-meta dd {
     margin: 0;
     color: var(--gray-900);
-    font-size: 0.82rem;
+    font-size: 0.94rem;
     font-weight: 650;
     line-height: 1.4;
 }
 
 .source-config-action {
     display: flex;
+    gap: 8px;
     justify-content: flex-end;
+    flex-wrap: wrap;
 }
 
 .source-config-row--upload {
-    grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 0.9fr) minmax(320px, 1.4fr);
+    grid-template-columns: minmax(270px, 1.05fr) minmax(150px, 0.55fr) minmax(560px, 2fr);
 }
 
 .source-config-row--upload .source-config-meta {
-    grid-template-columns: repeat(2, minmax(100px, 1fr));
+    display: contents;
 }
 
 .source-config-upload {
     display: grid;
-    gap: 7px;
+    gap: 10px;
     min-width: 0;
 }
 
@@ -4961,6 +5012,19 @@ h2 {
 .source-config-upload small {
     color: var(--gray-500);
     line-height: 1.35;
+}
+
+.source-config-upload .intake-upload-row {
+    flex-wrap: nowrap;
+}
+
+.source-config-upload .intake-upload-row input[type="file"] {
+    flex: 1 1 340px;
+    min-width: min(340px, 100%);
+}
+
+.source-template-button {
+    gap: 7px;
 }
 
 .admin-rules-form {
@@ -8754,6 +8818,10 @@ details[open] .accordion-summary::after {
 }
 
 @media (max-width: 720px) {
+  .source-config-header {
+    display: none;
+  }
+
   .source-config-row,
   .source-config-row--upload {
     grid-template-columns: 1fr;
@@ -8762,7 +8830,23 @@ details[open] .accordion-summary::after {
 
   .source-config-meta,
   .source-config-row--upload .source-config-meta {
+    display: grid;
     grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .source-config-meta dt {
+    position: static;
+    width: auto;
+    height: auto;
+    margin-bottom: 2px;
+    overflow: visible;
+    clip: auto;
+    color: var(--gray-500);
+    font-size: 0.67rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
 
   .source-config-action {
@@ -8771,6 +8855,16 @@ details[open] .accordion-summary::after {
 
   .source-config-upload {
     grid-column: auto;
+  }
+
+  .source-config-upload .intake-upload-row {
+    align-items: stretch;
+    flex-direction: column;
+    flex-wrap: nowrap;
+  }
+
+  .source-config-upload .intake-upload-row input[type="file"] {
+    flex-basis: auto;
   }
 
   .admin-form-grid,
@@ -9886,6 +9980,10 @@ details[open] .accordion-summary::after {
 }
 
 @media (min-width: 721px) and (max-width: 1000px) {
+  .source-config-header {
+    display: none;
+  }
+
   .source-config-row,
   .source-config-row--upload {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -9894,7 +9992,31 @@ details[open] .accordion-summary::after {
   .source-config-meta,
   .source-config-row--upload .source-config-meta,
   .source-config-upload {
+    display: grid;
     grid-column: 1 / -1;
+  }
+
+  .source-config-meta {
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
+    gap: 14px;
+  }
+
+  .source-config-row--upload .source-config-meta {
+    grid-template-columns: minmax(120px, 1fr);
+  }
+
+  .source-config-meta dt {
+    position: static;
+    width: auto;
+    height: auto;
+    margin-bottom: 2px;
+    overflow: visible;
+    clip: auto;
+    color: var(--gray-500);
+    font-size: 0.67rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
 }
 

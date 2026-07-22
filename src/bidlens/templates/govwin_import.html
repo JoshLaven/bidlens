@@ -37,11 +37,21 @@
   </div>
 
   <div class="source-config-list">
+    <div class="source-config-header" aria-hidden="true">
+      <span>Source</span>
+      <span>Last Pull</span>
+      <span>Schedule</span>
+      <span>Default Window</span>
+      <span>Actions</span>
+    </div>
     <article class="source-config-row" id="sam-gov">
       <div class="source-config-identity">
-        <h3>SAM.gov</h3>
-        <p>Federal opportunity notices and solicitations.</p>
-        <span class="intake-status-pill">{{ "Configured" if sam_config else "Configuration required" }}</span>
+        <span class="source-config-icon source-config-icon--sam" aria-hidden="true">SAM</span>
+        <div>
+          <h3>SAM.gov</h3>
+          <p>Federal opportunity notices and solicitations.</p>
+          <span class="intake-status-pill">{{ "Configured" if sam_config else "Configuration required" }}</span>
+        </div>
       </div>
       <dl class="source-config-meta">
         <div>
@@ -49,18 +59,12 @@
           <dd>{{ (sam_run.finished_at or sam_run.started_at).strftime("%b %d, %Y %I:%M %p") if sam_run else "No pulls yet" }}</dd>
         </div>
         <div>
-          <dt>Criteria</dt>
-          <dd>
-            {% if sam_config %}
-              {{ sam_configs|length }} saved search{{ '' if sam_configs|length == 1 else 'es' }} · {{ sam_config.naics_codes|length }} NAICS · {{ sam_config.posted_days_back }} day window
-            {% else %}
-              Configure source intake criteria
-            {% endif %}
-          </dd>
-        </div>
-        <div>
           <dt>Schedule</dt>
           <dd>{{ "Daily scheduled pull" if sam_config else "Not scheduled until configured" }}</dd>
+        </div>
+        <div>
+          <dt>Default Window</dt>
+          <dd>Not applicable</dd>
         </div>
       </dl>
       <div class="source-config-action">
@@ -73,9 +77,12 @@
 
     <article class="source-config-row" id="grants-gov">
       <div class="source-config-identity">
-        <h3>Grants.gov</h3>
-        <p>Federal grant opportunities and updates.</p>
-        <span class="intake-status-pill">{{ "Enabled" if grants_enabled else "Available" }}</span>
+        <span class="source-config-icon source-config-icon--grants" aria-hidden="true">▥</span>
+        <div>
+          <h3>Grants.gov</h3>
+          <p>Federal grant opportunities and updates.</p>
+          <span class="intake-status-pill">{{ "Enabled" if grants_enabled else "Available" }}</span>
+        </div>
       </div>
       <dl class="source-config-meta">
         <div>
@@ -104,24 +111,30 @@
 
     <article class="source-config-row" id="govwin">
       <div class="source-config-identity">
-        <h3>GovWin</h3>
-        <p>Commercial market intelligence source.</p>
-        <span class="intake-status-pill">Planned</span>
+        <span class="source-config-icon source-config-icon--govwin" aria-hidden="true">GW</span>
+        <div>
+          <h3>GovWin</h3>
+          <p>Commercial market intelligence source.</p>
+          <span class="intake-status-pill">Planned</span>
+        </div>
       </div>
       <dl class="source-config-meta">
         <div>
-          <dt>Integration</dt>
+          <dt>Last Pull</dt>
           <dd>Not yet available</dd>
         </div>
         <div>
-          <dt>Status</dt>
+          <dt>Schedule</dt>
           <dd>Coming in a future release</dd>
         </div>
         <div>
-          <dt>Source Type</dt>
-          <dd>Commercial intelligence</dd>
+          <dt>Default Window</dt>
+          <dd>Not applicable</dd>
         </div>
       </dl>
+      <div class="source-config-action">
+        <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Coming Soon</button>
+      </div>
     </article>
   </div>
 </section>
@@ -136,24 +149,23 @@
   <div class="source-config-list">
     <article class="source-config-row source-config-row--upload">
       <div class="source-config-identity">
-        <h3>Opportunity File Upload</h3>
-        <p>Import opportunities using the BidLens CSV template.</p>
-        <span class="intake-status-pill">Manual upload</span>
+        <span class="source-config-icon source-config-icon--manual" aria-hidden="true">↥</span>
+        <div>
+          <h3>Opportunity File Upload</h3>
+          <p>Import opportunities using the BidLens CSV template.</p>
+          <span class="intake-status-pill">Manual upload</span>
+        </div>
       </div>
       <dl class="source-config-meta">
         <div>
           <dt>Last Import</dt>
           <dd>{{ (manual_run.finished_at or manual_run.started_at).strftime("%b %d, %Y %I:%M %p") if manual_run else "No imports yet" }}</dd>
         </div>
-        <div>
-          <dt>Accepted Format</dt>
-          <dd>.csv BidLens template</dd>
-        </div>
       </dl>
       <form method="POST" action="/imports/manual{% if request.url.query %}?{{ request.url.query }}{% endif %}" enctype="multipart/form-data" class="source-config-upload">
-        <label for="manual-import-file">Upload opportunity file</label>
+        <label class="sr-only" for="manual-import-file">Choose opportunity CSV file</label>
         <div class="intake-upload-row">
-          <a href="/imports/manual/template.csv{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary">Download CSV Template</a>
+          <a href="/imports/manual/template.csv{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="btn btn-sm btn-outline-secondary source-template-button"><span aria-hidden="true">⇩</span> Template</a>
           <input id="manual-import-file" type="file" name="file" accept=".csv,text/csv" required>
           <button type="submit" class="btn btn-primary">Import Opportunities</button>
         </div>
