@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Literal
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..events import log_event
@@ -18,14 +18,8 @@ QUALIFICATION_QUALIFIED = "qualified"
 OutcomeType = Literal["bidding", "no_bid"]
 
 
-def unresolved_past_due_outcome_query(db: Session, *, organization_id: int):
-    """Qualified, previously shortlisted opportunities needing workspace outcome review.
-
-    This intentionally does not use Vote.PASS or Opportunity.decision_state=ARCHIVED:
-    past-due bid outcomes are official workspace decisions, while PASS remains a
-    personal archive signal.
-    """
-    pursued_before_deadline = (
+def _pursued_before_deadline_exists(*, organization_id: int):
+    return (
         select(Vote.id)
         .where(
             Vote.org_id == organization_id,
@@ -33,16 +27,51 @@ def unresolved_past_due_outcome_query(db: Session, *, organization_id: int):
             Vote.vote == "PURSUE",
             func.date(Vote.updated_at) <= Opportunity.response_deadline,
         )
+        .correlate(Opportunity)
         .exists()
     )
-    existing_outcome = (
+
+
+def _existing_outcome_exists(*, organization_id: int):
+    return (
         select(OpportunityOutcome.id)
         .where(
             OpportunityOutcome.organization_id == organization_id,
             OpportunityOutcome.opportunity_id == Opportunity.id,
         )
+        .correlate(Opportunity)
         .exists()
     )
+
+
+def past_due_outcome_workflow_visible_exists(*, organization_id: int):
+    """Return a correlated predicate for opportunities accessible via Past Due.
+
+    My Shortlist uses this to hide only overdue items that have a real Past Due
+    destination: either pending outcome review or a previously recorded outcome.
+    Overdue Interested items that fail the strict Past Due eligibility rule stay
+    visible in My Shortlist rather than falling into limbo.
+    """
+    today = date.today()
+    return and_(
+        Opportunity.response_deadline.is_not(None),
+        Opportunity.response_deadline < today,
+        or_(
+            _pursued_before_deadline_exists(organization_id=organization_id),
+            _existing_outcome_exists(organization_id=organization_id),
+        ),
+    )
+
+
+def unresolved_past_due_outcome_query(db: Session, *, organization_id: int):
+    """Qualified, previously shortlisted opportunities needing workspace outcome review.
+
+    This intentionally does not use Vote.PASS or Opportunity.decision_state=ARCHIVED:
+    past-due bid outcomes are official workspace decisions, while PASS remains a
+    personal archive signal.
+    """
+    pursued_before_deadline = _pursued_before_deadline_exists(organization_id=organization_id)
+    existing_outcome = _existing_outcome_exists(organization_id=organization_id)
     today = date.today()
     return (
         db.query(Opportunity)

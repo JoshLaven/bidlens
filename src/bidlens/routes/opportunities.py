@@ -40,6 +40,7 @@ from ..services.pursuit_lanes import user_my_lanes
 from ..services.opportunity_outcomes import (
     OUTCOME_BIDDING,
     OUTCOME_NO_BID,
+    past_due_outcome_workflow_visible_exists,
     record_opportunity_outcome,
     unresolved_past_due_outcome_count,
     unresolved_past_due_outcomes,
@@ -860,7 +861,11 @@ def _my_shortlist_query(db: Session, user, tab: str):
         .filter(Opportunity.organization_id == _user_org_id(user))
         .filter(Opportunity.qualification_status == QUALIFICATION_QUALIFIED)
     )
-    return exclude_past_due_opportunities(q)
+    return q.filter(
+        ~past_due_outcome_workflow_visible_exists(
+            organization_id=_user_org_id(user),
+        )
+    )
 
 
 def _best_description_text(opportunity: Opportunity) -> str:

@@ -11,6 +11,7 @@ from bidlens.models import Event, Opportunity, OpportunityOutcome, Organization,
 from bidlens.services.opportunity_outcomes import (
     OUTCOME_BIDDING,
     OUTCOME_NO_BID,
+    past_due_outcome_workflow_visible_exists,
     record_opportunity_outcome,
     unresolved_past_due_outcome_count,
     unresolved_past_due_outcomes,
@@ -144,7 +145,7 @@ class PastDueOutcomeTests(unittest.TestCase):
 
         self.assertEqual(unresolved_past_due_outcomes(self.db, organization_id=self.org.id), [])
 
-    def test_past_due_pursued_opportunity_is_excluded_from_active_my_shortlist(self):
+    def test_past_due_eligible_opportunity_is_excluded_from_active_my_shortlist(self):
         past_due = self._opportunity(source_record_id="PAST")
         future_due = self._opportunity(
             source_record_id="FUTURE",
@@ -167,13 +168,17 @@ class PastDueOutcomeTests(unittest.TestCase):
                 .filter(Opportunity.organization_id == self.org.id)
                 .filter(Opportunity.qualification_status == "qualified")
                 .filter(Opportunity.decision_state != "ARCHIVED")
-                .filter(Opportunity.response_deadline >= dt.date.today())
+                .filter(~past_due_outcome_workflow_visible_exists(organization_id=self.org.id))
                 .all()
             )
         }
 
         self.assertNotIn(past_due.id, active_shortlist_ids)
         self.assertIn(future_due.id, active_shortlist_ids)
+        self.assertEqual(
+            [opp.id for opp in unresolved_past_due_outcomes(self.db, organization_id=self.org.id)],
+            [past_due.id],
+        )
         self.assertEqual(
             self.db.query(Vote).filter(Vote.opp_id == past_due.id, Vote.vote == "PURSUE").count(),
             1,
@@ -182,6 +187,76 @@ class PastDueOutcomeTests(unittest.TestCase):
             self.db.query(Vote).filter(Vote.opp_id == past_due.id, Vote.vote == "PASS").count(),
             0,
         )
+
+    def test_past_due_ineligible_opportunity_remains_accessible_in_my_shortlist(self):
+        opportunity = self._opportunity(source_record_id="PAST-INELIGIBLE")
+        self.db.add(Vote(
+            org_id=self.org.id,
+            opp_id=opportunity.id,
+            user_id=self.admin.id,
+            vote="PURSUE",
+            updated_at=dt.datetime.combine(
+                dt.date.today(),
+                dt.time(12, 0),
+                tzinfo=dt.timezone.utc,
+            ),
+        ))
+        self.db.commit()
+
+        active_shortlist_ids = {
+            opp_id
+            for (opp_id,) in (
+                self.db.query(Opportunity.id)
+                .join(
+                    Vote,
+                    (Vote.opp_id == Opportunity.id)
+                    & (Vote.org_id == self.org.id)
+                    & (Vote.user_id == self.admin.id)
+                    & (Vote.vote == "PURSUE"),
+                )
+                .filter(Opportunity.organization_id == self.org.id)
+                .filter(Opportunity.qualification_status == "qualified")
+                .filter(Opportunity.decision_state != "ARCHIVED")
+                .filter(~past_due_outcome_workflow_visible_exists(organization_id=self.org.id))
+                .all()
+            )
+        }
+
+        self.assertIn(opportunity.id, active_shortlist_ids)
+        self.assertEqual(unresolved_past_due_outcomes(self.db, organization_id=self.org.id), [])
+
+    def test_recorded_past_due_outcome_does_not_return_to_active_my_shortlist(self):
+        opportunity = self._opportunity(source_record_id="PAST-RESOLVED")
+        self._pursue_before_deadline(opportunity, user=self.admin)
+        record_opportunity_outcome(
+            self.db,
+            organization_id=self.org.id,
+            opportunity_id=opportunity.id,
+            outcome_type=OUTCOME_BIDDING,
+            recorded_by=self.member.id,
+        )
+
+        active_shortlist_ids = {
+            opp_id
+            for (opp_id,) in (
+                self.db.query(Opportunity.id)
+                .join(
+                    Vote,
+                    (Vote.opp_id == Opportunity.id)
+                    & (Vote.org_id == self.org.id)
+                    & (Vote.user_id == self.admin.id)
+                    & (Vote.vote == "PURSUE"),
+                )
+                .filter(Opportunity.organization_id == self.org.id)
+                .filter(Opportunity.qualification_status == "qualified")
+                .filter(Opportunity.decision_state != "ARCHIVED")
+                .filter(~past_due_outcome_workflow_visible_exists(organization_id=self.org.id))
+                .all()
+            )
+        }
+
+        self.assertNotIn(opportunity.id, active_shortlist_ids)
+        self.assertEqual(unresolved_past_due_outcomes(self.db, organization_id=self.org.id), [])
 
     def test_workspace_member_can_record_bidding_and_no_bid_without_duplicate_rows(self):
         opportunity = self._opportunity()
@@ -259,7 +334,10 @@ class PastDueOutcomeTemplateTests(unittest.TestCase):
 
     def test_my_shortlist_query_uses_shared_past_due_exclusion(self):
         routes = (Path(__file__).resolve().parents[1] / "src" / "bidlens" / "routes" / "opportunities.py").read_text()
-        match = re.search(r"def _my_shortlist_query[\s\S]+?return exclude_past_due_opportunities\(q\)", routes)
+        match = re.search(
+            r"def _my_shortlist_query[\s\S]+?past_due_outcome_workflow_visible_exists",
+            routes,
+        )
 
         self.assertIsNotNone(match)
 
