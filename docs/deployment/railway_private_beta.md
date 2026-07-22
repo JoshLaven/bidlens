@@ -5,9 +5,12 @@ schema changes are applied with Alembic before the web process starts.
 
 ## Web Service
 
-Railway should use the repository `railway.json` configuration.
+Railway should use the repository `railway.json` for shared build
+configuration only. Start commands and deploy health checks are configured per
+Railway service so the same repository can run the web application plus
+separate cron services.
 
-Start command:
+Custom Start Command:
 
 ```bash
 PYTHONPATH=src uvicorn bidlens.main:app --host 0.0.0.0 --port "$PORT"
@@ -115,7 +118,7 @@ does not create duplicate APScheduler instances.
 
 Use a separate Railway Cron Job for the V1 daily SAM.gov refresh.
 
-Railway Cron command:
+Custom Start Command:
 
 ```bash
 PYTHONPATH=src python -m bidlens.jobs.run_sam_refresh
@@ -157,6 +160,49 @@ It is safe to invoke once daily because BidLens uses the existing SAM ingestion
 deduplication and source-record upsert behavior. Individual organization
 failures are recorded and isolated; a job-level startup/database failure returns
 a nonzero exit code.
+
+### Daily Grants.gov Refresh
+
+Use a separate Railway Cron Job for the V1 daily Grants.gov refresh.
+
+Custom Start Command:
+
+```bash
+PYTHONPATH=src python -m bidlens.jobs.run_grants_refresh
+```
+
+Cron schedule:
+
+```text
+0 12 * * *
+```
+
+The cron service must use the same production database and source credentials
+as the web service, including:
+
+```bash
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DB
+SECRET_KEY=<same production secret key policy as web service>
+GRANTS_GOV_API_KEY=<Grants.gov API key>
+AUTO_CREATE_SCHEMA=false
+ENABLE_INTERNAL_SCHEDULER=false
+SESSION_COOKIE_SECURE=true
+```
+
+`GRANTS_GOV_SEARCH_URL` is optional because BidLens provides the Grants.gov
+Search2 API default. Do not include secrets directly in the command. Store them
+as Railway environment variables.
+
+Manual validation command:
+
+```bash
+PYTHONPATH=src python -m bidlens.jobs.run_grants_refresh
+```
+
+The command runs the scheduled Grants.gov operational job once, processes
+eligible live organizations, records normal JobRun and ingestion-history
+records, then exits. Individual organization failures are recorded and isolated;
+a job-level startup/database failure returns a nonzero exit code.
 
 ### Other Operational Jobs
 
