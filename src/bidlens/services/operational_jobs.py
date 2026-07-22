@@ -363,7 +363,9 @@ def run_grants_ingest_job(
     try:
         config_rows = (
             list_db.query(GrantsSourceConfig.id, GrantsSourceConfig.organization_id)
+            .join(Organization, Organization.id == GrantsSourceConfig.organization_id)
             .filter(GrantsSourceConfig.enabled.is_(True))
+            .filter(Organization.is_live.is_(True))
             .order_by(GrantsSourceConfig.organization_id.asc(), GrantsSourceConfig.id.asc())
             .all()
         )

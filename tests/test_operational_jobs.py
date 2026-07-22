@@ -266,6 +266,21 @@ class OperationalJobTests(unittest.TestCase):
         self.assertEqual(run.status, JOB_STATUS_SKIPPED)
         self.assertEqual(run.details_json["records_seen"], 0)
 
+    def test_grants_scheduler_skips_pre_live_organizations(self):
+        self.org.is_live = False
+        self.db.commit()
+        self._grants_config(self.org_id)
+
+        with patch("bidlens.services.operational_jobs.ingest_grants_gov") as ingest:
+            exit_code = operational_jobs.run_grants_ingest_job(session_factory=self.Session)
+
+        self.assertEqual(exit_code, 0)
+        ingest.assert_not_called()
+        self.assertEqual(
+            self.db.query(JobRun).filter(JobRun.job_type == JOB_TYPE_GRANTS_INGEST).count(),
+            0,
+        )
+
     def test_grants_failure_isolated_from_next_organization(self):
         self._grants_config(self.org_id)
         self._grants_config(self.other_org_id)
