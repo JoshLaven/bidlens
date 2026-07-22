@@ -3942,13 +3942,31 @@ h2 {
     margin: 0 auto;
 }
 
+.past-due-page-description {
+    display: grid;
+    gap: 3px;
+    margin: 8px 0 0;
+    color: var(--gray-600);
+    font-size: 0.98rem;
+    line-height: 1.5;
+}
+
 .past-due-review-list {
     display: grid;
     gap: 14px;
+    margin-top: 24px;
 }
 
 .past-due-resolved {
     margin-top: 28px;
+}
+
+.past-due-resolved-summary {
+    cursor: pointer;
+}
+
+.past-due-resolved-body {
+    padding-top: 14px;
 }
 
 .past-due-resolved-list {

@@ -248,7 +248,8 @@
       </main>
     </div>
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
-    {% if user and not platform_mode and request_path != '/past-due-outcomes' and user.past_due_outcome_count is defined and user.past_due_outcome_count > 0 %}
+    {% set show_past_due_notification = request_path == '/' or request_path.startswith('/my-shortlist') or request_path.startswith('/archive') %}
+    {% if user and not platform_mode and show_past_due_notification and user.past_due_outcome_count is defined and user.past_due_outcome_count > 0 %}
       <a
         href="/past-due-outcomes{{ nav_org_q }}"
         class="past-due-outcome-notification"

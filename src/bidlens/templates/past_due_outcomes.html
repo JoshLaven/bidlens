@@ -5,7 +5,10 @@
   <div class="page-hero page-hero--compact">
     <div>
       <h1 id="past-due-title">Past Due Opportunities</h1>
-      <p>These opportunities reached their response deadline while on your Shortlist.</p>
+      <p class="past-due-page-description">
+        <span>These opportunities have passed their response deadline while on your Shortlist.</span>
+        <span>Close the loop and clear them from your queue.</span>
+      </p>
     </div>
   </div>
 
@@ -54,13 +57,11 @@
     <p>When shortlisted opportunities pass their due date, your workspace can resolve them here.</p>
   </div>
 
-  <section class="past-due-resolved" aria-labelledby="past-due-resolved-title">
-    <div class="section-heading-row">
-      <div>
-        <p class="section-label">RECORDED OUTCOMES</p>
-        <h2 id="past-due-resolved-title">Previously recorded outcomes</h2>
-      </div>
-    </div>
+  <details class="past-due-resolved accordion">
+    <summary class="accordion-summary past-due-resolved-summary">
+      Completed Reviews ({{ resolved_outcomes|length }})
+    </summary>
+    <div class="accordion-body past-due-resolved-body">
     {% if resolved_outcomes %}
       <div class="past-due-resolved-list">
         {% for outcome, opp, recorder in resolved_outcomes %}
@@ -81,10 +82,11 @@
       </div>
     {% else %}
       <div class="empty-state empty-state--compact">
-        <p>No outcomes have been recorded yet.</p>
+        <p>No completed reviews yet.</p>
       </div>
     {% endif %}
-  </section>
+    </div>
+  </details>
 </section>
 {% endblock %}
 
