@@ -4924,7 +4924,7 @@ h2 {
 
 .source-config-action .btn,
 .source-config-action form {
-    min-width: 118px;
+    min-width: 90px;
 }
 
 .source-config-action form {
@@ -5018,6 +5018,24 @@ h2 {
     display: contents;
 }
 
+.source-manage-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-width: 110px;
+    height: 38px;
+
+    background: #EAF2FF;
+    border: 1px solid #9BBEFF;
+    color: #2F6FD6;
+    font-weight: 600;
+    border-radius: 8px;
+}
+
+.source-manage-btn:hover {
+    background: #DDEBFF;
+}
 .source-config-upload {
     display: grid;
     gap: 10px;

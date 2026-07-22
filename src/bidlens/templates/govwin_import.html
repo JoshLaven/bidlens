@@ -67,7 +67,7 @@
         </div>
       </dl>
       <div class="source-config-action">
-        <a href="/admin/sources/sam{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="btn btn-sm btn-outline-secondary">{{ "Manage" if sam_config else "Configure" }}</a>
+        <a href="/admin/sources/sam{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="btn btn-sm source-manage-btn">{{ "Manage" if sam_config else "Configure" }}</a>
         {% if sam_config %}
           <button type="button" id="source-sam-pull-button" class="btn btn-sm btn-primary">Pull Now</button>
         {% endif %}
