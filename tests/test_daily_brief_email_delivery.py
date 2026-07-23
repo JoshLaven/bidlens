@@ -14,6 +14,9 @@ from bidlens.models import (
     JobRun,
     Organization,
     OrganizationMembership,
+    Opportunity,
+    OpportunityPursuitLaneMatch,
+    PursuitLane,
     User,
     Workspace,
 )
@@ -119,7 +122,7 @@ class DailyBriefEmailDeliveryTests(unittest.TestCase):
             "summary": {"new_feed_count": len(feed_items), "team_signal_count": 1},
             "new_feed_opportunities": feed_items,
             "team_signals": [
-                {"title": "Teammate activity should stay out of email"},
+                {"title": "Teammate showed interest"},
             ] if extra_activity else [],
             "shortlist_changes": [
                 {"title": "Shortlist change should stay out of email"},
@@ -137,9 +140,45 @@ class DailyBriefEmailDeliveryTests(unittest.TestCase):
         ))
         self.db.commit()
 
-    def test_eligible_user_receives_one_feed_only_email(self):
+    def _feed_opportunity(self, title, *, agency="Health Agency", lane=None):
+        opportunity = Opportunity(
+            organization_id=self.org.id,
+            source="manual_import",
+            source_record_id=f"feed-{title.lower().replace(' ', '-')}",
+            title=title,
+            agency=agency,
+            opportunity_type="RFP",
+            posted_date=self.snapshot_date,
+            response_deadline=self.snapshot_date + dt.timedelta(days=30),
+            qualification_status="qualified",
+            decision_state="INBOX",
+        )
+        self.db.add(opportunity)
+        self.db.flush()
+        if lane is not None:
+            self.db.add(OpportunityPursuitLaneMatch(
+                organization_id=self.org.id,
+                opportunity_id=opportunity.id,
+                pursuit_lane_id=lane.id,
+                matched_reasons=["Title matched test"],
+            ))
+        self.db.commit()
+        return opportunity
+
+    def _lane(self, name):
+        lane = PursuitLane(organization_id=self.org.id, name=name, keywords=[name], is_active=True)
+        self.db.add(lane)
+        self.db.commit()
+        return lane
+
+    def test_eligible_user_receives_current_feed_dashboard_and_shortlist_activity(self):
         user = self._user()
         self._snapshot(user)
+        health = self._lane("Health")
+        research = self._lane("Research")
+        self._feed_opportunity("Health Opportunity One", lane=health)
+        self._feed_opportunity("Health Opportunity Two", lane=health)
+        self._feed_opportunity("Research Opportunity", lane=research)
         sender = FakeSender()
 
         exit_code = operational_jobs.run_daily_brief_emails_job(
@@ -153,15 +192,19 @@ class DailyBriefEmailDeliveryTests(unittest.TestCase):
         message = sender.messages[0]
         self.assertEqual(message.to_email, user.email)
         self.assertIn("Morgan's BidLens Daily Brief", message.subject)
-        self.assertIn("New Feed Opportunity", message.html_body)
-        self.assertIn("Health Agency", message.html_body)
-        self.assertIn("Open your BidLens Feed", message.html_body)
-        self.assertNotIn("Teammate activity", message.html_body)
+        self.assertIn("3 opportunities are awaiting review.", message.text_body)
+        self.assertIn("- Health — 2", message.text_body)
+        self.assertIn("- Research — 1", message.text_body)
+        self.assertIn("Review Feed", message.html_body)
+        self.assertIn("Shortlist", message.html_body)
+        self.assertIn("1 opportunity needs your attention.", message.text_body)
+        self.assertIn("Teammate showed interest", message.html_body)
+        self.assertIn("View Shortlist", message.html_body)
         self.assertNotIn("Shortlist change", message.html_body)
         self.assertNotIn("Source issue", message.html_body)
         delivery = self.db.query(DailyBriefEmailDelivery).one()
         self.assertEqual(delivery.status, JOB_STATUS_SUCCESS)
-        self.assertEqual(delivery.item_count, 1)
+        self.assertEqual(delivery.item_count, 3)
         self.assertEqual(delivery.provider_message_id, "msg-1")
         run = self.db.query(JobRun).filter(JobRun.job_type == JOB_TYPE_DAILY_BRIEF_EMAIL).one()
         self.assertEqual(run.status, JOB_STATUS_SUCCESS)
@@ -170,6 +213,7 @@ class DailyBriefEmailDeliveryTests(unittest.TestCase):
     def test_running_job_and_delivery_status_are_available_before_send(self):
         user = self._user()
         self._snapshot(user)
+        self._feed_opportunity("Running Status Feed Opportunity")
         sender = InspectingSender(self.Session)
 
         exit_code = operational_jobs.run_daily_brief_emails_job(
@@ -238,9 +282,9 @@ class DailyBriefEmailDeliveryTests(unittest.TestCase):
         self.assertEqual(delivery.user_id, no_snapshot.id)
         self.assertEqual(delivery.status, JOB_STATUS_SKIPPED)
 
-    def test_no_new_opportunities_sends_concise_fallback(self):
+    def test_no_current_feed_opportunities_sends_concise_fallback(self):
         user = self._user()
-        self._snapshot(user, new_feed=False)
+        self._snapshot(user, new_feed=False, extra_activity=False)
         sender = FakeSender()
 
         exit_code = operational_jobs.run_daily_brief_emails_job(
@@ -251,7 +295,8 @@ class DailyBriefEmailDeliveryTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(len(sender.messages), 1)
-        self.assertIn("No new Feed opportunities were added yesterday.", sender.messages[0].text_body)
+        self.assertIn("No opportunities are awaiting review.", sender.messages[0].text_body)
+        self.assertNotIn("Shortlist", sender.messages[0].text_body)
 
     def test_successful_delivery_is_not_duplicated_on_rerun(self):
         user = self._user()

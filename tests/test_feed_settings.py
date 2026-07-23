@@ -476,8 +476,89 @@ class FeedSettingsTests(unittest.TestCase):
 
         reasons = match_lane_to_opportunity(lane, opportunity)
 
-        self.assertIn("Match term matched 541611", reasons)
-        self.assertIn("Match term matched Small Business", reasons)
+        self.assertIn("NAICS matched 541611", reasons)
+        self.assertIn("Set-aside matched Small Business", reasons)
+
+    def test_lane_matching_uses_token_boundaries_for_text_terms(self):
+        lane = PursuitLane(
+            organization_id=self.org.id,
+            name="Health",
+            agencies=[],
+            naics=[],
+            keywords=["health"],
+            set_asides=[],
+        )
+        opportunity = Opportunity(
+            organization_id=self.org.id,
+            source="manual_import",
+            source_record_id="manual-boundary",
+            title="Healthcare operations platform",
+            agency="Retail Market Authority",
+            opportunity_type="RFP",
+            posted_date=date(2026, 7, 1),
+            response_deadline=date(2026, 8, 1),
+            description="A general opportunity unrelated to the lane.",
+        )
+
+        self.assertEqual(match_lane_to_opportunity(lane, opportunity), [])
+
+    def test_title_agency_and_naics_matches_are_sufficient(self):
+        title_lane = PursuitLane(organization_id=self.org.id, name="Health", keywords=["health"])
+        agency_lane = PursuitLane(organization_id=self.org.id, name="Federal", keywords=["Medicaid"])
+        naics_lane = PursuitLane(organization_id=self.org.id, name="Consulting", keywords=["5416"])
+        opportunity = Opportunity(
+            organization_id=self.org.id,
+            source="manual_import",
+            source_record_id="manual-sufficient",
+            title="Public health outreach",
+            agency="Centers for Medicare and Medicaid Services",
+            opportunity_type="RFP",
+            posted_date=date(2026, 7, 1),
+            response_deadline=date(2026, 8, 1),
+            naics="541611",
+            description="Routine program details.",
+        )
+
+        self.assertIn("Title matched health", match_lane_to_opportunity(title_lane, opportunity))
+        self.assertIn("Agency matched Medicaid", match_lane_to_opportunity(agency_lane, opportunity))
+        self.assertIn("NAICS matched 5416", match_lane_to_opportunity(naics_lane, opportunity))
+
+    def test_description_only_generic_term_does_not_assign_lane(self):
+        lane = PursuitLane(organization_id=self.org.id, name="Health", keywords=["health"])
+        opportunity = Opportunity(
+            organization_id=self.org.id,
+            source="manual_import",
+            source_record_id="manual-description-generic",
+            title="Retail market assessment",
+            agency="Commerce Office",
+            opportunity_type="RFP",
+            posted_date=date(2026, 7, 1),
+            response_deadline=date(2026, 8, 1),
+            description="Assess the health of the retail market.",
+        )
+
+        self.assertEqual(match_lane_to_opportunity(lane, opportunity), [])
+
+    def test_description_only_phrase_or_multiple_terms_can_assign_lane(self):
+        phrase_lane = PursuitLane(organization_id=self.org.id, name="Behavioral Health", keywords=["behavioral health"])
+        multi_lane = PursuitLane(organization_id=self.org.id, name="Research", keywords=["research", "evaluation"])
+        opportunity = Opportunity(
+            organization_id=self.org.id,
+            source="manual_import",
+            source_record_id="manual-description-strong",
+            title="Community services contract",
+            agency="County Office",
+            opportunity_type="RFP",
+            posted_date=date(2026, 7, 1),
+            response_deadline=date(2026, 8, 1),
+            description="The work includes behavioral health services, research, and evaluation.",
+        )
+
+        self.assertIn("Description matched behavioral health", match_lane_to_opportunity(phrase_lane, opportunity))
+        self.assertEqual(
+            set(match_lane_to_opportunity(multi_lane, opportunity)),
+            {"Description matched research", "Description matched evaluation"},
+        )
 
 
 if __name__ == "__main__":

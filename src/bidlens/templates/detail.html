@@ -14,7 +14,7 @@
   <header class="detail-hero">
     <div class="detail-hero-copy">
       <h1 class="detail-title">{{ opportunity.title }}</h1>
-      <p class="detail-agency">{{ opportunity.agency }}</p>
+      <p class="detail-agency">{{ opportunity.agency_display if opportunity.agency_display is defined and opportunity.agency_display else opportunity.agency }}</p>
       <div class="detail-badges">
         {% for lane in pursuit_lanes %}
           <span class="pursuit-lane-pill" title="{{ (lane.reasons or [])|join('; ') }}">{{ lane.name }}</span>

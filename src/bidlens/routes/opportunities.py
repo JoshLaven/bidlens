@@ -37,6 +37,7 @@ from ..services.feed_queries import (
     feed_awaiting_review_query,
 )
 from ..services.pursuit_lanes import user_my_lanes
+from ..services.agency_display import agency_presentation
 from ..services.opportunity_outcomes import (
     OUTCOME_BIDDING,
     OUTCOME_NO_BID,
@@ -450,22 +451,8 @@ def _exclude_inactive_govwin_stages(query):
 
 
 def _agency_parts_for_export(raw_agency: str | None) -> tuple[str | None, str | None]:
-    if not raw_agency:
-        return None, None
-
-    cleaned_parts = [
-        part.replace("_", " ").strip()
-        for part in str(raw_agency).split(".")
-        if part and part.strip()
-    ]
-    if not cleaned_parts:
-        return None, None
-
-    department = cleaned_parts[0].title()
-    sub_agency = cleaned_parts[-1].title() if len(cleaned_parts) > 1 else None
-    if sub_agency == department:
-        sub_agency = None
-    return department, sub_agency
+    agency = agency_presentation(raw_agency)
+    return agency.parent, agency.sub_agency
 
 
 def _current_org_status(opp: Opportunity) -> str:
@@ -706,6 +693,7 @@ def _enrich_opps(rows, db, user, watched_col=True):
     current_user_label = (user.name or user.email or "").strip()
 
     for opp in opportunities:
+        agency = agency_presentation(opp.agency)
         c = counts.get(opp.id, {"pursue": 0, "pass": 0})
         opp.pursue_count = c["pursue"]
         opp.pass_count = c["pass"]
@@ -727,6 +715,9 @@ def _enrich_opps(rows, db, user, watched_col=True):
             current_user_interested=opp.current_user_interested,
         )
         opp.normalized_opportunity_type = _normalized_opportunity_type(opp)
+        opp.agency_display = agency.display
+        opp.parent_agency = agency.parent
+        opp.sub_agency = agency.sub_agency
         opp.pursuit_lanes = lane_map.get(opp.id, [])
         opp.crm_pushed_by_current_user = bool(getattr(opp, "crm_pushed", False) and opp.crm_pushed_by == user.id)
         opp.crm_pushed_by_label = crm_user_map.get(getattr(opp, "crm_pushed_by", None))
@@ -2104,6 +2095,10 @@ async def opportunity_detail(
         opportunity_id=opportunity.id,
         user_id=user.id,
     )
+    agency = agency_presentation(opportunity.agency)
+    opportunity.agency_display = agency.display
+    opportunity.parent_agency = agency.parent
+    opportunity.sub_agency = agency.sub_agency
 
     return templates.TemplateResponse("detail.html", {
         "request": request,

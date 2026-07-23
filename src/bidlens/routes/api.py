@@ -39,6 +39,7 @@ import hashlib
 from .. import config
 from ..services import get_vote_counts, get_vote_user_maps
 from ..sam_client import _is_url_like
+from ..services.agency_display import agency_presentation
 router = APIRouter(prefix="/api", tags=["api"])
 logger = logging.getLogger(__name__)
 N8N_PROVIDER = "n8n"
@@ -212,9 +213,7 @@ def _build_n8n_payload(opp: Opportunity, brief_payload: dict[str, Any]) -> dict[
     from ..services.research.brief_generator import build_opportunity_source_text
     from ..services.research.document_fetcher import fetch_opportunity_attachment_metadata
 
-    agency_parts = [part.strip().replace("_", " ") for part in (opp.agency or "").split(".") if part.strip()]
-    department = agency_parts[0] if len(agency_parts) > 1 else None
-    subagency = agency_parts[-1] if len(agency_parts) > 1 else None
+    agency = agency_presentation(opp.agency)
     source_text, source_text_field = build_opportunity_source_text(
         opp,
         brief_context=brief_payload.get("brief_context") or brief_payload.get("text_for_enrichment"),
@@ -228,8 +227,9 @@ def _build_n8n_payload(opp: Opportunity, brief_payload: dict[str, Any]) -> dict[
         "bidlens_id": str(opp.bidlens_id) if getattr(opp, "bidlens_id", None) else None,
         "title": opp.title,
         "agency": opp.agency,
-        "department": department,
-        "subagency": subagency,
+        "agency_display": agency.display,
+        "department": agency.parent,
+        "subagency": agency.sub_agency,
         "opportunity_type": opp.opportunity_type,
         "description": description,
         "description_text": description,

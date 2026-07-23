@@ -1,21 +1,5 @@
 {% macro opp_card(opp, view='feed', now=none, show_admin_crm_actions=false) %}
-{% set raw_agency = (opp.agency or '') %}
-{% set agency_parts = raw_agency.split('.') %}
-{% set agency_ns = namespace(display='', fallback='') %}
-{% for part in agency_parts|reverse %}
-  {% set cleaned = part|replace('_', ' ')|trim %}
-  {% set normalized = cleaned|lower %}
-  {% if cleaned and not agency_ns.fallback %}
-    {% set agency_ns.fallback = cleaned %}
-  {% endif %}
-  {% if cleaned and not agency_ns.display and normalized not in ['gov', 'mil', 'us', 'usa', 'department', 'office', 'offices', 'agency'] %}
-    {% set agency_ns.display = cleaned %}
-  {% endif %}
-{% endfor %}
-{% set original_agency = raw_agency|replace('_', ' ')|replace('.', ' ')|trim %}
-{% set candidate_agency = (agency_ns.display or agency_ns.fallback)|title %}
-{% set original_agency_title = original_agency|title %}
-{% set agency_display = candidate_agency if candidate_agency and candidate_agency|length >= 4 and candidate_agency|length <= original_agency_title|length else original_agency_title %}
+{% set agency_display = opp.agency_display if opp.agency_display is defined and opp.agency_display else (opp.agency or '') %}
 {% set due_label = opp.response_deadline.strftime('%b %d, %Y') if opp.response_deadline else 'No deadline' %}
 {% set teammate_interest_users = opp.teammate_interest_users or [] %}
 {% set pursuit_lanes = opp.pursuit_lanes or [] %}

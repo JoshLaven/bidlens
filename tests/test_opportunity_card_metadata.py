@@ -56,6 +56,8 @@ class OpportunityCardMetadataTests(unittest.TestCase):
     def test_collapsed_card_uses_simplified_metadata_hierarchy(self):
         self.assertIn("opp-card-meta-line--collapsed", self.collapsed)
         self.assertIn("opp-card-agency", self.collapsed)
+        self.assertIn("opp.agency_display", self.collapsed)
+        self.assertNotIn("raw_agency", self.collapsed)
         self.assertIn("opp-card-metadata-row", self.collapsed)
         self.assertIn("opp-card-due-icon", self.collapsed)
         self.assertIn("primary_pursuit_lane.name", self.collapsed)

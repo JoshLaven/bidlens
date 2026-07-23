@@ -5,6 +5,22 @@ import re
 from sqlalchemy.orm import Session
 
 from ..models import Opportunity, OpportunityPursuitLaneMatch, PursuitLane, PursuitLaneAssignment
+from .agency_display import agency_presentation
+
+
+BROAD_DESCRIPTION_TERMS = {
+    "analysis",
+    "data",
+    "evaluation",
+    "health",
+    "management",
+    "program",
+    "programs",
+    "project",
+    "service",
+    "services",
+    "support",
+}
 
 
 def parse_list(value: str | list | None) -> list[str]:
@@ -25,11 +41,29 @@ def parse_list(value: str | list | None) -> list[str]:
     return items
 
 
-def _contains_any(haystack: str | None, needles: list[str], label: str) -> list[str]:
+def _is_naics_term(term: str) -> bool:
+    return bool(re.fullmatch(r"\d{2,6}", str(term or "").strip()))
+
+
+def _term_pattern(term: str) -> re.Pattern[str]:
+    words = [re.escape(part) for part in re.split(r"\s+", str(term or "").strip()) if part]
+    pattern = r"[\W_]+".join(words)
+    if not pattern:
+        pattern = re.escape(str(term or "").strip())
+    prefix = r"(?<![a-z0-9])" if re.match(r"^[a-z0-9]", str(term or "").strip(), re.I) else ""
+    suffix = r"(?![a-z0-9])" if re.search(r"[a-z0-9]$", str(term or "").strip(), re.I) else ""
+    return re.compile(f"{prefix}{pattern}{suffix}", re.IGNORECASE)
+
+
+def _text_matches(haystack: str | None, needles: list[str]) -> list[str]:
     if not haystack or not needles:
         return []
-    haystack_lower = str(haystack).lower()
-    return [f"{label} matched {needle}" for needle in needles if needle.lower() in haystack_lower]
+    text = re.sub(r"\s+", " ", str(haystack))
+    return [needle for needle in needles if _term_pattern(needle).search(text)]
+
+
+def _match_reasons(haystack: str | None, needles: list[str], label: str) -> list[str]:
+    return [f"{label} matched {needle}" for needle in _text_matches(haystack, needles)]
 
 
 def _naics_reasons(opp_naics: str | None, lane_naics: list[str]) -> list[str]:
@@ -71,20 +105,56 @@ def lane_match_terms(lane: PursuitLane) -> list[str]:
 
 def match_lane_to_opportunity(lane: PursuitLane, opportunity: Opportunity) -> list[str]:
     terms = lane_match_terms(lane)
-    text = " ".join(
+    naics_terms = [term for term in terms if _is_naics_term(term)]
+    text_terms = [term for term in terms if not _is_naics_term(term)]
+    agency = agency_presentation(opportunity.agency)
+    agency_text = " ".join(
         part
         for part in [
-            opportunity.title,
             opportunity.agency,
-            opportunity.naics,
-            opportunity.naics_title,
-            opportunity.set_aside,
+            agency.display,
+            agency.parent,
+            agency.sub_agency,
+        ]
+        if part
+    )
+    description_text = " ".join(
+        part
+        for part in [
             opportunity.description,
             opportunity.description_text,
         ]
         if part
     )
-    return _contains_any(text, terms, "Match term")
+    primary_reasons = (
+        _match_reasons(opportunity.title, text_terms, "Title")
+        + _match_reasons(agency_text, text_terms, "Agency")
+        + _naics_reasons(opportunity.naics, naics_terms)
+        + _match_reasons(opportunity.naics_title, text_terms, "NAICS title")
+        + _match_reasons(opportunity.set_aside, text_terms, "Set-aside")
+    )
+    description_matches = _text_matches(description_text, text_terms)
+    description_reasons = [
+        f"Description matched {term}"
+        for term in description_matches
+    ]
+    if primary_reasons:
+        return primary_reasons + description_reasons
+    if _description_only_match_is_strong(description_matches):
+        return description_reasons
+    return []
+
+
+def _description_only_match_is_strong(matched_terms: list[str]) -> bool:
+    unique_terms = {term.strip().lower() for term in matched_terms if term.strip()}
+    if len(unique_terms) >= 2:
+        return True
+    if not unique_terms:
+        return False
+    term = next(iter(unique_terms))
+    if term in BROAD_DESCRIPTION_TERMS:
+        return False
+    return bool(re.search(r"\s", term)) or len(re.sub(r"[^a-z0-9]", "", term)) >= 7
 
 
 def refresh_lane_matches(db: Session, organization_id: int, lane: PursuitLane) -> int:
