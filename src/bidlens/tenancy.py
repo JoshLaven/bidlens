@@ -4,7 +4,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .models import Organization, OrganizationMembership, User, Workspace
+from .models import Organization, OrganizationMembership, User, Workspace, WorkspaceInvitation
 
 PUBLIC_EMAIL_DOMAINS = {
     "gmail.com",
@@ -168,12 +168,156 @@ def ensure_email_domain_membership(db: Session, user: User | None) -> Organizati
     if not user or not user.email:
         return None
 
+    if explicit_memberships_for_user(db, user_id=user.id):
+        return None
+
     matched_org = organization_for_email_domain(db, user.email)
     if not matched_org:
         return None
 
     ensure_membership(db, organization_id=matched_org.id, user_id=user.id, role="member")
     return matched_org
+
+
+def explicit_memberships_for_user(db: Session, *, user_id: int) -> list[OrganizationMembership]:
+    return (
+        db.query(OrganizationMembership)
+        .join(Organization, Organization.id == OrganizationMembership.organization_id)
+        .filter(
+            OrganizationMembership.user_id == user_id,
+            Organization.is_active.is_(True),
+        )
+        .order_by(
+            OrganizationMembership.organization_id.asc(),
+            OrganizationMembership.id.asc(),
+        )
+        .all()
+    )
+
+
+def _valid_membership_for_org(
+    db: Session,
+    *,
+    user_id: int,
+    organization_id: int,
+) -> OrganizationMembership | None:
+    return (
+        db.query(OrganizationMembership)
+        .join(Organization, Organization.id == OrganizationMembership.organization_id)
+        .filter(
+            OrganizationMembership.organization_id == organization_id,
+            OrganizationMembership.user_id == user_id,
+            Organization.is_active.is_(True),
+        )
+        .first()
+    )
+
+
+def _organization_for_membership(db: Session, membership: OrganizationMembership | None) -> Organization | None:
+    if not membership:
+        return None
+    return (
+        db.query(Organization)
+        .filter(
+            Organization.id == membership.organization_id,
+            Organization.is_active.is_(True),
+        )
+        .first()
+    )
+
+
+def _admin_memberships(memberships: list[OrganizationMembership]) -> list[OrganizationMembership]:
+    return [
+        membership
+        for membership in memberships
+        if str(membership.role or "").strip().lower() == "admin"
+    ]
+
+
+def _admin_invitation_membership(
+    db: Session,
+    *,
+    user: User,
+    memberships: list[OrganizationMembership],
+) -> OrganizationMembership | None:
+    membership_by_org_id = {membership.organization_id: membership for membership in memberships}
+    membership_org_ids = list(membership_by_org_id)
+    if not membership_by_org_id:
+        return None
+
+    invitation = (
+        db.query(WorkspaceInvitation)
+        .filter(
+            WorkspaceInvitation.email == normalize_email(user.email),
+            WorkspaceInvitation.role == "admin",
+            WorkspaceInvitation.status.in_(("accepted", "pending")),
+            WorkspaceInvitation.organization_id.in_(membership_org_ids),
+        )
+        .order_by(
+            WorkspaceInvitation.created_at.desc(),
+            WorkspaceInvitation.id.desc(),
+        )
+        .first()
+    )
+    if not invitation:
+        return None
+    membership = membership_by_org_id.get(invitation.organization_id)
+    if membership and str(membership.role or "").strip().lower() == "admin":
+        return membership
+    return None
+
+
+def resolve_user_organization(
+    db: Session,
+    user: User,
+    *,
+    requested_org_id: int | None = None,
+) -> Organization | None:
+    """Resolve a user's current workspace without letting domain fallback win over explicit access."""
+
+    memberships = explicit_memberships_for_user(db, user_id=user.id)
+
+    if requested_org_id is not None:
+        membership = _valid_membership_for_org(
+            db,
+            user_id=user.id,
+            organization_id=requested_org_id,
+        )
+        if not membership:
+            raise HTTPException(status_code=403, detail="You do not have access to this workspace.")
+        return _organization_for_membership(db, membership)
+
+    invitation_membership = _admin_invitation_membership(db, user=user, memberships=memberships)
+    invitation_org = _organization_for_membership(db, invitation_membership)
+    if invitation_org:
+        return invitation_org
+
+    admin_memberships = _admin_memberships(memberships)
+    if admin_memberships:
+        preferred_admin = next(
+            (
+                membership
+                for membership in admin_memberships
+                if membership.organization_id == user.organization_id
+            ),
+            admin_memberships[0],
+        )
+        return _organization_for_membership(db, preferred_admin)
+
+    if user.organization_id:
+        membership = _valid_membership_for_org(
+            db,
+            user_id=user.id,
+            organization_id=user.organization_id,
+        )
+        org = _organization_for_membership(db, membership)
+        if org:
+            return org
+
+    if memberships:
+        return _organization_for_membership(db, memberships[0])
+
+    return ensure_email_domain_membership(db, user)
 
 
 def current_organization(request: Request, db: Session, user: User | None = None) -> Organization:
@@ -184,19 +328,29 @@ def current_organization(request: Request, db: Session, user: User | None = None
     should replace this resolver later.
     """
     requested_org_id = request.query_params.get("org_id")
+    parsed_requested_org_id = None
     if requested_org_id:
         try:
-            org_id = int(requested_org_id)
+            parsed_requested_org_id = int(requested_org_id)
         except ValueError:
             raise HTTPException(status_code=400, detail="org_id must be an integer")
-        org = db.query(Organization).filter(Organization.id == org_id).first()
+
+    if user:
+        resolved_org = resolve_user_organization(
+            db,
+            user,
+            requested_org_id=parsed_requested_org_id,
+        )
+        if resolved_org:
+            return resolved_org
+        if parsed_requested_org_id is not None:
+            raise HTTPException(status_code=404, detail="Organization not found")
+
+    if parsed_requested_org_id is not None:
+        org = db.query(Organization).filter(Organization.id == parsed_requested_org_id).first()
         if not org:
             raise HTTPException(status_code=404, detail="Organization not found")
         return org
-
-    matched_org = ensure_email_domain_membership(db, user)
-    if matched_org:
-        return matched_org
 
     default_org = db.query(Organization).filter(Organization.slug == "default-workspace").first()
     if default_org:

@@ -12,6 +12,7 @@ from ..models import JobRun
 JOB_TYPE_SAM_INGEST = "sam_ingest"
 JOB_TYPE_GRANTS_INGEST = "grants_ingest"
 JOB_TYPE_DAILY_SNAPSHOT = "daily_snapshot"
+JOB_TYPE_DAILY_BRIEF_EMAIL = "daily_brief_email"
 
 TRIGGER_TYPE_SCHEDULED = "scheduled"
 TRIGGER_TYPE_MANUAL = "manual"

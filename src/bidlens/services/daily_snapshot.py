@@ -141,6 +141,46 @@ def _new_opportunity_count(
     )
 
 
+def _new_feed_opportunities(
+    db: Session,
+    *,
+    organization_id: int,
+    user_id: int,
+    start_at: dt.datetime,
+    end_before: dt.datetime,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    acted_opp_ids = (
+        db.query(Vote.opp_id)
+        .filter(
+            Vote.org_id == organization_id,
+            Vote.user_id == user_id,
+            Vote.vote.in_(("PURSUE", "PASS")),
+        )
+    )
+    rows = (
+        db.query(Opportunity)
+        .filter(
+            Opportunity.organization_id == organization_id,
+            Opportunity.created_at >= start_at,
+            Opportunity.created_at < end_before,
+            Opportunity.decision_state != "ARCHIVED",
+            Opportunity.qualification_status == "qualified",
+            ~Opportunity.id.in_(acted_opp_ids),
+        )
+        .order_by(Opportunity.created_at.asc(), Opportunity.id.asc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            **_opportunity_payload(opportunity),
+            "created_at": _iso_datetime(opportunity.created_at),
+        }
+        for opportunity in rows
+    ]
+
+
 def _updated_opportunities(
     db: Session,
     *,
@@ -720,6 +760,13 @@ def build_snapshot_payload(
         snapshot_date=snapshot_date,
     )
     connector_issues = _connector_issues(db, organization_id=organization_id)
+    new_feed_opportunities = _new_feed_opportunities(
+        db,
+        organization_id=organization_id,
+        user_id=user_id,
+        start_at=start_at,
+        end_before=end_before,
+    )
 
     return {
         "version": SNAPSHOT_VERSION,
@@ -737,13 +784,7 @@ def build_snapshot_payload(
             "basis": "calendar_day",
         },
         "summary": {
-            "new_feed_count": _new_opportunity_count(
-                db,
-                organization_id=organization_id,
-                user_id=user_id,
-                start_at=start_at,
-                end_before=end_before,
-            ),
+            "new_feed_count": len(new_feed_opportunities),
             "shortlist_update_count": len(shortlist_updates),
             "team_signal_count": len(team_signals),
             "shortlist_deadline_count": len(shortlist_deadlines),
@@ -755,6 +796,7 @@ def build_snapshot_payload(
         "shortlist_deadlines": shortlist_deadlines,
         "my_lanes": [],
         "my_lane_context": my_lane_context,
+        "new_feed_opportunities": new_feed_opportunities,
         "new_opportunities": new_opportunities,
         "updated_opportunities": updated_opportunities,
         "upcoming_deadlines": upcoming_deadlines,

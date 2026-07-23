@@ -7,10 +7,10 @@ from ..models import User
 from ..auth import create_session, clear_session, is_platform_admin_email
 from ..models import Organization
 from ..tenancy import (
-    ensure_email_domain_membership,
     ensure_membership,
     normalize_email,
     organization_for_email_domain,
+    resolve_user_organization,
 )
 from ..services.platform import post_authentication_destination_url
 
@@ -87,7 +87,7 @@ async def login(request: Request, email: str = Form(...), db: Session = Depends(
         db.refresh(user)
     else:
         try:
-            matched_org = ensure_email_domain_membership(db, user)
+            matched_org = resolve_user_organization(db, user)
         except HTTPException as exc:
             return templates.TemplateResponse("login.html", {
                 "request": request,

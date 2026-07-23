@@ -48,6 +48,9 @@ Optional source and integration variables:
 ```bash
 SAM_API_KEY=<optional>
 GRANTS_GOV_API_KEY=<optional>
+RESEND_API_KEY=<optional>
+DAILY_BRIEF_EMAIL_FROM=<optional>
+BIDLENS_APP_BASE_URL=<optional>
 SALESFORCE_INSTANCE_URL=<optional>
 SALESFORCE_CLIENT_ID=<optional>
 SALESFORCE_CLIENT_SECRET=<optional>
@@ -174,7 +177,7 @@ PYTHONPATH=src python -m bidlens.jobs.run_grants_refresh
 Cron schedule:
 
 ```text
-0 12 * * *
+15 12 * * *
 ```
 
 The cron service must use the same production database and source credentials
@@ -204,6 +207,82 @@ eligible live organizations, records normal JobRun and ingestion-history
 records, then exits. Individual organization failures are recorded and isolated;
 a job-level startup/database failure returns a nonzero exit code.
 
+### Daily Snapshots
+
+Use a separate Railway Cron Job to precompute the in-app Daily Brief snapshots.
+This job must run before Daily Brief Email delivery.
+
+Custom Start Command:
+
+```bash
+PYTHONPATH=src python -m bidlens.jobs.run_daily_snapshots
+```
+
+Cron schedule:
+
+```text
+0 13 * * *
+```
+
+The snapshot cron service must use the same production database and application
+settings as the web service:
+
+```bash
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DB
+SECRET_KEY=<same production secret key policy as web service>
+AUTO_CREATE_SCHEMA=false
+ENABLE_INTERNAL_SCHEDULER=false
+SESSION_COOKIE_SECURE=true
+```
+
+Manual validation command:
+
+```bash
+PYTHONPATH=src python -m bidlens.jobs.run_daily_snapshots --trigger-type manual
+```
+
+### Daily Brief Emails
+
+Use a separate Railway Cron Job to send the V1 low-noise Daily Brief email after
+Daily Snapshots have been generated.
+
+Custom Start Command:
+
+```bash
+PYTHONPATH=src python -m bidlens.jobs.run_daily_brief_emails
+```
+
+Cron schedule:
+
+```text
+15 13 * * *
+```
+
+The email cron service must use the same production database and application
+settings as the web service plus email-delivery credentials:
+
+```bash
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DB
+SECRET_KEY=<same production secret key policy as web service>
+AUTO_CREATE_SCHEMA=false
+ENABLE_INTERNAL_SCHEDULER=false
+SESSION_COOKIE_SECURE=true
+RESEND_API_KEY=<Resend API key>
+DAILY_BRIEF_EMAIL_FROM=<verified sender address>
+BIDLENS_APP_BASE_URL=https://<railway-public-domain>
+```
+
+The email job sends one Daily Brief per eligible user and snapshot date. It uses
+the stored Daily Snapshot for that date, includes only new Feed opportunity
+content, records durable delivery history, skips previously successful sends on
+rerun, and allows failed deliveries to be retried.
+
+Manual validation command:
+
+```bash
+PYTHONPATH=src python -m bidlens.jobs.run_daily_brief_emails --trigger-type manual
+```
+
 ### Other Operational Jobs
 
 Other standalone jobs can be run by separate Railway cron or worker services:
@@ -211,7 +290,6 @@ Other standalone jobs can be run by separate Railway cron or worker services:
 ```bash
 PYTHONPATH=src python -m bidlens.jobs.run_sam_ingest
 PYTHONPATH=src python -m bidlens.jobs.run_grants_ingest
-PYTHONPATH=src python -m bidlens.jobs.run_daily_snapshots
 ```
 
 Those jobs are intentionally not part of the web startup command.

@@ -53,6 +53,9 @@ This utility is local-development only. It preserves `joshuatlaven@gmail.com` as
 - `AUTO_CREATE_SCHEMA`: set to `false` in hosted environments that use Alembic migrations
 - `SESSION_COOKIE_SECURE`: set to `true` when serving over HTTPS
 - `BIDLENS_VALIDATE_DEPLOYMENT`: optional explicit hosted-config validation flag; validation also runs automatically when `AUTO_CREATE_SCHEMA=false`
+- `RESEND_API_KEY`: Resend API key used by the Daily Brief Email cron service
+- `DAILY_BRIEF_EMAIL_FROM`: verified sender address for Daily Brief emails
+- `BIDLENS_APP_BASE_URL`: public BidLens base URL used in Daily Brief email links
 - `PORT`: platform-provided web port for hosted startup commands
 
 ## Startup Commands
@@ -184,6 +187,7 @@ PYTHONPATH=src python -m bidlens.jobs.run_sam_refresh
 PYTHONPATH=src python -m bidlens.jobs.run_sam_ingest
 PYTHONPATH=src python -m bidlens.jobs.run_grants_ingest
 PYTHONPATH=src python -m bidlens.jobs.run_daily_snapshots
+PYTHONPATH=src python -m bidlens.jobs.run_daily_brief_emails
 ```
 
 Each command defaults to `--trigger-type scheduled`. For local manual testing, pass:
@@ -192,7 +196,7 @@ Each command defaults to `--trigger-type scheduled`. For local manual testing, p
 --trigger-type manual
 ```
 
-The Daily Snapshot command also accepts:
+The Daily Snapshot and Daily Brief Email commands also accept:
 
 ```bash
 --snapshot-date YYYY-MM-DD
@@ -216,6 +220,9 @@ Schedule it with cron expression `0 12 * * *` for approximately 5:00 AM
 Phoenix time. Keep `ENABLE_INTERNAL_SCHEDULER=false` on the Railway web service.
 
 Each standalone job creates one `JobRun` per eligible organization. SAM.gov and Grants.gov jobs also preserve their existing `IngestionRun` records for source-specific ingestion history. Daily Snapshot creates one organization-level `JobRun` with aggregate user counts.
+Daily Brief Email creates one organization-level `JobRun` and one durable
+delivery record per attempted user/snapshot date. Successful deliveries are not
+sent twice on rerun; failed deliveries can be retried.
 
 Exit-code policy:
 
@@ -229,6 +236,7 @@ PYTHONPATH=src python -m bidlens.jobs.run_sam_refresh
 PYTHONPATH=src python -m bidlens.jobs.run_sam_ingest
 PYTHONPATH=src python -m bidlens.jobs.run_grants_ingest
 PYTHONPATH=src python -m bidlens.jobs.run_daily_snapshots
+PYTHONPATH=src python -m bidlens.jobs.run_daily_brief_emails
 ```
 
 Do not run overlapping copies of the same job yet; distributed locking is deferred.

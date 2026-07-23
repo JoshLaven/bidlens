@@ -26,7 +26,13 @@ from bidlens.services.platform import (
     post_invitation_acceptance_url,
     provision_workspace,
 )
-from bidlens.tenancy import duplicate_domain_diagnostics, organization_for_email_domain
+from bidlens.tenancy import (
+    current_organization,
+    duplicate_domain_diagnostics,
+    ensure_email_domain_membership,
+    organization_for_email_domain,
+    resolve_user_organization,
+)
 
 
 class PlatformProvisioningTests(unittest.TestCase):
@@ -332,6 +338,193 @@ class PlatformProvisioningTests(unittest.TestCase):
                 organization_id=result.organization.id,
             ),
         )
+
+    def test_existing_user_provisioned_as_admin_resolves_to_new_workspace(self):
+        original_org = Organization(
+            name="Original Acme",
+            slug="original-acme",
+            email_domain="acme.test",
+            is_active=True,
+            is_live=True,
+        )
+        self.db.add(original_org)
+        self.db.flush()
+        self.db.add(Workspace(
+            organization_id=original_org.id,
+            name="Original Acme Workspace",
+            slug="original-acme-workspace",
+        ))
+        existing_user = User(email="owner@acme.test", organization_id=original_org.id)
+        self.db.add(existing_user)
+        self.db.flush()
+        self.db.add(OrganizationMembership(
+            organization_id=original_org.id,
+            user_id=existing_user.id,
+            role="member",
+        ))
+        self.db.commit()
+
+        result = provision_workspace(
+            self.db,
+            payload=ProvisionWorkspaceInput(
+                organization_name="New Acme",
+                owner_name="Owner Acme",
+                owner_email="owner@acme.test",
+            ),
+            base_url="https://bidlens.test",
+        )
+
+        resolved = resolve_user_organization(self.db, result.owner)
+        self.assertEqual(resolved.id, result.organization.id)
+        membership = (
+            self.db.query(OrganizationMembership)
+            .filter(
+                OrganizationMembership.organization_id == result.organization.id,
+                OrganizationMembership.user_id == result.owner.id,
+            )
+            .one()
+        )
+        self.assertEqual(membership.role, "admin")
+
+        response = asyncio.run(auth_routes.login(
+            SimpleNamespace(),
+            email="  OWNER@ACME.TEST  ",
+            db=self.db,
+        ))
+        self.assertEqual(
+            response.headers["location"],
+            f"/organization-setup?org_id={result.organization.id}",
+        )
+
+    def test_same_domain_workspace_does_not_override_explicit_admin_membership(self):
+        first = Organization(name="First Domain", slug="first-domain", email_domain="shared.test", is_active=True, is_live=True)
+        second = Organization(name="Second Domain", slug="second-domain", email_domain="shared.test", is_active=True, is_live=False)
+        self.db.add_all([first, second])
+        self.db.flush()
+        self.db.add_all([
+            Workspace(organization_id=first.id, name="First Workspace", slug="first-workspace"),
+            Workspace(organization_id=second.id, name="Second Workspace", slug="second-workspace"),
+        ])
+        user = User(email="admin@shared.test", organization_id=second.id)
+        self.db.add(user)
+        self.db.flush()
+        self.db.add_all([
+            OrganizationMembership(organization_id=first.id, user_id=user.id, role="member"),
+            OrganizationMembership(organization_id=second.id, user_id=user.id, role="admin"),
+        ])
+        self.db.commit()
+
+        resolved = resolve_user_organization(self.db, user)
+
+        self.assertEqual(resolved.id, second.id)
+
+    def test_domain_auto_membership_does_not_downgrade_existing_admin_role(self):
+        org = Organization(name="Domain Org", slug="domain-org", email_domain="domain.test", is_active=True, is_live=True)
+        self.db.add(org)
+        self.db.flush()
+        self.db.add(Workspace(organization_id=org.id, name="Domain Workspace", slug="domain-workspace"))
+        user = User(email="Admin@Domain.Test", organization_id=org.id)
+        self.db.add(user)
+        self.db.flush()
+        membership = OrganizationMembership(organization_id=org.id, user_id=user.id, role="admin")
+        self.db.add(membership)
+        self.db.commit()
+
+        matched = ensure_email_domain_membership(self.db, user)
+        self.db.refresh(membership)
+
+        self.assertIsNone(matched)
+        self.assertEqual(membership.role, "admin")
+
+    def test_valid_org_id_selection_requires_authorized_membership(self):
+        allowed = Organization(name="Allowed", slug="allowed", is_active=True, is_live=True)
+        denied = Organization(name="Denied", slug="denied", is_active=True, is_live=True)
+        self.db.add_all([allowed, denied])
+        self.db.flush()
+        self.db.add_all([
+            Workspace(organization_id=allowed.id, name="Allowed Workspace", slug="allowed-workspace"),
+            Workspace(organization_id=denied.id, name="Denied Workspace", slug="denied-workspace"),
+        ])
+        user = User(email="switcher@example.test", organization_id=allowed.id)
+        self.db.add(user)
+        self.db.flush()
+        self.db.add(OrganizationMembership(organization_id=allowed.id, user_id=user.id, role="member"))
+        self.db.commit()
+
+        request = SimpleNamespace(query_params={"org_id": str(allowed.id)})
+        self.assertEqual(current_organization(request, self.db, user).id, allowed.id)
+        with self.assertRaises(HTTPException):
+            current_organization(SimpleNamespace(query_params={"org_id": str(denied.id)}), self.db, user)
+
+    def test_user_organization_id_is_respected_when_membership_is_valid(self):
+        first = Organization(name="First", slug="first", is_active=True, is_live=True)
+        second = Organization(name="Second", slug="second", is_active=True, is_live=True)
+        self.db.add_all([first, second])
+        self.db.flush()
+        user = User(email="member@multi.test", organization_id=second.id)
+        self.db.add(user)
+        self.db.flush()
+        self.db.add_all([
+            OrganizationMembership(organization_id=first.id, user_id=user.id, role="member"),
+            OrganizationMembership(organization_id=second.id, user_id=user.id, role="member"),
+        ])
+        self.db.commit()
+
+        resolved = resolve_user_organization(self.db, user)
+
+        self.assertEqual(resolved.id, second.id)
+
+    def test_user_with_no_memberships_can_receive_domain_member_fallback(self):
+        org = Organization(name="Fallback", slug="fallback", email_domain="fallback.test", is_active=True, is_live=True)
+        self.db.add(org)
+        self.db.flush()
+        self.db.add(Workspace(organization_id=org.id, name="Fallback Workspace", slug="fallback-workspace"))
+        user = User(email="new@fallback.test", organization_id=org.id)
+        self.db.add(user)
+        self.db.commit()
+
+        resolved = resolve_user_organization(self.db, user)
+        membership = (
+            self.db.query(OrganizationMembership)
+            .filter(
+                OrganizationMembership.organization_id == org.id,
+                OrganizationMembership.user_id == user.id,
+            )
+            .one()
+        )
+
+        self.assertEqual(resolved.id, org.id)
+        self.assertEqual(membership.role, "member")
+
+    def test_pending_admin_invitation_without_membership_does_not_grant_access(self):
+        org = Organization(name="Invite Only", slug="invite-only", is_active=True, is_live=False)
+        self.db.add(org)
+        self.db.flush()
+        workspace = Workspace(organization_id=org.id, name="Invite Only Workspace", slug="invite-only-workspace")
+        user = User(email="pending@example.com", organization_id=org.id)
+        self.db.add_all([workspace, user])
+        self.db.flush()
+        self.db.add(WorkspaceInvitation(
+            organization_id=org.id,
+            workspace_id=workspace.id,
+            email="pending@example.com",
+            name="Pending Admin",
+            role="admin",
+            token="pending-admin-token",
+            status="pending",
+        ))
+        self.db.commit()
+
+        self.assertIsNone(resolve_user_organization(self.db, user))
+
+    def test_public_domain_email_does_not_trigger_domain_matching(self):
+        org = Organization(name="Gmail Org", slug="gmail-org", email_domain="gmail.com", is_active=True, is_live=True)
+        self.db.add(org)
+        self.db.flush()
+        self.db.add(Workspace(organization_id=org.id, name="Gmail Workspace", slug="gmail-workspace"))
+        self.db.commit()
+
+        self.assertIsNone(organization_for_email_domain(self.db, "person@gmail.com"))
 
     def test_platform_owner_email_env_identifies_platform_admin(self):
         with patch.dict(

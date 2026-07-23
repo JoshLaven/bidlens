@@ -451,6 +451,31 @@ class DailySnapshot(Base):
     user = relationship("User")
 
 
+class DailyBriefEmailDelivery(Base):
+    __tablename__ = "daily_brief_email_deliveries"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "user_id", "snapshot_date", name="uq_daily_brief_delivery_workspace_user_date"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    snapshot_date = Column(Date, nullable=False, index=True)
+    recipient_email = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="pending", server_default="pending", index=True)
+    attempted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    provider = Column(String, nullable=True)
+    provider_message_id = Column(String, nullable=True)
+    error_message = Column(Text, nullable=True)
+    item_count = Column(Integer, nullable=False, default=0, server_default="0")
+
+    organization = relationship("Organization")
+    workspace = relationship("Workspace")
+    user = relationship("User")
+
+
 class PursuitLane(Base):
     __tablename__ = "pursuit_lanes"
 
@@ -648,6 +673,7 @@ class User(Base):
     # Compatibility home workspace. Current workspace is resolved from memberships
     # and ?org_id in src/bidlens/tenancy.py until full auth/workspace switching exists.
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    daily_brief_email_opted_out = Column(Boolean, nullable=False, default=False, server_default=false())
 
     created_at = Column(DateTime, default=datetime.utcnow)
 

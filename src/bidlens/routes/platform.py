@@ -36,6 +36,7 @@ JOB_LABELS = {
     "sam_ingest": "SAM.gov Pull",
     "grants_ingest": "Grants.gov Pull",
     "daily_snapshot": "Daily Snapshot",
+    "daily_brief_email": "Daily Brief Email",
     "govwin_ingest": "GovWin Pull",
     "outlook_classification": "Outlook Classification",
 }
@@ -68,6 +69,7 @@ DETAIL_LABELS = {
     "checkpoint_saved": "Checkpoint saved",
     "pause_reason": "Pause reason",
     "users_eligible": "Users eligible",
+    "sent": "Sent",
     "snapshots_created": "Snapshots created",
     "already_existed": "Already existed",
     "failed": "Failed",
@@ -214,7 +216,7 @@ def _operation_filter_options(db: Session) -> dict:
     )
     return {
         "organizations": organizations,
-        "job_types": [{"value": key, "label": value} for key, value in JOB_LABELS.items() if key in {"sam_ingest", "grants_ingest", "daily_snapshot"}],
+        "job_types": [{"value": key, "label": value} for key, value in JOB_LABELS.items() if key in {"sam_ingest", "grants_ingest", "daily_snapshot", "daily_brief_email"}],
         "statuses": [{"value": key, "label": value} for key, value in STATUS_LABELS.items()],
     }
 

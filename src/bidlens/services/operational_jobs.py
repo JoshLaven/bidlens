@@ -11,6 +11,7 @@ from ..grants_gov_client import DEFAULT_GRANTS_POSTED_DAYS_BACK, DEFAULT_GRANTS_
 from ..ingest_grants_gov import ingest_grants_gov
 from ..models import (
     DailySnapshot,
+    DailyBriefEmailDelivery,
     GrantsSourceConfig,
     IngestionRun,
     Organization,
@@ -19,7 +20,9 @@ from ..models import (
     User,
     Workspace,
 )
+from .daily_brief_emails import build_daily_brief_email_message, is_valid_recipient_email
 from .daily_snapshot import create_daily_snapshot
+from .email_delivery import EmailSender, ResendEmailSender
 from .ingestion_runs import record_source_activity
 from .job_runs import (
     JOB_STATUS_FAILED,
@@ -28,6 +31,7 @@ from .job_runs import (
     JOB_STATUS_SKIPPED,
     JOB_STATUS_SUCCESS,
     JOB_TYPE_DAILY_SNAPSHOT,
+    JOB_TYPE_DAILY_BRIEF_EMAIL,
     JOB_TYPE_GRANTS_INGEST,
     JOB_TYPE_SAM_INGEST,
     TRIGGER_TYPE_SCHEDULED,
@@ -577,5 +581,173 @@ def run_daily_snapshots_job(
             db.close()
 
     _print("Daily Snapshot job finished")
+    _print(_job_summary(status_counts))
+    return _job_exit_code(status_counts)
+
+
+def run_daily_brief_emails_job(
+    *,
+    session_factory: Callable[[], Session] = SessionLocal,
+    trigger_type: str = TRIGGER_TYPE_SCHEDULED,
+    snapshot_date: dt.date | None = None,
+    email_sender: EmailSender | None = None,
+) -> int:
+    snapshot_date = snapshot_date or dt.date.today()
+    sender = email_sender or ResendEmailSender()
+    _print("Daily Brief Email job started")
+    list_db = session_factory()
+    try:
+        workspace_rows = (
+            list_db.query(Workspace.id, Workspace.organization_id)
+            .join(Organization, Organization.id == Workspace.organization_id)
+            .filter(Organization.is_active.is_(True))
+            .filter(Organization.is_live.is_(True))
+            .order_by(Workspace.organization_id.asc())
+            .all()
+        )
+    finally:
+        list_db.close()
+
+    if not workspace_rows:
+        _print("No eligible live workspaces found")
+        _print("Daily Brief Email job finished")
+        return 0
+
+    status_counts: Counter[str] = Counter()
+    for workspace_id, organization_id in workspace_rows:
+        db = session_factory()
+        job_run = None
+        try:
+            job_run = start_job_run(
+                db,
+                organization_id=int(organization_id),
+                job_type=JOB_TYPE_DAILY_BRIEF_EMAIL,
+                trigger_type=trigger_type,
+                details={"snapshot_date": snapshot_date.isoformat()},
+            )
+            _print(f"Organization {organization_id}")
+            _print(f"JobRun {job_run.id}")
+            users = _eligible_snapshot_users(db, organization_id=int(organization_id))
+            details = {
+                "snapshot_date": snapshot_date.isoformat(),
+                "users_eligible": len(users),
+                "sent": 0,
+                "skipped": 0,
+                "failed": 0,
+            }
+            for user in users:
+                email = (user.email or "").strip()
+                if getattr(user, "daily_brief_email_opted_out", False):
+                    details["skipped"] += 1
+                    continue
+                if not is_valid_recipient_email(email):
+                    details["skipped"] += 1
+                    continue
+
+                existing = (
+                    db.query(DailyBriefEmailDelivery)
+                    .filter(
+                        DailyBriefEmailDelivery.workspace_id == int(workspace_id),
+                        DailyBriefEmailDelivery.user_id == user.id,
+                        DailyBriefEmailDelivery.snapshot_date == snapshot_date,
+                    )
+                    .first()
+                )
+                if existing and existing.status == JOB_STATUS_SUCCESS:
+                    details["skipped"] += 1
+                    continue
+
+                workspace = db.query(Workspace).filter(Workspace.id == int(workspace_id)).first()
+                if workspace is None:
+                    details["skipped"] += 1
+                    continue
+                message, item_count, skip_reason = build_daily_brief_email_message(
+                    db,
+                    workspace=workspace,
+                    user_id=user.id,
+                    user_name=user.name,
+                    user_email=email,
+                    snapshot_date=snapshot_date,
+                )
+                delivery = existing or DailyBriefEmailDelivery(
+                    organization_id=int(organization_id),
+                    workspace_id=int(workspace_id),
+                    user_id=user.id,
+                    snapshot_date=snapshot_date,
+                    recipient_email=email,
+                )
+                delivery.recipient_email = email
+                delivery.status = JOB_STATUS_RUNNING
+                delivery.attempted_at = dt.datetime.now(dt.timezone.utc)
+                delivery.item_count = item_count
+                delivery.error_message = None
+                if not existing:
+                    db.add(delivery)
+                db.commit()
+
+                if not message:
+                    delivery.status = JOB_STATUS_SKIPPED
+                    delivery.error_message = skip_reason
+                    db.commit()
+                    details["skipped"] += 1
+                    continue
+
+                try:
+                    result = sender.send(message)
+                    delivery.status = JOB_STATUS_SUCCESS
+                    delivery.sent_at = dt.datetime.now(dt.timezone.utc)
+                    delivery.provider = result.provider
+                    delivery.provider_message_id = result.message_id
+                    delivery.error_message = None
+                    db.commit()
+                    details["sent"] += 1
+                except Exception as exc:
+                    db.rollback()
+                    delivery = (
+                        db.query(DailyBriefEmailDelivery)
+                        .filter(
+                            DailyBriefEmailDelivery.workspace_id == int(workspace_id),
+                            DailyBriefEmailDelivery.user_id == user.id,
+                            DailyBriefEmailDelivery.snapshot_date == snapshot_date,
+                        )
+                        .first()
+                    )
+                    if delivery is not None:
+                        delivery.status = JOB_STATUS_FAILED
+                        delivery.error_message = sanitize_error_message(str(exc))
+                        delivery.provider = getattr(sender, "provider", None)
+                        delivery.attempted_at = dt.datetime.now(dt.timezone.utc)
+                        db.commit()
+                    details["failed"] += 1
+
+            if not users or (details["sent"] == 0 and details["failed"] == 0):
+                status = JOB_STATUS_SKIPPED
+            elif details["failed"] == 0:
+                status = JOB_STATUS_SUCCESS
+            elif details["sent"] == 0:
+                status = JOB_STATUS_FAILED
+            else:
+                status = JOB_STATUS_PARTIAL_SUCCESS
+            summary = (
+                f"Daily Brief Email {status}: {details['sent']} sent, "
+                f"{details['skipped']} skipped, {details['failed']} failed"
+            )
+            complete_job_run(db, job_run, status=status, summary=summary, details=details)
+            status_counts[status] += 1
+            _print(f"Status: {status}")
+            _print(f"Sent: {details['sent']}")
+            _print(f"Skipped: {details['skipped']}")
+            _print(f"Failed: {details['failed']}")
+        except Exception as exc:
+            db.rollback()
+            if job_run is not None:
+                fail_job_run(db, job_run, exc, summary="Daily Brief Email job failed")
+            status_counts[JOB_STATUS_FAILED] += 1
+            _print(f"Status: {JOB_STATUS_FAILED}")
+            _print(f"Error: {sanitize_error_message(str(exc))}")
+        finally:
+            db.close()
+
+    _print("Daily Brief Email job finished")
     _print(_job_summary(status_counts))
     return _job_exit_code(status_counts)
