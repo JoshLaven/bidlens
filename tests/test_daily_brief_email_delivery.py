@@ -22,6 +22,7 @@ from bidlens.services.email_delivery import EmailSendResult
 from bidlens.services.job_runs import (
     JOB_STATUS_FAILED,
     JOB_STATUS_PARTIAL_SUCCESS,
+    JOB_STATUS_RUNNING,
     JOB_STATUS_SKIPPED,
     JOB_STATUS_SUCCESS,
     JOB_TYPE_DAILY_BRIEF_EMAIL,
@@ -41,6 +42,25 @@ class FakeSender:
         if message.to_email in self.fail_for:
             raise RuntimeError("provider token=secret failed")
         return EmailSendResult(provider=self.provider, message_id=f"msg-{len(self.messages)}")
+
+
+class InspectingSender(FakeSender):
+    def __init__(self, session_factory):
+        super().__init__()
+        self.session_factory = session_factory
+        self.observed_job_status = None
+        self.observed_delivery_status = None
+
+    def send(self, message):
+        db = self.session_factory()
+        try:
+            self.observed_job_status = db.query(JobRun).filter(
+                JobRun.job_type == JOB_TYPE_DAILY_BRIEF_EMAIL,
+            ).one().status
+            self.observed_delivery_status = db.query(DailyBriefEmailDelivery).one().status
+        finally:
+            db.close()
+        return super().send(message)
 
 
 class DailyBriefEmailDeliveryTests(unittest.TestCase):
@@ -146,6 +166,21 @@ class DailyBriefEmailDeliveryTests(unittest.TestCase):
         run = self.db.query(JobRun).filter(JobRun.job_type == JOB_TYPE_DAILY_BRIEF_EMAIL).one()
         self.assertEqual(run.status, JOB_STATUS_SUCCESS)
         self.assertEqual(run.details_json["sent"], 1)
+
+    def test_running_job_and_delivery_status_are_available_before_send(self):
+        user = self._user()
+        self._snapshot(user)
+        sender = InspectingSender(self.Session)
+
+        exit_code = operational_jobs.run_daily_brief_emails_job(
+            session_factory=self.Session,
+            snapshot_date=self.snapshot_date,
+            email_sender=sender,
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(sender.observed_job_status, JOB_STATUS_RUNNING)
+        self.assertEqual(sender.observed_delivery_status, JOB_STATUS_RUNNING)
 
     def test_non_live_and_inactive_organizations_are_skipped(self):
         inactive_org = Organization(name="Inactive", slug="inactive", is_active=False, is_live=True)
