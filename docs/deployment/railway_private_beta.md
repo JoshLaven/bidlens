@@ -55,6 +55,10 @@ SALESFORCE_INSTANCE_URL=<optional>
 SALESFORCE_CLIENT_ID=<optional>
 SALESFORCE_CLIENT_SECRET=<optional>
 SALESFORCE_REDIRECT_URI=<optional>
+MICROSOFT_CLIENT_ID=<optional>
+MICROSOFT_CLIENT_SECRET=<optional>
+MICROSOFT_REDIRECT_URI=<optional>
+MICROSOFT_TENANT_ID=common
 OPENAI_API_KEY=<optional>
 OPENAI_MODEL=<optional>
 COMPANY_PROFILE_WEBHOOK_URL=<optional>
@@ -78,6 +82,21 @@ preserving existing Salesforce Opportunity IDs, URLs, and sync history.
 
 For the full customer and operator setup procedure, see
 [BidLens Salesforce V1 Setup Guide](../integrations/salesforce_setup_guide.md).
+
+Configure the Microsoft variables when users will connect their own Microsoft
+accounts. `MICROSOFT_REDIRECT_URI` must exactly match the redirect URI in the
+Microsoft Entra application, for example:
+
+```text
+https://<railway-public-domain>/integrations/microsoft/oauth/callback
+```
+
+Microsoft connections are per user, not workspace-wide. BidLens currently uses
+the connection to verify delegated Microsoft identity and to let the connected
+user intentionally send one opportunity-related email from Opportunity Detail
+through Microsoft Graph `/me/sendMail`. BidLens requests delegated `Mail.Send`
+for that explicit action. It does not request mail-read permissions, read mail,
+inspect Sent Items, create drafts, scan mailboxes, or register webhooks.
 
 Do not upload `.env.railway.local`; it is only for local developer shells.
 

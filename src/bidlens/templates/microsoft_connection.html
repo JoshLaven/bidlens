@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% set hide_context_sidebar = true %}
+{% block title %}Microsoft Connection - BidLens{% endblock %}
+{% block content %}
+<div class="admin-page-layout workspace-management-page">
+  <div class="admin-page-content">
+    <div class="integration-config-header">
+      <a href="/integrations{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="back-link">&larr; Integrations</a>
+      <div>
+        <h1>Microsoft 365 Connection</h1>
+        <p>Connect your own Microsoft account so future BidLens actions can use your delegated identity.</p>
+      </div>
+    </div>
+
+    {% if connected_success %}<div class="alert alert-success">Microsoft account connected successfully.</div>{% endif %}
+    {% if disconnected %}<div class="alert alert-success">Microsoft account disconnected from BidLens. Local credentials were removed.</div>{% endif %}
+    {% if tested == 'success' %}<div class="alert alert-success">Microsoft connection verified.</div>{% endif %}
+    {% if tested and tested != 'success' %}<div class="alert alert-warning">{{ status.last_error_message or 'Microsoft connection could not be verified.' }}</div>{% endif %}
+    {% if error_code %}<div class="alert alert-warning">{{ page_error }}</div>{% endif %}
+
+    <section class="configuration-center-section">
+      <div class="configuration-center-section-heading">
+        <div>
+          <span>Personal integration</span>
+          <h2>Connection Status</h2>
+        </div>
+        <span class="configuration-health configuration-health--{{ status.level }}">
+          <i aria-hidden="true"></i>{{ status.label }}
+        </span>
+      </div>
+
+      {% if status.connected %}
+        <dl class="integration-status-list">
+          <div>
+            <dt>Connected account</dt>
+            <dd>{{ status.connected_display_name or 'Microsoft user' }}</dd>
+          </div>
+          <div>
+            <dt>Email</dt>
+            <dd>{{ status.connected_email or 'Not provided by Microsoft' }}</dd>
+          </div>
+          <div>
+            <dt>Connected</dt>
+            <dd>{{ status.connected_at.strftime('%b %d, %Y %I:%M %p') if status.connected_at else 'Connected' }}</dd>
+          </div>
+          <div>
+            <dt>Last verified</dt>
+            <dd>{{ status.last_verified_at.strftime('%b %d, %Y %I:%M %p') if status.last_verified_at else 'Not yet verified' }}</dd>
+          </div>
+        </dl>
+        <div class="integration-status-actions">
+          <form method="post" action="/integrations/microsoft/test">
+            <button class="btn btn-outline-secondary" type="submit">Test Connection</button>
+          </form>
+          <form method="post" action="/integrations/microsoft/disconnect" onsubmit="return confirm('Disconnect your Microsoft account from BidLens? Local tokens will be removed.');">
+            <button class="btn btn-outline-danger" type="submit">Disconnect</button>
+          </form>
+        </div>
+      {% elif status.status == 'reauthorization_required' %}
+        <p>Your Microsoft authorization has expired or was revoked. Reconnect your account to continue.</p>
+        <a href="/integrations/microsoft/oauth/start" class="btn btn-primary">Reconnect Microsoft Account</a>
+      {% else %}
+        <p>BidLens will only verify your Microsoft identity in this phase. It will not read mail, send mail, scan mailboxes, access attachments, or create conversations.</p>
+        <a href="/integrations/microsoft/oauth/start" class="btn btn-primary">Connect Microsoft Account</a>
+      {% endif %}
+
+      <p class="integration-mock-note">Requested delegated permissions: {{ scope_summary }}. Mail permissions are not requested.</p>
+    </section>
+
+    {% if admin_rows %}
+      <section class="configuration-center-section">
+        <div class="configuration-center-section-heading">
+          <div>
+            <span>Workspace visibility</span>
+            <h2>Microsoft Adoption</h2>
+          </div>
+          <p>Admins can see connection status only. They cannot test, refresh, disconnect, or manage another user's credentials.</p>
+        </div>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Connected email</th>
+                <th>Last verified</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in admin_rows %}
+                <tr>
+                  <td>
+                    <strong>{{ row.name }}</strong><br>
+                    <span class="muted">{{ row.email }}</span>
+                  </td>
+                  <td>{{ row.role|title }}</td>
+                  <td><span class="configuration-health configuration-health--{{ row.status.level }}"><i aria-hidden="true"></i>{{ row.status.label }}</span></td>
+                  <td>{{ row.status.connected_email or '—' }}</td>
+                  <td>{{ row.status.last_verified_at.strftime('%b %d, %Y') if row.status.last_verified_at else '—' }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

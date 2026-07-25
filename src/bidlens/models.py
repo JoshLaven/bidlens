@@ -131,6 +131,16 @@ class Opportunity(Base):
         back_populates="opportunity",
         cascade="all, delete-orphan",
     )
+    conversations = relationship(
+        "OpportunityConversation",
+        back_populates="opportunity",
+        cascade="all, delete-orphan",
+    )
+    activity_events = relationship(
+        "OpportunityActivityEvent",
+        back_populates="opportunity",
+        cascade="all, delete-orphan",
+    )
     outcomes = relationship(
         "OpportunityOutcome",
         back_populates="opportunity",
@@ -159,6 +169,116 @@ class OpportunityOutcome(Base):
     opportunity = relationship("Opportunity", back_populates="outcomes")
     organization = relationship("Organization")
     recorded_by_user = relationship("User")
+
+
+class OpportunityConversation(Base):
+    __tablename__ = "opportunity_conversations"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "provider",
+            "external_conversation_id",
+            name="uq_opportunity_conversation_workspace_provider_external",
+        ),
+        Index("ix_opportunity_conversations_workspace_opportunity", "workspace_id", "opportunity_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
+    provider = Column(String, nullable=False, default="manual", server_default="manual", index=True)
+    external_conversation_id = Column(String, nullable=True, index=True)
+    subject = Column(String, nullable=False)
+    started_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    participant_summary = Column(Text, nullable=True)
+    message_count = Column(Integer, nullable=False, default=0, server_default="0")
+    first_message_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    last_message_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    send_status = Column(String, nullable=True, index=True)
+    send_requested_at = Column(DateTime(timezone=True), nullable=True)
+    accepted_for_delivery_at = Column(DateTime(timezone=True), nullable=True)
+    failed_at = Column(DateTime(timezone=True), nullable=True)
+    uncertain_at = Column(DateTime(timezone=True), nullable=True)
+    send_error_code = Column(String, nullable=True)
+    idempotency_key_digest = Column(String, nullable=True, unique=True, index=True)
+    idempotency_expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    recipient_count = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    workspace = relationship("Workspace", back_populates="opportunity_conversations")
+    opportunity = relationship("Opportunity", back_populates="conversations")
+    started_by_user = relationship("User")
+    activity_events = relationship(
+        "OpportunityActivityEvent",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+    )
+
+
+class OpportunityConversationSendAttempt(Base):
+    __tablename__ = "opportunity_conversation_send_attempts"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key_digest", name="uq_opp_conversation_send_attempt_idempotency"),
+        Index("ix_opp_conversation_send_attempt_scope", "workspace_id", "opportunity_id", "user_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    conversation_id = Column(Integer, ForeignKey("opportunity_conversations.id"), nullable=True, index=True)
+    idempotency_key_digest = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=False, default="pending", server_default="pending", index=True)
+    recipient_count = Column(Integer, nullable=False, default=0, server_default="0")
+    error_code = Column(String, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    workspace = relationship("Workspace")
+    opportunity = relationship("Opportunity")
+    user = relationship("User")
+    conversation = relationship("OpportunityConversation")
+
+
+class OpportunityActivityEvent(Base):
+    __tablename__ = "opportunity_activity_events"
+    __table_args__ = (
+        Index(
+            "ix_opportunity_activity_workspace_opportunity_occurred",
+            "workspace_id",
+            "opportunity_id",
+            "occurred_at",
+        ),
+        Index(
+            "ix_opportunity_activity_opportunity_occurred",
+            "opportunity_id",
+            "occurred_at",
+        ),
+        Index(
+            "ix_opportunity_activity_conversation_occurred",
+            "conversation_id",
+            "occurred_at",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
+    event_type = Column(String, nullable=False, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("opportunity_conversations.id"), nullable=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    metadata_json = Column(JSON, nullable=True)
+    occurred_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    workspace = relationship("Workspace", back_populates="opportunity_activity_events")
+    opportunity = relationship("Opportunity", back_populates="activity_events")
+    actor = relationship("User")
+    conversation = relationship("OpportunityConversation", back_populates="activity_events")
 
 
 class OpportunityUpdateEvent(Base):
@@ -411,6 +531,16 @@ class Workspace(Base):
     organization = relationship("Organization", back_populates="workspace")
     plan = relationship("Plan", back_populates="workspaces")
     invitations = relationship("WorkspaceInvitation", back_populates="workspace", cascade="all, delete-orphan")
+    opportunity_conversations = relationship(
+        "OpportunityConversation",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+    )
+    opportunity_activity_events = relationship(
+        "OpportunityActivityEvent",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+    )
 
 
 class WorkspaceInvitation(Base):
@@ -596,6 +726,69 @@ class SalesforceOAuthState(Base):
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
     consumed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ExternalIntegrationConnection(Base):
+    __tablename__ = "external_integration_connections"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "user_id", "provider", name="uq_external_connection_workspace_user_provider"),
+        UniqueConstraint(
+            "workspace_id",
+            "provider",
+            "external_tenant_id",
+            "external_user_id",
+            name="uq_external_connection_workspace_provider_identity",
+        ),
+        Index("ix_external_connection_workspace_provider_status", "workspace_id", "provider", "connection_status"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    provider = Column(String, nullable=False, index=True)
+    connection_status = Column(String, nullable=False, default="connected", server_default="connected", index=True)
+    external_tenant_id = Column(String, nullable=True, index=True)
+    external_user_id = Column(String, nullable=True, index=True)
+    connected_email = Column(String, nullable=True)
+    connected_display_name = Column(String, nullable=True)
+    encrypted_access_token = Column(Text, nullable=True)
+    encrypted_refresh_token = Column(Text, nullable=True)
+    access_token_expires_at = Column(DateTime(timezone=True), nullable=True)
+    granted_scopes = Column(Text, nullable=True)
+    connected_at = Column(DateTime(timezone=True), nullable=True)
+    last_refreshed_at = Column(DateTime(timezone=True), nullable=True)
+    last_verified_at = Column(DateTime(timezone=True), nullable=True)
+    last_error_at = Column(DateTime(timezone=True), nullable=True)
+    last_error_code = Column(String, nullable=True)
+    last_error_message = Column(Text, nullable=True)
+    disconnected_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    workspace = relationship("Workspace")
+    user = relationship("User")
+
+
+class ExternalIntegrationOAuthState(Base):
+    __tablename__ = "external_integration_oauth_states"
+    __table_args__ = (
+        UniqueConstraint("state_digest", name="uq_external_oauth_state_digest"),
+        Index("ix_external_oauth_state_provider_user_workspace", "provider", "user_id", "workspace_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    provider = Column(String, nullable=False, index=True)
+    state_digest = Column(String, nullable=False, index=True)
+    encrypted_code_verifier = Column(Text, nullable=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    return_path = Column(String, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    workspace = relationship("Workspace")
+    user = relationship("User")
 
 
 class SamSourceConfig(Base):

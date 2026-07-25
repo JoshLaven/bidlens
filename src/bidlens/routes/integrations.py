@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import hashlib
+import secrets
 from typing import Any
 from urllib.parse import urlencode
 
 import requests
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
@@ -15,8 +17,20 @@ from .. import config
 from ..auth import attach_request_user_context, get_current_user
 from ..database import get_db
 from ..grants_gov_client import DEFAULT_GRANTS_POSTED_DAYS_BACK
-from ..models import (GrantsSourceConfig, IngestionRun, Opportunity, OrgProfile,
-                      SamSourceConfig, SalesforceConnection)
+from ..models import (
+    Event,
+    ExternalIntegrationConnection,
+    ExternalIntegrationOAuthState,
+    GrantsSourceConfig,
+    IngestionRun,
+    Opportunity,
+    OrganizationMembership,
+    OrgProfile,
+    SamSourceConfig,
+    SalesforceConnection,
+    User,
+    Workspace,
+)
 from ..services.govwin import GovWinAdapter
 from ..services.govwin_import import upsert_govwin_opportunity
 from ..services.opportunity_stages import is_excluded_govwin_stage
@@ -30,6 +44,18 @@ from ..services.salesforce import (
     SalesforceConfigError,
     SalesforceService,
     supported_bidlens_intake_source_values,
+)
+from ..services.microsoft import (
+    MICROSOFT_SCOPES,
+    PROVIDER_MICROSOFT,
+    MicrosoftConfigError,
+    MicrosoftConnectionError,
+    MicrosoftConnectionService,
+    connection_status_summary,
+    generate_pkce_pair,
+    safe_error_message,
+    safe_return_path,
+    state_digest,
 )
 
 
@@ -49,8 +75,20 @@ def _require_admin(request: Request, db: Session):
     return user
 
 
+def _require_authenticated_user(request: Request, db: Session):
+    user = get_current_user(request, db)
+    if not user:
+        return None
+    attach_request_user_context(request, db, user)
+    return user
+
+
 def _user_org_id(user) -> int:
     return getattr(user, "current_organization_id", None) or user.organization_id
+
+
+def _current_workspace(db: Session, user) -> Workspace | None:
+    return db.query(Workspace).filter(Workspace.organization_id == _user_org_id(user)).first()
 
 
 def _org_profile(db: Session, organization_id: int, *, create: bool = False) -> OrgProfile | None:
@@ -447,6 +485,7 @@ def _configuration_center_context(
     organization_id: int,
     profile: OrgProfile | None,
     salesforce_snapshot: dict[str, Any],
+    current_user_id: int | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     sam_configs = (
@@ -481,6 +520,18 @@ def _configuration_center_context(
         )
         .scalar()
     )
+    workspace = db.query(Workspace).filter(Workspace.organization_id == organization_id).first()
+    microsoft_connection = None
+    if workspace and current_user_id is not None:
+        microsoft_connection = (
+            db.query(ExternalIntegrationConnection)
+            .filter(
+                ExternalIntegrationConnection.workspace_id == workspace.id,
+                ExternalIntegrationConnection.user_id == current_user_id,
+                ExternalIntegrationConnection.provider == PROVIDER_MICROSOFT,
+            )
+            .first()
+        )
 
     center = {
         "sam": {
@@ -538,6 +589,9 @@ def _configuration_center_context(
                 ("External Source ID", "External_Source_ID__c ← source_record_id"),
                 ("Close Date", "Opportunity response deadline"),
             ),
+        },
+        "microsoft": {
+            "directory_status": connection_status_summary(microsoft_connection),
         },
     }
     _apply_connector_health(center, now=now or datetime.utcnow())
@@ -610,6 +664,7 @@ async def integrations_page(request: Request, db: Session = Depends(get_db)):
         organization_id=organization_id,
         profile=profile,
         salesforce_snapshot=salesforce_snapshot,
+        current_user_id=user.id,
     )
 
     return templates.TemplateResponse("integrations.html", {
@@ -707,6 +762,187 @@ async def disconnect_salesforce(request: Request, db: Session = Depends(get_db))
         url=f"/workspace-management/business-systems/salesforce?org_id={organization_id}&disconnected=1",
         status_code=303,
     )
+
+
+def _microsoft_user_context(request: Request, db: Session):
+    user = _require_authenticated_user(request, db)
+    if user is None:
+        return None, None, RedirectResponse(url="/login", status_code=303)
+    workspace = _current_workspace(db, user)
+    if workspace is None:
+        return user, None, RedirectResponse(url="/", status_code=303)
+    return user, workspace, None
+
+
+def _microsoft_admin_adoption(db: Session, workspace: Workspace, viewer) -> list[dict[str, Any]]:
+    if getattr(viewer, "current_role", "member") != "admin":
+        return []
+    memberships = (
+        db.query(OrganizationMembership, User)
+        .join(User, User.id == OrganizationMembership.user_id)
+        .filter(OrganizationMembership.organization_id == workspace.organization_id)
+        .order_by(User.name.asc(), User.email.asc())
+        .all()
+    )
+    connections = {
+        connection.user_id: connection_status_summary(connection)
+        for connection in (
+            db.query(ExternalIntegrationConnection)
+            .filter(
+                ExternalIntegrationConnection.workspace_id == workspace.id,
+                ExternalIntegrationConnection.provider == PROVIDER_MICROSOFT,
+            )
+            .all()
+        )
+    }
+    rows = []
+    for membership, member in memberships:
+        status = connections.get(member.id, connection_status_summary(None))
+        rows.append({
+            "name": member.name or member.email,
+            "email": member.email,
+            "role": membership.role,
+            "status": status,
+        })
+    return rows
+
+
+@router.get("/integrations/microsoft")
+async def microsoft_connection_page(request: Request, db: Session = Depends(get_db)):
+    user, workspace, redirect = _microsoft_user_context(request, db)
+    if redirect:
+        return redirect
+    service = MicrosoftConnectionService(db=db, workspace=workspace, user=user)
+    return templates.TemplateResponse("microsoft_connection.html", {
+        "request": request,
+        "user": user,
+        "active_page": "integrations",
+        "workspace": workspace,
+        "status": service.safe_status(),
+        "admin_rows": _microsoft_admin_adoption(db, workspace, user),
+        "connected_success": request.query_params.get("connected") == "1",
+        "tested": request.query_params.get("tested"),
+        "disconnected": request.query_params.get("disconnected") == "1",
+        "error_code": request.query_params.get("error"),
+        "page_error": safe_error_message(request.query_params.get("error") or ""),
+        "scope_summary": ", ".join(MICROSOFT_SCOPES),
+    })
+
+
+@router.get("/integrations/microsoft/oauth/start")
+async def microsoft_oauth_start(request: Request, db: Session = Depends(get_db)):
+    user, workspace, redirect = _microsoft_user_context(request, db)
+    if redirect:
+        return redirect
+    service = MicrosoftConnectionService(db=db, workspace=workspace, user=user)
+    try:
+        state = secrets.token_urlsafe(32)
+        code_verifier, code_challenge = generate_pkce_pair()
+        db.add(ExternalIntegrationOAuthState(
+            provider=PROVIDER_MICROSOFT,
+            state_digest=state_digest(state),
+            encrypted_code_verifier=encrypt_credentials({"verifier": code_verifier}),
+            workspace_id=workspace.id,
+            user_id=user.id,
+            return_path=safe_return_path(request.query_params.get("return_to")),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        ))
+        db.add(Event(
+            org_id=workspace.organization_id,
+            user_id=user.id,
+            event_type="integration_lifecycle",
+            payload={"provider": PROVIDER_MICROSOFT, "workspace_id": workspace.id, "outcome": "initiated"},
+        ))
+        db.commit()
+        authorization_url = service.build_authorization_url(state=state, code_challenge=code_challenge)
+    except MicrosoftConfigError:
+        db.rollback()
+        return RedirectResponse(url="/integrations/microsoft?error=configuration_error", status_code=303)
+    return RedirectResponse(authorization_url)
+
+
+@router.get("/integrations/microsoft/oauth/callback")
+async def microsoft_oauth_callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    db: Session = Depends(get_db),
+):
+    user = _require_authenticated_user(request, db)
+    if user is None:
+        raise HTTPException(status_code=400, detail="Invalid Microsoft OAuth callback")
+    if error:
+        return RedirectResponse(url="/integrations/microsoft?error=consent_denied", status_code=303)
+    if not code or not state:
+        return RedirectResponse(url="/integrations/microsoft?error=invalid_state", status_code=303)
+    state_record = (
+        db.query(ExternalIntegrationOAuthState)
+        .filter(
+            ExternalIntegrationOAuthState.provider == PROVIDER_MICROSOFT,
+            ExternalIntegrationOAuthState.state_digest == state_digest(state),
+        )
+        .with_for_update()
+        .first()
+    )
+    now = datetime.now(timezone.utc)
+    invalid_redirect = RedirectResponse(url="/integrations/microsoft?error=invalid_state", status_code=303)
+    if state_record is None or state_record.consumed_at is not None:
+        return invalid_redirect
+    expires_at = state_record.expires_at if state_record.expires_at.tzinfo else state_record.expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < now:
+        return RedirectResponse(url="/integrations/microsoft?error=expired_oauth_attempt", status_code=303)
+    if state_record.user_id != user.id:
+        return invalid_redirect
+    workspace = db.query(Workspace).filter(Workspace.id == state_record.workspace_id).first()
+    if not workspace or workspace.organization_id != _user_org_id(user):
+        return invalid_redirect
+    code_verifier = decrypt_credentials(state_record.encrypted_code_verifier).get("verifier")
+    if not code_verifier:
+        return invalid_redirect
+    state_record.consumed_at = now
+    state_record.encrypted_code_verifier = None
+    db.commit()
+    service = MicrosoftConnectionService(db=db, workspace=workspace, user=user)
+    try:
+        token_response = service.exchange_authorization_code(code=code, code_verifier=code_verifier)
+        service.complete_connection(token_response)
+        db.commit()
+    except (MicrosoftConfigError, MicrosoftConnectionError) as exc:
+        db.rollback()
+        code = getattr(exc, "code", "token_exchange_failed")
+        return RedirectResponse(url=f"/integrations/microsoft?error={code}", status_code=303)
+    return RedirectResponse(url=f"{safe_return_path(state_record.return_path)}?connected=1", status_code=303)
+
+
+@router.post("/integrations/microsoft/test")
+async def test_microsoft_connection(request: Request, db: Session = Depends(get_db)):
+    user, workspace, redirect = _microsoft_user_context(request, db)
+    if redirect:
+        return redirect
+    service = MicrosoftConnectionService(db=db, workspace=workspace, user=user)
+    try:
+        service.test_connection()
+        db.commit()
+        result = "success"
+    except MicrosoftConnectionError as exc:
+        db.commit()
+        result = getattr(exc, "code", "error")
+    except (MicrosoftConfigError, requests.RequestException):
+        db.rollback()
+        result = "provider_unavailable"
+    return RedirectResponse(url=f"/integrations/microsoft?tested={result}", status_code=303)
+
+
+@router.post("/integrations/microsoft/disconnect")
+async def disconnect_microsoft(request: Request, db: Session = Depends(get_db)):
+    user, workspace, redirect = _microsoft_user_context(request, db)
+    if redirect:
+        return redirect
+    service = MicrosoftConnectionService(db=db, workspace=workspace, user=user)
+    service.disconnect()
+    db.commit()
+    return RedirectResponse(url="/integrations/microsoft?disconnected=1", status_code=303)
 
 
 @router.get("/integrations/govwin")

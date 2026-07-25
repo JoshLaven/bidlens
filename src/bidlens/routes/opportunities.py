@@ -21,10 +21,40 @@ from ..models import (
     OpportunityHistoryEvent,
     OpportunityOutcome,
     OrganizationMembership,
+    ExternalIntegrationConnection,
 )
 from ..auth import attach_request_user_context, get_current_user
 from ..services import get_vote_counts, get_user_votes, get_last_activity, get_vote_user_maps
 from ..services.opportunity_history import unread_history_count
+from ..services.opportunity_conversations import (
+    OpportunityConversationTenancyError,
+    empty_conversation_context,
+    get_opportunity_conversation_context,
+)
+from ..services.microsoft import (
+    PROVIDER_MICROSOFT,
+    STATUS_CONNECTED,
+    STATUS_REAUTHORIZATION_REQUIRED,
+    MicrosoftConnectionError,
+    MicrosoftConnectionService,
+    connection_has_scope,
+    safe_error_message,
+)
+from ..services.opportunity_email import (
+    OpportunityEmailValidationError,
+    audit_email_send,
+    body_with_footer,
+    default_subject,
+    finalize_accepted_send,
+    interested_colleague_recipients,
+    merge_recipients,
+    new_send_token,
+    parse_recipient_emails,
+    reserve_send_attempt,
+    validate_message,
+    validate_send_attempt,
+    validate_subject,
+)
 from ..services.opportunity_stages import (
     DISPLAY_STAGES,
     RFI_TYPE_INDICATORS,
@@ -53,6 +83,7 @@ from typing import Optional
 from sqlalchemy import func, case
 from ..models import OpportunityPursuitLaneMatch, PursuitLane, Vote
 from ..models import OpportunityBrief
+from ..models import Workspace
 from ..grants_gov_client import GrantsGovApiError
 from ..ingest_grants_gov import enrich_grants_gov_opportunity_detail
 router = APIRouter()
@@ -186,6 +217,34 @@ def _current_user_role(db: Session, user) -> str:
         .first()
     )
     return membership.role if membership else "member"
+
+
+def _authorized_opportunity_for_user(db: Session, user, opp_id: int) -> Opportunity | None:
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == opp_id,
+        Opportunity.organization_id == _user_org_id(user),
+    ).first()
+    if not opportunity:
+        return None
+    if opportunity.qualification_status != QUALIFICATION_QUALIFIED and not _is_admin(user):
+        return None
+    return opportunity
+
+
+def _workspace_for_user(db: Session, user) -> Workspace | None:
+    return db.query(Workspace).filter(Workspace.organization_id == _user_org_id(user)).first()
+
+
+def _microsoft_connection_for_user(db: Session, *, workspace: Workspace, user) -> ExternalIntegrationConnection | None:
+    return (
+        db.query(ExternalIntegrationConnection)
+        .filter(
+            ExternalIntegrationConnection.workspace_id == workspace.id,
+            ExternalIntegrationConnection.user_id == user.id,
+            ExternalIntegrationConnection.provider == PROVIDER_MICROSOFT,
+        )
+        .first()
+    )
 
 
 def _is_admin(user) -> bool:
@@ -2099,6 +2158,18 @@ async def opportunity_detail(
     opportunity.agency_display = agency.display
     opportunity.parent_agency = agency.parent
     opportunity.sub_agency = agency.sub_agency
+    try:
+        conversation_context = get_opportunity_conversation_context(
+            db,
+            opportunity=opportunity,
+        )
+    except OpportunityConversationTenancyError:
+        logger.warning(
+            "Opportunity conversation context unavailable for opportunity_id=%s organization_id=%s",
+            opportunity.id,
+            opportunity.organization_id,
+        )
+        conversation_context = empty_conversation_context()
 
     return templates.TemplateResponse("detail.html", {
         "request": request,
@@ -2135,8 +2206,166 @@ async def opportunity_detail(
         "pursuit_lanes": pursuit_lanes,
         "history_events": history_events,
         "history_unread_count": history_unread_count,
+        "conversation_context": conversation_context,
         "sidebar": get_sidebar(db, user),
     })
+
+
+@router.get("/opportunity/{opp_id}/conversation/new")
+async def new_opportunity_conversation(
+    request: Request,
+    opp_id: int,
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    opportunity = _authorized_opportunity_for_user(db, user, opp_id)
+    if not opportunity:
+        return RedirectResponse(url="/", status_code=303)
+    workspace = _workspace_for_user(db, user)
+    if not workspace:
+        return RedirectResponse(url=f"/opportunity/{opp_id}", status_code=303)
+
+    connection = _microsoft_connection_for_user(db, workspace=workspace, user=user)
+    token = new_send_token()
+    reserve_send_attempt(db, opportunity=opportunity, user=user, token=token)
+    db.commit()
+    colleagues = interested_colleague_recipients(db, opportunity=opportunity, current_user_id=user.id)
+    status = {
+        "connected": False,
+        "has_mail_send": False,
+        "status": "not_connected",
+        "label": "Not connected",
+        "connected_display_name": None,
+        "connected_email": None,
+    }
+    if connection:
+        status = MicrosoftConnectionService(db=db, workspace=workspace, user=user).safe_status()
+    connect_url = f"/integrations/microsoft/oauth/start?return_to=/opportunity/{opp_id}/conversation/new"
+    return templates.TemplateResponse("opportunity_conversation_compose.html", {
+        "request": request,
+        "user": user,
+        "opportunity": opportunity,
+        "active_page": None,
+        "status": status,
+        "colleagues": colleagues,
+        "send_token": token,
+        "default_subject": default_subject(opportunity),
+        "connect_url": connect_url,
+        "error": request.query_params.get("error"),
+        "error_message": safe_error_message(request.query_params.get("error") or ""),
+        "sidebar": get_sidebar(db, user),
+    })
+
+
+@router.post("/opportunity/{opp_id}/conversation/send")
+async def send_opportunity_conversation(
+    request: Request,
+    opp_id: int,
+    to: str = Form(""),
+    subject: str = Form(""),
+    message: str = Form(""),
+    send_token: str = Form(""),
+    add_interested_colleagues: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    opportunity = _authorized_opportunity_for_user(db, user, opp_id)
+    if not opportunity:
+        return RedirectResponse(url="/", status_code=303)
+    workspace = _workspace_for_user(db, user)
+    if not workspace:
+        return RedirectResponse(url=f"/opportunity/{opp_id}", status_code=303)
+
+    connection = _microsoft_connection_for_user(db, workspace=workspace, user=user)
+    if not connection:
+        return RedirectResponse(
+            url=f"/integrations/microsoft/oauth/start?return_to=/opportunity/{opp_id}/conversation/new",
+            status_code=303,
+        )
+    if connection.connection_status == STATUS_REAUTHORIZATION_REQUIRED or not connection_has_scope(connection, "Mail.Send"):
+        return RedirectResponse(
+            url=f"/integrations/microsoft/oauth/start?return_to=/opportunity/{opp_id}/conversation/new",
+            status_code=303,
+        )
+    if connection.connection_status != STATUS_CONNECTED:
+        return RedirectResponse(url=f"/opportunity/{opp_id}/conversation/new?error=connection_error", status_code=303)
+
+    try:
+        attempt = reserve_send_attempt(db, opportunity=opportunity, user=user, token=send_token)
+        validate_send_attempt(attempt, opportunity=opportunity, user=user)
+        if attempt.status in {"accepted_for_delivery", "failed", "outcome_uncertain"}:
+            if attempt.status == "accepted_for_delivery":
+                return RedirectResponse(url=f"/opportunity/{opp_id}?conversation=accepted", status_code=303)
+            return RedirectResponse(
+                url=f"/opportunity/{opp_id}?conversation={'uncertain' if attempt.status == 'outcome_uncertain' else 'failed'}",
+                status_code=303,
+            )
+        clean_subject = validate_subject(subject)
+        clean_message = validate_message(message)
+        manual_recipients = parse_recipient_emails(to)
+        colleague_recipients = (
+            interested_colleague_recipients(db, opportunity=opportunity, current_user_id=user.id)
+            if add_interested_colleagues
+            else []
+        )
+        recipients = merge_recipients(manual_recipients, colleague_recipients)
+    except OpportunityEmailValidationError:
+        db.rollback()
+        return RedirectResponse(url=f"/opportunity/{opp_id}/conversation/new?error=invalid_form", status_code=303)
+
+    attempt.status = "sending"
+    attempt.recipient_count = len(recipients)
+    db.commit()
+
+    service = MicrosoftConnectionService(db=db, workspace=workspace, user=user)
+    try:
+        service.send_mail_for_current_user(
+            to_recipients=recipients,
+            subject=clean_subject,
+            body_text=body_with_footer(message=clean_message, opportunity=opportunity),
+        )
+        finalize_accepted_send(
+            db,
+            opportunity=opportunity,
+            user=user,
+            attempt=attempt,
+            subject=clean_subject,
+            recipients=recipients,
+        )
+        db.commit()
+        return RedirectResponse(url=f"/opportunity/{opp_id}?conversation=accepted", status_code=303)
+    except MicrosoftConnectionError as exc:
+        code = getattr(exc, "code", "message_rejected")
+        attempt.status = "outcome_uncertain" if code == "outcome_uncertain" else "failed"
+        attempt.error_code = code
+        audit_email_send(
+            db,
+            opportunity=opportunity,
+            user=user,
+            outcome=attempt.status,
+            error_code=code,
+        )
+        db.commit()
+        return RedirectResponse(
+            url=f"/opportunity/{opp_id}?conversation={'uncertain' if code == 'outcome_uncertain' else 'failed'}",
+            status_code=303,
+        )
+    except requests.RequestException:
+        attempt.status = "outcome_uncertain"
+        attempt.error_code = "outcome_uncertain"
+        audit_email_send(
+            db,
+            opportunity=opportunity,
+            user=user,
+            outcome="outcome_uncertain",
+            error_code="outcome_uncertain",
+        )
+        db.commit()
+        return RedirectResponse(url=f"/opportunity/{opp_id}?conversation=uncertain", status_code=303)
 
 
 # ── User-level actions (notes, bookmark, etc.) ───────────────

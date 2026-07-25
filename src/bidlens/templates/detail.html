@@ -37,6 +37,7 @@
 
     <div class="detail-hero-actions">
       <div class="detail-primary-actions">
+        <a href="/opportunity/{{ opportunity.id }}/conversation/new" class="btn btn-sm btn-outline-secondary">Start Conversation</a>
         {% if is_qualified and decision_state in ['INBOX', 'SHORTLISTED'] %}
           <button type="button"
                   class="btn btn-sm opp-card-button opp-card-button--primary {{ 'btn-success' if user_vote == 'PURSUE' else 'btn-primary' }} detail-interest-action"
@@ -73,6 +74,98 @@
   </nav>
 
   <div class="detail-primary">
+    {% if request.query_params.get('conversation') == 'accepted' %}
+      <div class="alert alert-success">Microsoft accepted the email for sending.</div>
+    {% elif request.query_params.get('conversation') == 'uncertain' %}
+      <div class="alert alert-warning">BidLens could not confirm whether Microsoft accepted this email. Check your Sent Items before trying again to avoid sending a duplicate.</div>
+    {% elif request.query_params.get('conversation') == 'failed' %}
+      <div class="alert alert-warning">Microsoft could not accept the email request.</div>
+    {% endif %}
+    {% set conversation_status = (conversation_context or {}).get('current_status', {}) %}
+    {% set conversations = (conversation_context or {}).get('conversations', []) %}
+    {% set recent_activity = (conversation_context or {}).get('recent_activity', []) %}
+
+    <section class="detail-memory-section" aria-labelledby="detail-current-status-heading">
+      <article class="detail-memory-card detail-memory-card--status">
+        <div class="detail-memory-card-header">
+          <div>
+            <p class="detail-column-kicker">Workspace memory</p>
+            <h2 id="detail-current-status-heading">Current Status</h2>
+          </div>
+          <span class="detail-memory-badge">Placeholder</span>
+        </div>
+        <p class="detail-memory-copy">{{ conversation_status.get('narrative', 'No conversation activity has been recorded yet.') }}</p>
+        <dl class="detail-memory-meta">
+          <div>
+            <dt>Last activity</dt>
+            <dd>{{ conversation_status.get('last_activity_label', 'Not yet available') }}</dd>
+          </div>
+          <div>
+            <dt>Status summary updated</dt>
+            <dd>{{ conversation_status.get('summary_updated_label', 'Automated summary not yet generated.') }}</dd>
+          </div>
+        </dl>
+      </article>
+
+      <article class="detail-memory-card" aria-labelledby="detail-conversations-heading">
+        <div class="detail-memory-card-header">
+          <div>
+            <p class="detail-column-kicker">Team conversations</p>
+            <h2 id="detail-conversations-heading">Conversations</h2>
+          </div>
+          <span class="detail-memory-count">{{ conversations|length }}</span>
+        </div>
+        {% if conversations %}
+          <ul class="detail-conversation-list">
+            {% for conversation in conversations %}
+              <li>
+                <div>
+                  <strong>{{ conversation.subject }}</strong>
+                  <span>{{ conversation.provider_label }} · {{ conversation.message_count_label }}</span>
+                  {% if conversation.send_status_label %}
+                    <span>{{ conversation.send_status_label }}</span>
+                  {% endif %}
+                  {% if conversation.participants %}
+                    <span>{{ conversation.participants }}</span>
+                  {% endif %}
+                </div>
+                <time>{{ conversation.last_activity_label }}</time>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="detail-panel-empty">No conversations have been associated with this opportunity yet.</p>
+        {% endif %}
+      </article>
+
+      <article class="detail-memory-card" aria-labelledby="detail-recent-activity-heading">
+        <div class="detail-memory-card-header">
+          <div>
+            <p class="detail-column-kicker">Timeline</p>
+            <h2 id="detail-recent-activity-heading">Recent Activity</h2>
+          </div>
+          <span class="detail-memory-count">{{ recent_activity|length }}</span>
+        </div>
+        {% if recent_activity %}
+          <ol class="detail-activity-timeline">
+            {% for event in recent_activity %}
+              <li>
+                <span class="detail-activity-marker" aria-hidden="true"></span>
+                <div>
+                  <strong>{{ event.text }}</strong>
+                  {% if event.description %}
+                    <p>{{ event.description }}</p>
+                  {% endif %}
+                  <time>{{ event.occurred_at_label }}</time>
+                </div>
+              </li>
+            {% endfor %}
+          </ol>
+        {% else %}
+          <p class="detail-panel-empty">No recent activity has been recorded yet.</p>
+        {% endif %}
+      </article>
+    </section>
 
     <!-- Opportunity Summary -->
     <details open class="accordion detail-section detail-tab-panel" id="detail-panel-overview"

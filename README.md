@@ -49,6 +49,10 @@ This utility is local-development only. It preserves `joshuatlaven@gmail.com` as
 - `SALESFORCE_CLIENT_ID`: Salesforce Connected App consumer key
 - `SALESFORCE_CLIENT_SECRET`: Salesforce Connected App consumer secret
 - `SALESFORCE_REDIRECT_URI`: OAuth callback URL, for example `http://127.0.0.1:8000/api/salesforce/oauth/callback`
+- `MICROSOFT_CLIENT_ID`: Microsoft Entra application client ID for delegated user connection
+- `MICROSOFT_CLIENT_SECRET`: Microsoft Entra application client secret
+- `MICROSOFT_REDIRECT_URI`: Microsoft OAuth callback URL, for example `http://127.0.0.1:8000/integrations/microsoft/oauth/callback`
+- `MICROSOFT_TENANT_ID`: Microsoft authority tenant mode, such as `common`, `organizations`, or a specific tenant ID; defaults to `common`
 - `ENABLE_INTERNAL_SCHEDULER`: set to `true` only when this process should start APScheduler
 - `AUTO_CREATE_SCHEMA`: set to `false` in hosted environments that use Alembic migrations
 - `SESSION_COOKIE_SECURE`: set to `true` when serving over HTTPS
@@ -308,6 +312,32 @@ Current Salesforce capabilities:
 - BidLens records Salesforce sync outcomes in opportunity history and source-update audit events.
 - BidLens does not currently perform general bidirectional synchronization.
 - Field mapping, default owner, default record type, sync direction, and automatic push rules are placeholders for a future release.
+
+## Microsoft 365 Connection
+
+BidLens supports per-user Microsoft account connection management as a foundation for future Microsoft-backed workflows. Each connection belongs to exactly one BidLens user in one workspace. Workspace Admins can see non-sensitive adoption status, but they cannot test, refresh, disconnect, decrypt, or manage another user’s Microsoft credentials.
+
+Current Microsoft capability is intentionally limited to delegated identity connection and intentional user-initiated email sending from Opportunity Detail:
+
+- Authorization Code flow with PKCE and durable short-lived OAuth state.
+- Encrypted access and refresh token storage using the same server-side credential encryption helper as Salesforce/GovWin.
+- Microsoft identity verification against the connected account.
+- User-initiated Test Connection, Reconnect, and Disconnect.
+- User-initiated Opportunity Conversation email send through Microsoft Graph `/me/sendMail`.
+- No email reading, mailbox scanning, Sent Items inspection, draft creation, webhooks, attachment access, reply tracking, or mailbox-wide Opportunity Conversation discovery.
+
+Minimal delegated Microsoft scopes requested:
+
+- `openid`, `profile`, and `email`: identify the connected Microsoft user.
+- `offline_access`: maintain delegated access through refresh tokens.
+- `User.Read`: call Microsoft Graph `/me` for identity verification only.
+- `Mail.Send`: send an opportunity-related email only when the connected user intentionally submits the Start Conversation form.
+
+Configure the Microsoft Entra app redirect URI to the exact `MICROSOFT_REDIRECT_URI` value used by BidLens. For local development this is commonly:
+
+```text
+http://127.0.0.1:8000/integrations/microsoft/oauth/callback
+```
 
 ## Rotating SAM API Key
 
