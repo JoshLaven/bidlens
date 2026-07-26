@@ -249,6 +249,7 @@
     </div>
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
     <dialog id="opportunity-email-dialog" class="opportunity-email-dialog" aria-label="Compose email">
+      <button type="button" class="opportunity-email-dialog-close" aria-label="Close compose email" data-opportunity-email-close>&times;</button>
       <iframe id="opportunity-email-frame" class="opportunity-email-frame" title="Compose email"></iframe>
     </dialog>
     {% set show_past_due_notification = request_path == '/' or request_path.startswith('/my-shortlist') or request_path.startswith('/archive') %}
@@ -459,8 +460,16 @@
       const frame = document.getElementById('opportunity-email-frame');
       if (!dialog || !frame) return;
       window.closeOpportunityEmailDialog = function closeOpportunityEmailDialog() {
-        dialog.close();
+        if (dialog.open) dialog.close();
       };
+      dialog.querySelector('[data-opportunity-email-close]')?.addEventListener('click', () => {
+        window.closeOpportunityEmailDialog();
+      });
+      window.addEventListener('message', (event) => {
+        if (event.origin === window.location.origin && event.data === 'bidlens:close-opportunity-email') {
+          window.closeOpportunityEmailDialog();
+        }
+      });
       dialog.addEventListener('click', (event) => {
         if (event.target === dialog) {
           dialog.close();

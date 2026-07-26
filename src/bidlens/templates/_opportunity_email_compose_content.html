@@ -5,16 +5,7 @@
       <p class="detail-agency">{{ opportunity.title }}</p>
       <p class="detail-due-summary">Send from your connected Microsoft account and continue reviewing opportunities.</p>
     </div>
-    {% if embedded %}
-      <button
-        type="button"
-        class="opportunity-compose-close"
-        aria-label="Close compose email"
-        onclick="if (window.parent && window.parent.closeOpportunityEmailDialog) { window.parent.closeOpportunityEmailDialog(); } else { window.location.href={{ return_to|tojson }}; }"
-      >
-        &times;
-      </button>
-    {% else %}
+    {% if not embedded %}
       <a href="{{ return_to }}" class="detail-back-link">Cancel</a>
     {% endif %}
   </header>
@@ -86,7 +77,11 @@
         </div>
 
         <div class="form-actions">
-          <a href="{{ return_to }}" class="btn btn-outline-secondary" {% if embedded %}target="_top"{% endif %}>Cancel</a>
+          {% if embedded %}
+            <button type="button" class="btn btn-outline-secondary" onclick="window.parent.postMessage('bidlens:close-opportunity-email', window.location.origin)">Cancel</button>
+          {% else %}
+            <a href="{{ return_to }}" class="btn btn-outline-secondary">Cancel</a>
+          {% endif %}
           <button type="submit" class="btn btn-primary">Send</button>
         </div>
       </form>

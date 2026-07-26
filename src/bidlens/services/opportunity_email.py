@@ -17,6 +17,7 @@ from ..models import (
     User,
     Vote,
 )
+from .shortlisting import ensure_user_shortlisted
 from .opportunity_conversations import (
     EVENT_TYPE_CONVERSATION_STARTED,
     create_activity_for_authorized_opportunity,
@@ -143,27 +144,8 @@ def merge_recipients(manual: list[str], colleagues: list[Recipient]) -> list[str
 
 
 def ensure_user_shortlisted_from_email(db: Session, *, opportunity: Opportunity, user: User) -> bool:
-    """Mark the sender as interested after Microsoft accepts an outbound email.
-
-    Returns True only when the email workflow newly added the opportunity to the
-    user's My Shortlist. Existing Pursue votes are left untouched.
-    """
-    row = (
-        db.query(Vote)
-        .filter(
-            Vote.org_id == opportunity.organization_id,
-            Vote.opp_id == opportunity.id,
-            Vote.user_id == user.id,
-        )
-        .first()
-    )
-    if row and row.vote == "PURSUE":
-        return False
-    if not row:
-        db.add(Vote(org_id=opportunity.organization_id, opp_id=opportunity.id, user_id=user.id, vote="PURSUE"))
-    else:
-        row.vote = "PURSUE"
-    return True
+    """Backward-compatible email entry point for canonical shortlisting."""
+    return ensure_user_shortlisted(db, opportunity=opportunity, user=user)
 
 
 def default_subject(opportunity: Opportunity) -> str:

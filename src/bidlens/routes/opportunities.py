@@ -80,6 +80,11 @@ from ..services.opportunity_outcomes import (
 )
 from ..services.platform import pre_live_admin_setup_url
 from ..services.grants_gov_documents import grants_gov_document_metadata
+from ..services.salesforce import SalesforceService
+from ..services.salesforce_promotion import (
+    ensure_opportunity_in_salesforce,
+    record_salesforce_sync_failure,
+)
 from sqlalchemy import and_, or_, select
 from dataclasses import dataclass
 from typing import Optional
@@ -2292,7 +2297,10 @@ async def send_opportunity_conversation(
             recipients=recipients,
         )
         added_to_shortlist = ensure_user_shortlisted_from_email(db, opportunity=opportunity, user=user)
+        # Email acceptance and shortlisting are the primary workflow. Commit
+        # them before attempting optional downstream CRM synchronization.
         db.commit()
+        _sync_emailed_opportunity_to_salesforce(db, opportunity=opportunity, user=user)
         return RedirectResponse(
             url=_redirect_with_query(
                 return_path,
@@ -2333,6 +2341,41 @@ async def send_opportunity_conversation(
         )
         db.commit()
         return RedirectResponse(url=_redirect_with_query(return_path, email_status="uncertain"), status_code=303)
+
+
+def _sync_emailed_opportunity_to_salesforce(
+    db: Session,
+    *,
+    opportunity: Opportunity,
+    user: User,
+) -> None:
+    """Best-effort downstream CRM sync after email and shortlist are durable."""
+    service = SalesforceService(db=db, workspace_id=opportunity.organization_id)
+    try:
+        if not service.is_authorized():
+            return
+        ensure_opportunity_in_salesforce(
+            db,
+            organization_id=opportunity.organization_id,
+            user_id=user.id,
+            opportunity=opportunity,
+            ui_version="email",
+            service=service,
+        )
+    except Exception as exc:
+        db.rollback()
+        try:
+            record_salesforce_sync_failure(db, opportunity=opportunity, error=exc)
+        except Exception:
+            db.rollback()
+        logger.warning(
+            "Email Salesforce promotion failed bidlens_opp_id=%s source_record_id=%s external_source_key=%s user_id=%s error=%s",
+            opportunity.id,
+            opportunity.source_record_id,
+            opportunity.external_source_key,
+            user.id,
+            str(exc),
+        )
 
 
 # ── User-level actions (notes, bookmark, etc.) ───────────────

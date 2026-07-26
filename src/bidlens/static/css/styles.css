@@ -3925,6 +3925,22 @@ h2 {
     backdrop-filter: blur(4px);
 }
 
+.opportunity-email-dialog-close {
+    position: absolute;
+    top: 16px;
+    right: 18px;
+    z-index: 2;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.94);
+    color: var(--text-primary);
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+}
+
 .opportunity-email-frame {
     display: block;
     width: 100%;

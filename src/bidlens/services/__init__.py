@@ -5,6 +5,7 @@ from datetime import datetime
 from ..models import Opportunity, Vote, User
 from ..state_machine import OppState, validate_transition
 from ..events import log_event
+from .shortlisting import ensure_user_shortlisted
 
 
 def transition_state(
@@ -92,12 +93,18 @@ def cast_vote(
     )
 
     toggled_off = False
-    if not row:
+    if not row and vote == "PURSUE":
+        user = db.query(User).filter(User.id == user_id).one()
+        ensure_user_shortlisted(db, opportunity=opp, user=user)
+    elif not row:
         row = Vote(org_id=org_id, opp_id=opp_id, user_id=user_id, vote=vote)
         db.add(row)
     elif row.vote == vote and vote in {"PURSUE", "PASS"} and toggle_existing:
         row.vote = None
         toggled_off = True
+    elif vote == "PURSUE":
+        user = db.query(User).filter(User.id == user_id).one()
+        ensure_user_shortlisted(db, opportunity=opp, user=user)
     else:
         row.vote = vote
 

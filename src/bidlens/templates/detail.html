@@ -37,7 +37,9 @@
 
     <div class="detail-hero-actions">
       <div class="detail-primary-actions">
-        <a href="/opportunity/{{ opportunity.id }}/conversation/new?return_to={{ request.url.path }}" class="btn btn-sm btn-outline-secondary">Email</a>
+        <button type="button"
+                class="btn btn-sm btn-outline-secondary"
+                onclick='openOpportunityEmail({ id: {{ opportunity.id|tojson }}, path: {{ request.url.path|tojson }} })'>Email</button>
         {% if is_qualified and decision_state in ['INBOX', 'SHORTLISTED'] %}
           <button type="button"
                   class="btn btn-sm opp-card-button opp-card-button--primary {{ 'btn-success' if user_vote == 'PURSUE' else 'btn-primary' }} detail-interest-action"

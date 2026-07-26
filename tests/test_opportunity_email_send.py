@@ -263,6 +263,88 @@ class OpportunityEmailSendTests(unittest.TestCase):
         self.assertNotIn("Plain text", str(event.metadata_json or {}))
         self.assertEqual(self.db.query(OpportunityConversation).count(), 1)
 
+    def test_salesforce_failure_after_email_keeps_conversation_and_shortlist(self):
+        from bidlens.routes import opportunities
+
+        vote = self.db.query(Vote).filter_by(
+            org_id=self.org.id,
+            opp_id=self.opportunity.id,
+            user_id=self.user.id,
+        ).one()
+        vote.vote = "PASS"
+        attempt = reserve_send_attempt(
+            self.db,
+            opportunity=self.opportunity,
+            user=self.user,
+            token="salesforce-failure-token",
+        )
+        finalize_accepted_send(
+            self.db,
+            opportunity=self.opportunity,
+            user=self.user,
+            attempt=attempt,
+            subject="Discussion",
+            recipients=["recipient@example.com"],
+        )
+        self.assertTrue(
+            ensure_user_shortlisted_from_email(
+                self.db,
+                opportunity=self.opportunity,
+                user=self.user,
+            )
+        )
+        self.db.commit()
+
+        service = Mock()
+        service.is_authorized.return_value = True
+        with (
+            patch.object(opportunities, "SalesforceService", return_value=service),
+            patch.object(opportunities, "ensure_opportunity_in_salesforce", side_effect=RuntimeError("CRM unavailable")),
+            patch.object(opportunities, "record_salesforce_sync_failure") as record_failure,
+        ):
+            opportunities._sync_emailed_opportunity_to_salesforce(
+                self.db,
+                opportunity=self.opportunity,
+                user=self.user,
+            )
+
+        persisted_vote = self.db.query(Vote).filter_by(
+            org_id=self.org.id,
+            opp_id=self.opportunity.id,
+            user_id=self.user.id,
+        ).one()
+        self.assertEqual(persisted_vote.vote, "PURSUE")
+        self.assertEqual(self.db.query(OpportunityConversation).count(), 1)
+        record_failure.assert_called_once()
+
+    def test_email_salesforce_sync_runs_only_when_connected(self):
+        from bidlens.routes import opportunities
+
+        service = Mock()
+        service.is_authorized.return_value = False
+        with (
+            patch.object(opportunities, "SalesforceService", return_value=service),
+            patch.object(opportunities, "ensure_opportunity_in_salesforce") as ensure_salesforce,
+        ):
+            opportunities._sync_emailed_opportunity_to_salesforce(
+                self.db,
+                opportunity=self.opportunity,
+                user=self.user,
+            )
+        ensure_salesforce.assert_not_called()
+
+        service.is_authorized.return_value = True
+        with (
+            patch.object(opportunities, "SalesforceService", return_value=service),
+            patch.object(opportunities, "ensure_opportunity_in_salesforce") as ensure_salesforce,
+        ):
+            opportunities._sync_emailed_opportunity_to_salesforce(
+                self.db,
+                opportunity=self.opportunity,
+                user=self.user,
+            )
+        ensure_salesforce.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
