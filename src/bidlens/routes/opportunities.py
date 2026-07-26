@@ -2179,6 +2179,7 @@ async def new_opportunity_conversation(
     status = {
         "connected": False,
         "has_mail_send": False,
+        "has_mail_read_write": False,
         "status": "not_connected",
         "label": "Not connected",
         "connected_display_name": None,
@@ -2240,7 +2241,11 @@ async def send_opportunity_conversation(
             url=f"/integrations/microsoft/oauth/start?{urlencode({'return_to': compose_path})}",
             status_code=303,
         )
-    if connection.connection_status == STATUS_REAUTHORIZATION_REQUIRED or not connection_has_scope(connection, "Mail.Send"):
+    if (
+        connection.connection_status == STATUS_REAUTHORIZATION_REQUIRED
+        or not connection_has_scope(connection, "Mail.Send")
+        or not connection_has_scope(connection, "Mail.ReadWrite")
+    ):
         return RedirectResponse(
             url=f"/integrations/microsoft/oauth/start?{urlencode({'return_to': compose_path})}",
             status_code=303,
@@ -2283,7 +2288,7 @@ async def send_opportunity_conversation(
 
     service = MicrosoftConnectionService(db=db, workspace=workspace, user=user)
     try:
-        service.send_mail_for_current_user(
+        send_result = service.send_mail_for_current_user(
             to_recipients=recipients,
             subject=clean_subject,
             body_text=body_with_footer(message=clean_message, opportunity=opportunity),
@@ -2295,6 +2300,8 @@ async def send_opportunity_conversation(
             attempt=attempt,
             subject=clean_subject,
             recipients=recipients,
+            body=body_with_footer(message=clean_message, opportunity=opportunity),
+            provider_result=send_result,
         )
         added_to_shortlist = ensure_user_shortlisted_from_email(db, opportunity=opportunity, user=user)
         # Email acceptance and shortlisting are the primary workflow. Commit

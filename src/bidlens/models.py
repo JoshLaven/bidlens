@@ -203,6 +203,13 @@ class OpportunityConversation(Base):
     idempotency_key_digest = Column(String, nullable=True, unique=True, index=True)
     idempotency_expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
     recipient_count = Column(Integer, nullable=True)
+    provider_mailbox_id = Column(String, nullable=True, index=True)
+    initial_provider_message_id = Column(String, nullable=True)
+    tracking_status = Column(String, nullable=True, index=True)
+    last_successful_sync_at = Column(DateTime(timezone=True), nullable=True)
+    last_attempted_sync_at = Column(DateTime(timezone=True), nullable=True)
+    last_provider_message_at = Column(DateTime(timezone=True), nullable=True)
+    last_sync_error = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -214,6 +221,65 @@ class OpportunityConversation(Base):
         back_populates="conversation",
         cascade="all, delete-orphan",
     )
+    messages = relationship(
+        "OpportunityCommunicationMessage",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+    )
+
+
+class OpportunityCommunicationMessage(Base):
+    __tablename__ = "opportunity_communication_messages"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "provider",
+            "provider_mailbox_id",
+            "provider_message_id",
+            name="uq_opp_comm_message_workspace_provider_mailbox_message",
+        ),
+        Index(
+            "ix_opp_comm_message_workspace_opportunity_timestamp",
+            "workspace_id",
+            "opportunity_id",
+            "provider_timestamp",
+        ),
+        Index(
+            "ix_opp_comm_message_workspace_provider_conversation",
+            "workspace_id",
+            "provider",
+            "provider_conversation_id",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
+    conversation_id = Column(Integer, ForeignKey("opportunity_conversations.id"), nullable=False, index=True)
+    associated_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    provider = Column(String, nullable=False, index=True)
+    direction = Column(String, nullable=False, index=True)
+    provider_mailbox_id = Column(String, nullable=True, index=True)
+    provider_message_id = Column(String, nullable=True, index=True)
+    provider_conversation_id = Column(String, nullable=True, index=True)
+    internet_message_id = Column(String, nullable=True, index=True)
+    sender_address = Column(String, nullable=True)
+    sender_display_name = Column(String, nullable=True)
+    recipients_json = Column(JSON, nullable=True)
+    cc_recipients_json = Column(JSON, nullable=True)
+    subject = Column(String, nullable=False)
+    body = Column(Text, nullable=True)
+    body_content_type = Column(String, nullable=True)
+    provider_timestamp = Column(DateTime(timezone=True), nullable=True, index=True)
+    provider_web_link = Column(Text, nullable=True)
+    imported_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    conversation = relationship("OpportunityConversation", back_populates="messages")
+    workspace = relationship("Workspace", back_populates="opportunity_communication_messages")
+    opportunity = relationship("Opportunity")
+    associated_user = relationship("User")
 
 
 class OpportunityConversationSendAttempt(Base):
@@ -539,6 +605,10 @@ class Workspace(Base):
     opportunity_activity_events = relationship(
         "OpportunityActivityEvent",
         back_populates="workspace",
+        cascade="all, delete-orphan",
+    )
+    opportunity_communication_messages = relationship(
+        "OpportunityCommunicationMessage",
         cascade="all, delete-orphan",
     )
 

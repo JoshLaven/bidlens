@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from ..models import (
     Event,
     Opportunity,
+    OpportunityCommunicationMessage,
     OpportunityConversation,
     OpportunityConversationSendAttempt,
     OrganizationMembership,
@@ -239,13 +240,44 @@ def finalize_accepted_send(
     attempt: OpportunityConversationSendAttempt,
     subject: str,
     recipients: list[str],
+    body: str | None = None,
+    provider_result: dict | None = None,
 ) -> OpportunityConversation:
     now = datetime.now(timezone.utc)
+    provider_result = provider_result or {}
+    provider_message = provider_result.get("message") if isinstance(provider_result.get("message"), dict) else {}
+    provider = str(provider_result.get("provider") or "microsoft")
+    provider_mailbox_id = _clean_optional(provider_result.get("provider_mailbox_id"))
+    provider_message_id = _clean_optional(provider_message.get("id"))
+    provider_conversation_id = _clean_optional(provider_message.get("conversationId"))
+    tracking_error = _clean_optional(provider_result.get("tracking_error"))
+    workspace = workspace_for_authorized_opportunity(db, opportunity)
+
+    if provider_message_id and provider_mailbox_id:
+        existing_message = (
+            db.query(OpportunityCommunicationMessage)
+            .filter(
+                OpportunityCommunicationMessage.workspace_id == workspace.id,
+                OpportunityCommunicationMessage.provider == provider,
+                OpportunityCommunicationMessage.provider_mailbox_id == provider_mailbox_id,
+                OpportunityCommunicationMessage.provider_message_id == provider_message_id,
+            )
+            .first()
+        )
+        if existing_message and existing_message.opportunity_id == opportunity.id:
+            attempt.status = SEND_STATUS_ACCEPTED
+            attempt.conversation_id = existing_message.conversation_id
+            attempt.recipient_count = len(recipients)
+            return existing_message.conversation
+        if existing_message:
+            tracking_error = "duplicate_provider_message_scope_conflict"
+            provider_message_id = None
+
     conversation = create_conversation_for_authorized_opportunity(
         db,
         opportunity=opportunity,
         provider="microsoft",
-        external_conversation_id=None,
+        external_conversation_id=provider_conversation_id,
         subject=subject,
         started_by_user_id=user.id,
         participant_summary=participant_summary(recipients),
@@ -259,6 +291,43 @@ def finalize_accepted_send(
     conversation.idempotency_key_digest = attempt.idempotency_key_digest
     conversation.idempotency_expires_at = attempt.expires_at
     conversation.recipient_count = len(recipients)
+    conversation.provider_mailbox_id = provider_mailbox_id
+    conversation.initial_provider_message_id = provider_message_id
+    conversation.tracking_status = "tracking_error" if tracking_error else "tracked"
+    conversation.last_attempted_sync_at = now
+    conversation.last_sync_error = tracking_error
+
+    provider_timestamp = _parse_provider_datetime(provider_message.get("sentDateTime"))
+    if not tracking_error:
+        conversation.last_successful_sync_at = now
+    conversation.last_provider_message_at = provider_timestamp or now
+
+    sender = _email_address_metadata(provider_message.get("sender") or provider_message.get("from"))
+    provider_recipients = _recipient_metadata(provider_message.get("toRecipients"))
+    cc_recipients = _recipient_metadata(provider_message.get("ccRecipients"))
+    provider_body = provider_message.get("body") if isinstance(provider_message.get("body"), dict) else {}
+    communication = OpportunityCommunicationMessage(
+        workspace_id=workspace.id,
+        opportunity_id=opportunity.id,
+        conversation=conversation,
+        associated_user_id=user.id,
+        provider=provider,
+        direction="outbound",
+        provider_mailbox_id=provider_mailbox_id,
+        provider_message_id=provider_message_id,
+        provider_conversation_id=provider_conversation_id,
+        internet_message_id=_clean_optional(provider_message.get("internetMessageId")),
+        sender_address=sender.get("address") or user.email,
+        sender_display_name=sender.get("name") or user.name,
+        recipients_json=provider_recipients or [{"address": address, "name": None} for address in recipients],
+        cc_recipients_json=cc_recipients,
+        subject=_clean_optional(provider_message.get("subject")) or subject,
+        body=_clean_optional(provider_body.get("content")) or body,
+        body_content_type=_clean_optional(provider_body.get("contentType")) or ("text" if body else None),
+        provider_timestamp=provider_timestamp or now,
+        provider_web_link=_clean_optional(provider_message.get("webLink")),
+    )
+    db.add(communication)
     db.flush()
     attempt.status = SEND_STATUS_ACCEPTED
     attempt.conversation_id = conversation.id
@@ -276,3 +345,39 @@ def finalize_accepted_send(
     )
     audit_email_send(db, opportunity=opportunity, user=user, outcome="accepted_for_delivery")
     return conversation
+
+
+def _clean_optional(value) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _email_address_metadata(value) -> dict[str, str | None]:
+    if not isinstance(value, dict):
+        return {"address": None, "name": None}
+    email = value.get("emailAddress") if isinstance(value.get("emailAddress"), dict) else value
+    return {
+        "address": _clean_optional(email.get("address")),
+        "name": _clean_optional(email.get("name")),
+    }
+
+
+def _recipient_metadata(value) -> list[dict[str, str | None]]:
+    if not isinstance(value, list):
+        return []
+    recipients = []
+    for item in value:
+        metadata = _email_address_metadata(item)
+        if metadata["address"]:
+            recipients.append(metadata)
+    return recipients
+
+
+def _parse_provider_datetime(value) -> datetime | None:
+    text = _clean_optional(value)
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None

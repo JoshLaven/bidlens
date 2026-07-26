@@ -94,7 +94,7 @@ https://<railway-public-domain>/integrations/microsoft/oauth/callback
 Microsoft connections are per user, not workspace-wide. BidLens currently uses
 the connection to verify delegated Microsoft identity and to let the connected
 user intentionally send one opportunity-related email from Opportunity Detail
-through Microsoft Graph `/me/sendMail`. BidLens requests delegated `Mail.Send`
+through a Microsoft Graph immutable-ID draft/send flow. BidLens requests delegated `Mail.Send` and `Mail.ReadWrite`
 for that explicit action. It does not request mail-read permissions, read mail,
 inspect Sent Items, create drafts, scan mailboxes, or register webhooks.
 

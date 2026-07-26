@@ -4,10 +4,11 @@ import base64
 import hashlib
 import json
 import secrets
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from sqlalchemy.orm import Session
@@ -29,9 +30,23 @@ PERSISTED_CONNECTION_STATUSES = {
     STATUS_CONNECTION_ERROR,
     STATUS_DISCONNECTED,
 }
-MICROSOFT_SCOPES = ("openid", "profile", "email", "offline_access", "User.Read", "Mail.Send")
+MICROSOFT_SCOPES = (
+    "openid",
+    "profile",
+    "email",
+    "offline_access",
+    "User.Read",
+    "Mail.Send",
+    "Mail.ReadWrite",
+)
 MICROSOFT_GRAPH_ME_URL = "https://graph.microsoft.com/v1.0/me?$select=id,displayName,userPrincipalName,mail"
 MICROSOFT_SEND_MAIL_URL = "https://graph.microsoft.com/v1.0/me/sendMail"
+MICROSOFT_MESSAGES_URL = "https://graph.microsoft.com/v1.0/me/messages"
+MICROSOFT_IMMUTABLE_ID_HEADER = 'IdType="ImmutableId"'
+MICROSOFT_TRACKING_SELECT = (
+    "id,conversationId,internetMessageId,sender,from,toRecipients,ccRecipients,"
+    "subject,body,sentDateTime,webLink"
+)
 TOKEN_EXPIRY_SKEW_SECONDS = 300
 
 
@@ -144,6 +159,7 @@ def connection_status_summary(connection: ExternalIntegrationConnection | None) 
         "last_error_message": safe_error_message(connection.last_error_code) if connection and connection.last_error_code else None,
         "disconnected_at": connection.disconnected_at if connection else None,
         "has_mail_send": connection_has_scope(connection, "Mail.Send") if connection else False,
+        "has_mail_read_write": connection_has_scope(connection, "Mail.ReadWrite") if connection else False,
     }
 
 
@@ -428,31 +444,115 @@ class MicrosoftConnectionService:
             self._audit("integration_lifecycle", outcome="identity_mismatch", error_code="identity_mismatch")
             raise MicrosoftConnectionError("identity_mismatch", safe_error_message("identity_mismatch"))
 
-        payload = {
-            "message": {
-                "subject": subject,
-                "body": {"contentType": "Text", "content": body_text},
-                "toRecipients": [
-                    {"emailAddress": {"address": address}}
-                    for address in to_recipients
-                ],
-            },
-            "saveToSentItems": True,
+        if not connection_has_scope(connection, "Mail.ReadWrite"):
+            raise MicrosoftConnectionError("permission_missing", safe_error_message("permission_missing"))
+
+        message_payload = {
+            "subject": subject,
+            "body": {"contentType": "Text", "content": body_text},
+            "toRecipients": [
+                {"emailAddress": {"address": address}}
+                for address in to_recipients
+            ],
+        }
+        immutable_headers = {
+            **self._headers(token),
+            "Content-Type": "application/json",
+            "Prefer": MICROSOFT_IMMUTABLE_ID_HEADER,
         }
         try:
-            response = requests.post(
-                MICROSOFT_SEND_MAIL_URL,
-                headers={**self._headers(token), "Content-Type": "application/json"},
-                json=payload,
+            draft_response = requests.post(
+                MICROSOFT_MESSAGES_URL,
+                headers=immutable_headers,
+                json=message_payload,
                 timeout=20,
             )
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            raise MicrosoftConnectionError("provider_unavailable", safe_error_message("provider_unavailable")) from exc
+
+        if draft_response.status_code != 201:
+            self._raise_send_error(draft_response, connection=connection)
+        try:
+            draft = draft_response.json()
+        except ValueError as exc:
+            raise MicrosoftConnectionError("provider_unavailable", safe_error_message("provider_unavailable")) from exc
+        immutable_message_id = str(draft.get("id") or "").strip()
+        if not immutable_message_id:
+            raise MicrosoftConnectionError("provider_unavailable", safe_error_message("provider_unavailable"))
+
+        send_url = f"{MICROSOFT_MESSAGES_URL}/{quote(immutable_message_id, safe='')}/send"
+        try:
+            response = requests.post(send_url, headers=immutable_headers, timeout=20)
         except (requests.Timeout, requests.ConnectionError) as exc:
             raise MicrosoftConnectionError("outcome_uncertain", safe_error_message("outcome_uncertain")) from exc
 
         if response.status_code == 202:
             self._audit("integration_lifecycle", outcome="mail_send_accepted")
+            sent_message = self._retrieve_sent_message(
+                token=token,
+                immutable_message_id=immutable_message_id,
+            )
+            tracking_error = None
+            if sent_message is None:
+                tracking_error = "metadata_retrieval_failed"
+                self._audit(
+                    "integration_lifecycle",
+                    outcome="mail_tracking_metadata_failed",
+                    error_code=tracking_error,
+                )
+            metadata = dict(draft)
+            metadata.update(
+                {
+                    key: value
+                    for key, value in (sent_message or {}).items()
+                    if value not in (None, "")
+                }
+            )
             self.db.flush()
-            return {"status": "accepted_for_delivery"}
+            return {
+                "status": "accepted_for_delivery",
+                "provider": PROVIDER_MICROSOFT,
+                "provider_mailbox_id": connection.external_user_id,
+                "tracking_error": tracking_error,
+                "message": metadata,
+            }
+        self._raise_send_error(response, connection=connection)
+        raise AssertionError("unreachable")
+
+    def _retrieve_sent_message(
+        self,
+        *,
+        token: str,
+        immutable_message_id: str,
+    ) -> dict[str, Any] | None:
+        url = (
+            f"{MICROSOFT_MESSAGES_URL}/{quote(immutable_message_id, safe='')}"
+            f"?$select={MICROSOFT_TRACKING_SELECT}"
+        )
+        headers = {
+            **self._headers(token),
+            "Prefer": MICROSOFT_IMMUTABLE_ID_HEADER,
+        }
+        for attempt in range(3):
+            try:
+                response = requests.get(url, headers=headers, timeout=20)
+            except (requests.Timeout, requests.ConnectionError):
+                response = None
+            if response is not None and response.status_code == 200:
+                try:
+                    return response.json()
+                except ValueError:
+                    return None
+            if attempt < 2:
+                time.sleep(0.25 * (attempt + 1))
+        return None
+
+    def _raise_send_error(
+        self,
+        response: requests.Response,
+        *,
+        connection: ExternalIntegrationConnection,
+    ) -> None:
         if response.status_code in {401, 403}:
             self._record_error(connection, "invalid_grant")
             raise MicrosoftConnectionError("reauthorization_required", safe_error_message("invalid_grant"))

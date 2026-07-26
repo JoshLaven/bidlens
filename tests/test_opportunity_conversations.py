@@ -26,6 +26,7 @@ from bidlens.services.opportunity_conversations import (
     create_conversation_for_authorized_opportunity,
     display_safe_metadata,
     get_opportunity_conversation_context,
+    find_tracked_conversation,
     human_activity_text,
     provider_display_name,
 )
@@ -385,6 +386,44 @@ class OpportunityConversationFoundationTests(unittest.TestCase):
         with patch.dict(os.environ, {"BIDLENS_ENV": "production"}, clear=False):
             with self.assertRaises(SystemExit):
                 assert_safe_local_seed_environment()
+
+    def test_tracked_conversation_resolution_is_workspace_and_mailbox_scoped(self):
+        first = OpportunityConversation(
+            workspace_id=self.workspace.id,
+            opportunity_id=self.opportunity.id,
+            provider="microsoft",
+            provider_mailbox_id="mailbox-one",
+            external_conversation_id="provider-conversation",
+            subject="Tracked thread",
+        )
+        other = OpportunityConversation(
+            workspace_id=self.other_workspace.id,
+            opportunity_id=self.other_opportunity.id,
+            provider="microsoft",
+            provider_mailbox_id="mailbox-two",
+            external_conversation_id="provider-conversation",
+            subject="Other tenant thread",
+        )
+        self.db.add_all([first, other])
+        self.db.commit()
+
+        resolved = find_tracked_conversation(
+            self.db,
+            workspace_id=self.workspace.id,
+            provider="microsoft",
+            provider_mailbox_id="mailbox-one",
+            provider_conversation_id="provider-conversation",
+        )
+        cross_tenant = find_tracked_conversation(
+            self.db,
+            workspace_id=self.other_workspace.id,
+            provider="microsoft",
+            provider_mailbox_id="mailbox-one",
+            provider_conversation_id="provider-conversation",
+        )
+
+        self.assertEqual(resolved.id, first.id)
+        self.assertIsNone(cross_tenant)
 
 
 if __name__ == "__main__":

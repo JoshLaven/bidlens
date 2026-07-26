@@ -317,14 +317,15 @@ Current Salesforce capabilities:
 
 BidLens supports per-user Microsoft account connection management as a foundation for future Microsoft-backed workflows. Each connection belongs to exactly one BidLens user in one workspace. Workspace Admins can see non-sensitive adoption status, but they cannot test, refresh, disconnect, decrypt, or manage another user’s Microsoft credentials.
 
-Current Microsoft capability is intentionally limited to delegated identity connection and intentional user-initiated email sending from Opportunity Detail:
+Current Microsoft capability is intentionally limited to delegated identity connection, intentional user-initiated email sending, and persistence of provider metadata for conversations initiated from BidLens:
 
 - Authorization Code flow with PKCE and durable short-lived OAuth state.
 - Encrypted access and refresh token storage using the same server-side credential encryption helper as Salesforce/GovWin.
 - Microsoft identity verification against the connected account.
 - User-initiated Test Connection, Reconnect, and Disconnect.
-- User-initiated Opportunity Conversation email send through Microsoft Graph `/me/sendMail`.
-- No email reading, mailbox scanning, Sent Items inspection, draft creation, webhooks, attachment access, reply tracking, or mailbox-wide Opportunity Conversation discovery.
+- User-initiated Opportunity Conversation email creates and sends one Graph draft using an immutable message ID.
+- After sending, BidLens retrieves only that exact message by immutable ID to persist its message and conversation identifiers.
+- No mailbox scanning, folder browsing, webhooks, attachment access, inbound reply synchronization, or mailbox-wide Opportunity Conversation discovery.
 
 Minimal delegated Microsoft scopes requested:
 
@@ -332,6 +333,7 @@ Minimal delegated Microsoft scopes requested:
 - `offline_access`: maintain delegated access through refresh tokens.
 - `User.Read`: call Microsoft Graph `/me` for identity verification only.
 - `Mail.Send`: send an opportunity-related email only when the connected user intentionally submits the Start Conversation form.
+- `Mail.ReadWrite`: create the single outbound draft and retrieve that exact BidLens-initiated message by immutable ID for tracking metadata.
 
 Configure the Microsoft Entra app redirect URI to the exact `MICROSOFT_REDIRECT_URI` value used by BidLens. For local development this is commonly:
 

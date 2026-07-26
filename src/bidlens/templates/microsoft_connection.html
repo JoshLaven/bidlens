@@ -60,7 +60,7 @@
         <p>Your Microsoft authorization has expired or was revoked. Reconnect your account to continue.</p>
         <a href="/integrations/microsoft/oauth/start" class="btn btn-primary">Reconnect Microsoft Account</a>
       {% else %}
-        <p>BidLens will only verify your Microsoft identity in this phase. It will not read mail, send mail, scan mailboxes, access attachments, or create conversations.</p>
+        <p>BidLens verifies your Microsoft identity and can send opportunity email you initiate. It retrieves only the exact BidLens-created message by ID to save conversation tracking metadata; it does not scan your mailbox or access attachments.</p>
         <a href="/integrations/microsoft/oauth/start" class="btn btn-primary">Connect Microsoft Account</a>
       {% endif %}
 

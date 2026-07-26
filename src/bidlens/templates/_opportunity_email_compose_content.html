@@ -29,8 +29,8 @@
       {% if not status.connected %}
         <p>Connect your Microsoft account before sending email from BidLens. BidLens will request identity permissions and delegated Mail.Send only.</p>
         <a href="{{ connect_url }}" class="btn btn-primary" {% if embedded %}target="_top"{% endif %}>Connect Microsoft Account</a>
-      {% elif not status.has_mail_send %}
-        <p>Your Microsoft account is connected as {{ status.connected_display_name or 'Microsoft user' }}{% if status.connected_email %} &lt;{{ status.connected_email }}&gt;{% endif %}, but email sending permission has not been granted yet.</p>
+      {% elif not status.has_mail_send or not status.has_mail_read_write %}
+        <p>Your Microsoft account is connected as {{ status.connected_display_name or 'Microsoft user' }}{% if status.connected_email %} &lt;{{ status.connected_email }}&gt;{% endif %}, but the permissions required to send and track BidLens-initiated conversations have not been granted yet.</p>
         <a href="{{ connect_url }}" class="btn btn-primary" {% if embedded %}target="_top"{% endif %}>Enable Email Sending</a>
       {% elif status.status != 'connected' %}
         <p>Reconnect your Microsoft account before sending email.</p>
@@ -40,7 +40,7 @@
       {% endif %}
     </section>
 
-    {% if status.connected and status.has_mail_send and status.status == 'connected' %}
+    {% if status.connected and status.has_mail_send and status.has_mail_read_write and status.status == 'connected' %}
       <form method="post" action="/opportunity/{{ opportunity.id }}/conversation/send" class="configuration-center-section opportunity-compose-form" {% if embedded %}target="_top"{% endif %}>
         <input type="hidden" name="send_token" value="{{ send_token }}">
         <input type="hidden" name="return_to" value="{{ return_to }}">
@@ -73,7 +73,7 @@
         <div class="form-group opportunity-compose-message-group">
           <label for="conversation-message">Message</label>
           <textarea id="conversation-message" name="message" class="form-control" rows="8" maxlength="10000" required></textarea>
-          <p class="muted">Plain text only. BidLens adds a small opportunity footer and does not store the full message body.</p>
+          <p class="muted">Plain text only. BidLens adds a small opportunity footer and records the outbound message with this opportunity.</p>
         </div>
 
         <div class="form-actions">

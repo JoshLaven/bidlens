@@ -139,6 +139,27 @@ def validate_conversation_for_opportunity(
         )
 
 
+def find_tracked_conversation(
+    db: Session,
+    *,
+    workspace_id: int,
+    provider: str,
+    provider_mailbox_id: str,
+    provider_conversation_id: str,
+) -> OpportunityConversation | None:
+    """Resolve a provider conversation only inside its workspace/mailbox scope."""
+    return (
+        db.query(OpportunityConversation)
+        .filter(
+            OpportunityConversation.workspace_id == workspace_id,
+            OpportunityConversation.provider == provider,
+            OpportunityConversation.provider_mailbox_id == provider_mailbox_id,
+            OpportunityConversation.external_conversation_id == provider_conversation_id,
+        )
+        .one_or_none()
+    )
+
+
 def create_conversation_for_authorized_opportunity(
     db: Session,
     *,
