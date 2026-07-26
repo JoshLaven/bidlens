@@ -57,6 +57,7 @@ from ..services.microsoft import (
     safe_return_path,
     state_digest,
 )
+from ..services.microsoft_conversation_sync import sync_tracked_microsoft_conversations
 
 
 router = APIRouter()
@@ -813,6 +814,11 @@ async def microsoft_connection_page(request: Request, db: Session = Depends(get_
     if redirect:
         return redirect
     service = MicrosoftConnectionService(db=db, workspace=workspace, user=user)
+    def query_count(name: str) -> int:
+        try:
+            return max(0, int(request.query_params.get(name) or 0))
+        except (TypeError, ValueError):
+            return 0
     return templates.TemplateResponse("microsoft_connection.html", {
         "request": request,
         "user": user,
@@ -826,7 +832,35 @@ async def microsoft_connection_page(request: Request, db: Session = Depends(get_
         "error_code": request.query_params.get("error"),
         "page_error": safe_error_message(request.query_params.get("error") or ""),
         "scope_summary": ", ".join(MICROSOFT_SCOPES),
+        "is_admin": getattr(user, "current_role", "member") == "admin",
+        "sync_status": request.query_params.get("sync_status"),
+        "sync_checked": query_count("checked"),
+        "sync_imported": query_count("imported"),
+        "sync_errors": query_count("errors"),
     })
+
+
+@router.post("/integrations/microsoft/sync")
+async def sync_microsoft_conversations(request: Request, db: Session = Depends(get_db)):
+    user, redirect = _admin_or_redirect(request, db)
+    if redirect:
+        return redirect
+    workspace = _current_workspace(db, user)
+    if workspace is None:
+        return RedirectResponse(url="/", status_code=303)
+    result = sync_tracked_microsoft_conversations(db, workspace=workspace)
+    status = "success"
+    if result["reauthorization_required"]:
+        status = "reauthorization"
+    elif result["conversations_failed"] or result["messages_skipped"]:
+        status = "partial"
+    query = urlencode({
+        "sync_status": status,
+        "checked": result["conversations_checked"],
+        "imported": result["new_messages_imported"],
+        "errors": result["conversations_failed"],
+    })
+    return RedirectResponse(url=f"/integrations/microsoft?{query}", status_code=303)
 
 
 @router.get("/integrations/microsoft/oauth/start")

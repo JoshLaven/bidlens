@@ -78,6 +78,7 @@
   <div class="detail-primary">
     {% set conversations = (conversation_context or {}).get('conversations', []) %}
     {% set recent_activity = (conversation_context or {}).get('recent_activity', []) %}
+    {% set communication_messages = conversations|map(attribute='messages')|sum(start=[]) %}
 
     <!-- Opportunity Summary -->
     <details open class="accordion detail-section detail-tab-panel" id="detail-panel-overview"
@@ -428,8 +429,23 @@
                 <p class="detail-column-kicker">Timeline</p>
                 <h2 id="detail-recent-activity-heading">Communication Timeline</h2>
               </div>
-              <span class="detail-memory-count">{{ recent_activity|length }}</span>
+              <span class="detail-memory-count">{{ communication_messages|length + recent_activity|length }}</span>
             </div>
+            {% if communication_messages %}
+              <ol class="detail-activity-timeline detail-message-timeline">
+                {% for message in communication_messages %}
+                  <li class="detail-message detail-message--{{ message.direction }}">
+                    <span class="detail-activity-marker" aria-hidden="true"></span>
+                    <div>
+                      <strong>{{ message.direction_label }} · {{ message.subject }}</strong>
+                      <p>From: {{ message.sender }}{% if message.recipients %}<br>To: {{ message.recipients }}{% endif %}</p>
+                      {% if message.body %}<p class="prewrap">{{ message.body }}</p>{% endif %}
+                      <time>{{ message.occurred_at_label }}</time>
+                    </div>
+                  </li>
+                {% endfor %}
+              </ol>
+            {% endif %}
             {% if recent_activity %}
               <ol class="detail-activity-timeline">
                 {% for event in recent_activity %}
@@ -445,7 +461,7 @@
                   </li>
                 {% endfor %}
               </ol>
-            {% else %}
+            {% elif not communication_messages %}
               <p class="detail-panel-empty">No communication activity has been recorded yet.</p>
             {% endif %}
           </article>

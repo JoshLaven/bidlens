@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from html.parser import HTMLParser
 from typing import Any
 
 from sqlalchemy.orm import Session, joinedload
 
-from ..models import Opportunity, OpportunityActivityEvent, OpportunityConversation, Workspace
+from ..models import Opportunity, OpportunityActivityEvent, OpportunityCommunicationMessage, OpportunityConversation, Workspace
 
 
 EVENT_TYPE_CONVERSATION_STARTED = "conversation_started"
@@ -59,7 +60,7 @@ def provider_display_name(provider: str | None) -> str:
     normalized = (provider or "").strip().lower()
     if normalized in {"manual", "seeded", "internal"}:
         return "Internal"
-    if normalized == "microsoft_365":
+    if normalized in {"microsoft", "microsoft_365"}:
         return "Microsoft 365"
     if normalized == "outlook":
         return "Outlook"
@@ -96,6 +97,52 @@ def message_count_label(count: int | None) -> str:
     if count == 1:
         return "1 message"
     return f"{count} messages"
+
+
+class _SafeTextParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self.hidden_depth = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag.lower() in {"script", "style"}:
+            self.hidden_depth += 1
+        elif not self.hidden_depth and tag.lower() in {"br", "p", "div", "li", "tr"}:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() in {"script", "style"} and self.hidden_depth:
+            self.hidden_depth -= 1
+        elif not self.hidden_depth and tag.lower() in {"p", "div", "li", "tr"}:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self.hidden_depth:
+            self.parts.append(data)
+
+
+def safe_message_body(body: str | None, content_type: str | None) -> str | None:
+    if not body:
+        return None
+    if (content_type or "").strip().lower() != "html":
+        return _truncate_display_text(body, max_length=4000)
+    parser = _SafeTextParser()
+    parser.feed(body)
+    text = "\n".join(line.strip() for line in "".join(parser.parts).splitlines() if line.strip())
+    return _truncate_display_text(text, max_length=4000)
+
+
+def _recipient_label(records: list | None) -> str | None:
+    labels = []
+    for record in records or []:
+        if not isinstance(record, dict):
+            continue
+        address = _truncate_display_text(record.get("address"), max_length=160)
+        name = _truncate_display_text(record.get("name"), max_length=160)
+        if address:
+            labels.append(f"{name} <{address}>" if name else address)
+    return ", ".join(labels) or None
 
 
 def human_activity_text(event: OpportunityActivityEvent) -> str:
@@ -265,6 +312,35 @@ def get_opportunity_conversation_context(
         .limit(activity_limit)
         .all()
     )
+    conversation_id_set = {conversation.id for conversation in conversations}
+    message_rows = (
+        db.query(OpportunityCommunicationMessage)
+        .filter(
+            OpportunityCommunicationMessage.workspace_id == workspace.id,
+            OpportunityCommunicationMessage.opportunity_id == opportunity.id,
+            OpportunityCommunicationMessage.conversation_id.in_(conversation_id_set),
+        )
+        .order_by(
+            OpportunityCommunicationMessage.provider_timestamp.asc(),
+            OpportunityCommunicationMessage.id.asc(),
+        )
+        .all()
+        if conversation_id_set else []
+    )
+    messages_by_conversation: dict[int, list[dict]] = {identifier: [] for identifier in conversation_id_set}
+    for message in message_rows:
+        sender = message.sender_display_name or message.sender_address or "Unknown sender"
+        if message.sender_display_name and message.sender_address:
+            sender = f"{message.sender_display_name} <{message.sender_address}>"
+        messages_by_conversation[message.conversation_id].append({
+            "direction": message.direction if message.direction in {"inbound", "outbound"} else "external",
+            "direction_label": "Received" if message.direction == "inbound" else "Sent" if message.direction == "outbound" else "Message",
+            "sender": sender,
+            "recipients": _recipient_label(message.recipients_json),
+            "subject": _truncate_display_text(message.subject),
+            "body": safe_message_body(message.body, message.body_content_type),
+            "occurred_at_label": format_activity_timestamp(message.provider_timestamp or message.created_at),
+        })
 
     latest_timestamp = None
     if activity_events:
@@ -294,6 +370,7 @@ def get_opportunity_conversation_context(
             "last_activity_label": format_activity_timestamp(
                 conversation.last_message_at or conversation.created_at
             ),
+            "messages": messages_by_conversation.get(conversation.id, []),
         }
         for conversation in conversations
     ]

@@ -17,6 +17,9 @@
     {% if tested == 'success' %}<div class="alert alert-success">Microsoft connection verified.</div>{% endif %}
     {% if tested and tested != 'success' %}<div class="alert alert-warning">{{ status.last_error_message or 'Microsoft connection could not be verified.' }}</div>{% endif %}
     {% if error_code %}<div class="alert alert-warning">{{ page_error }}</div>{% endif %}
+    {% if sync_status == 'success' %}<div class="alert alert-success">Conversation sync completed: {{ sync_imported }} new message(s) imported across {{ sync_checked }} tracked conversation(s).</div>{% endif %}
+    {% if sync_status == 'partial' %}<div class="alert alert-warning">Conversation sync completed with {{ sync_errors }} conversation error(s). {{ sync_imported }} new message(s) were imported successfully.</div>{% endif %}
+    {% if sync_status == 'reauthorization' %}<div class="alert alert-warning">Conversation sync requires one or more users to reconnect Microsoft. Successfully imported messages were preserved.</div>{% endif %}
 
     <section class="configuration-center-section">
       <div class="configuration-center-section-heading">
@@ -64,17 +67,22 @@
         <a href="/integrations/microsoft/oauth/start" class="btn btn-primary">Connect Microsoft Account</a>
       {% endif %}
 
-      <p class="integration-mock-note">Requested delegated permissions: {{ scope_summary }}. Mail permissions are not requested.</p>
+      <p class="integration-mock-note">Requested delegated permissions: {{ scope_summary }}. BidLens reads only conversations it previously initiated and tracks; it does not scan the mailbox broadly.</p>
     </section>
 
-    {% if admin_rows %}
+    {% if is_admin %}
       <section class="configuration-center-section">
         <div class="configuration-center-section-heading">
           <div>
             <span>Workspace visibility</span>
             <h2>Microsoft Adoption</h2>
           </div>
-          <p>Admins can see connection status only. They cannot test, refresh, disconnect, or manage another user's credentials.</p>
+          <div>
+            <p>Admins can sync BidLens-tracked conversations. They cannot test, refresh, disconnect, or manage another user's credentials.</p>
+            <form method="post" action="/integrations/microsoft/sync" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Syncing…';">
+              <button class="btn btn-primary" type="submit">Sync Now</button>
+            </form>
+          </div>
         </div>
         <div class="admin-table-wrap">
           <table class="admin-table">

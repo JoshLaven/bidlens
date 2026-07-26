@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 from sqlalchemy.orm import Session
@@ -47,6 +47,7 @@ MICROSOFT_TRACKING_SELECT = (
     "id,conversationId,internetMessageId,sender,from,toRecipients,ccRecipients,"
     "subject,body,sentDateTime,webLink"
 )
+MICROSOFT_SYNC_SELECT = MICROSOFT_TRACKING_SELECT + ",receivedDateTime,isDraft"
 TOKEN_EXPIRY_SKEW_SECONDS = 300
 
 
@@ -101,7 +102,7 @@ def safe_error_message(code: str) -> str:
         "identity_verification_failed": "BidLens could not verify the connected Microsoft identity.",
         "identity_mismatch": "The Microsoft identity no longer matches this connection. Please reconnect.",
         "provider_unavailable": "Microsoft is temporarily unavailable.",
-        "permission_missing": "Microsoft email sending permission is required. Reconnect your account to approve Mail.Send.",
+        "permission_missing": "Required Microsoft mail permissions are missing. Reconnect your account to approve them.",
         "invalid_recipient": "Microsoft rejected one or more recipients.",
         "invalid_form": "Review the recipients, subject, and message before sending.",
         "message_rejected": "Microsoft rejected the email request.",
@@ -546,6 +547,58 @@ class MicrosoftConnectionService:
             if attempt < 2:
                 time.sleep(0.25 * (attempt + 1))
         return None
+
+    def list_conversation_messages(self, provider_conversation_id: str) -> list[dict[str, Any]]:
+        """List only one tracked Graph conversation, preserving immutable message IDs."""
+        conversation_id = str(provider_conversation_id or "").strip()
+        if not conversation_id:
+            raise MicrosoftConnectionError("invalid_conversation", "Tracked conversation is unavailable.")
+        connection = self.connection()
+        if not connection or connection.connection_status == STATUS_DISCONNECTED:
+            raise MicrosoftConnectionError("not_connected", safe_error_message("not_connected"))
+        if connection.connection_status == STATUS_REAUTHORIZATION_REQUIRED:
+            raise MicrosoftConnectionError("reauthorization_required", safe_error_message("invalid_grant"))
+        if not connection_has_scope(connection, "Mail.ReadWrite"):
+            raise MicrosoftConnectionError("permission_missing", safe_error_message("permission_missing"))
+
+        token = self.access_token_for_connection(connection)
+        escaped_id = conversation_id.replace("'", "''")
+        url = MICROSOFT_MESSAGES_URL
+        params: dict[str, Any] | None = {
+            "$filter": f"conversationId eq '{escaped_id}'",
+            "$select": MICROSOFT_SYNC_SELECT,
+            "$top": 50,
+        }
+        headers = {**self._headers(token), "Prefer": MICROSOFT_IMMUTABLE_ID_HEADER}
+        messages: list[dict[str, Any]] = []
+        while url:
+            try:
+                response = requests.get(url, params=params, headers=headers, timeout=20)
+            except (requests.Timeout, requests.ConnectionError) as exc:
+                raise MicrosoftConnectionError("provider_unavailable", safe_error_message("provider_unavailable")) from exc
+            if response.status_code in {401, 403}:
+                self._record_error(connection, "invalid_grant")
+                raise MicrosoftConnectionError("reauthorization_required", safe_error_message("invalid_grant"))
+            if response.status_code == 429:
+                raise MicrosoftConnectionError("provider_throttled", safe_error_message("provider_throttled"))
+            if response.status_code != 200:
+                raise MicrosoftConnectionError("provider_unavailable", safe_error_message("provider_unavailable"))
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise MicrosoftConnectionError("provider_unavailable", safe_error_message("provider_unavailable")) from exc
+            values = payload.get("value")
+            if not isinstance(values, list):
+                raise MicrosoftConnectionError("provider_unavailable", safe_error_message("provider_unavailable"))
+            messages.extend(item for item in values if isinstance(item, dict))
+            next_link = str(payload.get("@odata.nextLink") or "").strip()
+            if next_link:
+                parsed = urlparse(next_link)
+                if parsed.scheme != "https" or parsed.netloc != "graph.microsoft.com" or not parsed.path.startswith("/v1.0/me/messages"):
+                    raise MicrosoftConnectionError("provider_unavailable", safe_error_message("provider_unavailable"))
+            url = next_link
+            params = None  # nextLink contains the complete provider-generated query.
+        return messages
 
     def _raise_send_error(
         self,
