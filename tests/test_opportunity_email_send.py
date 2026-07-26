@@ -32,6 +32,7 @@ from bidlens.services.opportunity_email import (
     SEND_STATUS_ACCEPTED,
     OpportunityEmailValidationError,
     body_with_footer,
+    ensure_user_shortlisted_from_email,
     finalize_accepted_send,
     interested_colleague_recipients,
     merge_recipients,
@@ -153,6 +154,33 @@ class OpportunityEmailSendTests(unittest.TestCase):
         )
 
         self.assertEqual([recipient.email for recipient in recipients], ["colleague@example.com"])
+
+    def test_email_shortlist_signal_leaves_existing_pursue_unchanged(self):
+        added = ensure_user_shortlisted_from_email(self.db, opportunity=self.opportunity, user=self.user)
+        self.db.commit()
+
+        vote = (
+            self.db.query(Vote)
+            .filter_by(org_id=self.org.id, opp_id=self.opportunity.id, user_id=self.user.id)
+            .one()
+        )
+        self.assertFalse(added)
+        self.assertEqual(vote.vote, "PURSUE")
+
+    def test_email_shortlist_signal_sets_pursue_when_not_already_shortlisted(self):
+        vote = (
+            self.db.query(Vote)
+            .filter_by(org_id=self.org.id, opp_id=self.opportunity.id, user_id=self.user.id)
+            .one()
+        )
+        vote.vote = "PASS"
+        self.db.commit()
+
+        added = ensure_user_shortlisted_from_email(self.db, opportunity=self.opportunity, user=self.user)
+        self.db.commit()
+
+        self.assertTrue(added)
+        self.assertEqual(vote.vote, "PURSUE")
 
     def test_message_validation_and_footer_do_not_expose_internal_id(self):
         self.assertEqual(validate_subject("  Hello   there  "), "Hello there")

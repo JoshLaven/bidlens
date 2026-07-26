@@ -8,6 +8,7 @@ import requests
 from fastapi import APIRouter, Request, Form, Depends, HTTPException
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import joinedload
 from collections import OrderedDict
@@ -45,6 +46,7 @@ from ..services.opportunity_email import (
     audit_email_send,
     body_with_footer,
     default_subject,
+    ensure_user_shortlisted_from_email,
     finalize_accepted_send,
     interested_colleague_recipients,
     merge_recipients,
@@ -189,6 +191,23 @@ def require_user(request: Request, db: Session):
         return None
     attach_request_user_context(request, db, user)
     return user
+
+
+def _safe_workflow_return_path(value: str | None, *, default: str = "/") -> str:
+    candidate = (value or "").strip()
+    if not candidate or candidate.startswith("//"):
+        return default
+    parsed = urlsplit(candidate)
+    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
+        return default
+    return urlunsplit(("", "", parsed.path, parsed.query, ""))
+
+
+def _redirect_with_query(path: str, **params: str | int | bool | None) -> str:
+    parsed = urlsplit(_safe_workflow_return_path(path))
+    query = [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True)]
+    query.extend((key, str(value)) for key, value in params.items() if value is not None)
+    return urlunsplit(("", "", parsed.path, urlencode(query), ""))
 
 
 def _pre_live_product_redirect(db: Session, user) -> RedirectResponse | None:
@@ -2215,6 +2234,8 @@ async def opportunity_detail(
 async def new_opportunity_conversation(
     request: Request,
     opp_id: int,
+    return_to: str | None = None,
+    embedded: str | None = None,
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -2223,9 +2244,10 @@ async def new_opportunity_conversation(
     opportunity = _authorized_opportunity_for_user(db, user, opp_id)
     if not opportunity:
         return RedirectResponse(url="/", status_code=303)
+    return_path = _safe_workflow_return_path(return_to, default=f"/opportunity/{opp_id}")
     workspace = _workspace_for_user(db, user)
     if not workspace:
-        return RedirectResponse(url=f"/opportunity/{opp_id}", status_code=303)
+        return RedirectResponse(url=return_path, status_code=303)
 
     connection = _microsoft_connection_for_user(db, workspace=workspace, user=user)
     token = new_send_token()
@@ -2242,8 +2264,13 @@ async def new_opportunity_conversation(
     }
     if connection:
         status = MicrosoftConnectionService(db=db, workspace=workspace, user=user).safe_status()
-    connect_url = f"/integrations/microsoft/oauth/start?return_to=/opportunity/{opp_id}/conversation/new"
-    return templates.TemplateResponse("opportunity_conversation_compose.html", {
+    compose_return_path = _redirect_with_query(
+        f"/opportunity/{opp_id}/conversation/new",
+        return_to=return_path,
+    )
+    connect_url = f"/integrations/microsoft/oauth/start?{urlencode({'return_to': compose_return_path})}"
+    embedded_mode = embedded == "1"
+    return templates.TemplateResponse("opportunity_email_compose_embedded.html" if embedded_mode else "opportunity_conversation_compose.html", {
         "request": request,
         "user": user,
         "opportunity": opportunity,
@@ -2253,6 +2280,8 @@ async def new_opportunity_conversation(
         "send_token": token,
         "default_subject": default_subject(opportunity),
         "connect_url": connect_url,
+        "return_to": return_path,
+        "embedded": embedded_mode,
         "error": request.query_params.get("error"),
         "error_message": safe_error_message(request.query_params.get("error") or ""),
         "sidebar": get_sidebar(db, user),
@@ -2267,6 +2296,7 @@ async def send_opportunity_conversation(
     subject: str = Form(""),
     message: str = Form(""),
     send_token: str = Form(""),
+    return_to: str = Form("/"),
     add_interested_colleagues: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
@@ -2276,32 +2306,40 @@ async def send_opportunity_conversation(
     opportunity = _authorized_opportunity_for_user(db, user, opp_id)
     if not opportunity:
         return RedirectResponse(url="/", status_code=303)
+    return_path = _safe_workflow_return_path(return_to, default=f"/opportunity/{opp_id}")
+    compose_path = _redirect_with_query(f"/opportunity/{opp_id}/conversation/new", return_to=return_path)
     workspace = _workspace_for_user(db, user)
     if not workspace:
-        return RedirectResponse(url=f"/opportunity/{opp_id}", status_code=303)
+        return RedirectResponse(url=return_path, status_code=303)
 
     connection = _microsoft_connection_for_user(db, workspace=workspace, user=user)
     if not connection:
         return RedirectResponse(
-            url=f"/integrations/microsoft/oauth/start?return_to=/opportunity/{opp_id}/conversation/new",
+            url=f"/integrations/microsoft/oauth/start?{urlencode({'return_to': compose_path})}",
             status_code=303,
         )
     if connection.connection_status == STATUS_REAUTHORIZATION_REQUIRED or not connection_has_scope(connection, "Mail.Send"):
         return RedirectResponse(
-            url=f"/integrations/microsoft/oauth/start?return_to=/opportunity/{opp_id}/conversation/new",
+            url=f"/integrations/microsoft/oauth/start?{urlencode({'return_to': compose_path})}",
             status_code=303,
         )
     if connection.connection_status != STATUS_CONNECTED:
-        return RedirectResponse(url=f"/opportunity/{opp_id}/conversation/new?error=connection_error", status_code=303)
+        return RedirectResponse(url=_redirect_with_query(compose_path, error="connection_error"), status_code=303)
 
     try:
         attempt = reserve_send_attempt(db, opportunity=opportunity, user=user, token=send_token)
         validate_send_attempt(attempt, opportunity=opportunity, user=user)
         if attempt.status in {"accepted_for_delivery", "failed", "outcome_uncertain"}:
             if attempt.status == "accepted_for_delivery":
-                return RedirectResponse(url=f"/opportunity/{opp_id}?conversation=accepted", status_code=303)
+                return RedirectResponse(
+                    url=_redirect_with_query(return_path, email_sent=1, opportunity_folder=f"/opportunity/{opp_id}"),
+                    status_code=303,
+                )
             return RedirectResponse(
-                url=f"/opportunity/{opp_id}?conversation={'uncertain' if attempt.status == 'outcome_uncertain' else 'failed'}",
+                url=_redirect_with_query(
+                    return_path,
+                    email_status="uncertain" if attempt.status == "outcome_uncertain" else "failed",
+                ),
                 status_code=303,
             )
         clean_subject = validate_subject(subject)
@@ -2315,7 +2353,7 @@ async def send_opportunity_conversation(
         recipients = merge_recipients(manual_recipients, colleague_recipients)
     except OpportunityEmailValidationError:
         db.rollback()
-        return RedirectResponse(url=f"/opportunity/{opp_id}/conversation/new?error=invalid_form", status_code=303)
+        return RedirectResponse(url=_redirect_with_query(compose_path, error="invalid_form"), status_code=303)
 
     attempt.status = "sending"
     attempt.recipient_count = len(recipients)
@@ -2336,8 +2374,17 @@ async def send_opportunity_conversation(
             subject=clean_subject,
             recipients=recipients,
         )
+        added_to_shortlist = ensure_user_shortlisted_from_email(db, opportunity=opportunity, user=user)
         db.commit()
-        return RedirectResponse(url=f"/opportunity/{opp_id}?conversation=accepted", status_code=303)
+        return RedirectResponse(
+            url=_redirect_with_query(
+                return_path,
+                email_sent=1,
+                added_to_shortlist=1 if added_to_shortlist else None,
+                opportunity_folder=f"/opportunity/{opp_id}",
+            ),
+            status_code=303,
+        )
     except MicrosoftConnectionError as exc:
         code = getattr(exc, "code", "message_rejected")
         attempt.status = "outcome_uncertain" if code == "outcome_uncertain" else "failed"
@@ -2351,7 +2398,10 @@ async def send_opportunity_conversation(
         )
         db.commit()
         return RedirectResponse(
-            url=f"/opportunity/{opp_id}?conversation={'uncertain' if code == 'outcome_uncertain' else 'failed'}",
+            url=_redirect_with_query(
+                return_path,
+                email_status="uncertain" if code == "outcome_uncertain" else "failed",
+            ),
             status_code=303,
         )
     except requests.RequestException:
@@ -2365,7 +2415,7 @@ async def send_opportunity_conversation(
             error_code="outcome_uncertain",
         )
         db.commit()
-        return RedirectResponse(url=f"/opportunity/{opp_id}?conversation=uncertain", status_code=303)
+        return RedirectResponse(url=_redirect_with_query(return_path, email_status="uncertain"), status_code=303)
 
 
 # ── User-level actions (notes, bookmark, etc.) ───────────────

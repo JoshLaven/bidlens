@@ -323,12 +323,13 @@ class OpportunityConversationFoundationTests(unittest.TestCase):
         with open("src/bidlens/templates/detail.html", encoding="utf-8") as template:
             html = template.read()
 
-        self.assertIn("Current Status", html)
+        self.assertIn('id="detail-tab-communication"', html)
+        self.assertIn('id="detail-panel-communication"', html)
+        self.assertIn("Email record", html)
         self.assertIn("Conversations", html)
-        self.assertIn("Recent Activity", html)
-        self.assertIn("Automated summary not yet generated.", html)
-        self.assertIn("No conversations have been associated with this opportunity yet.", html)
-        self.assertIn("No recent activity has been recorded yet.", html)
+        self.assertIn("Communication Timeline", html)
+        self.assertIn("No outbound email has been recorded for this opportunity yet.", html)
+        self.assertIn("No communication activity has been recorded yet.", html)
 
     def test_deleting_opportunity_removes_conversations_and_activity(self):
         conversation = create_conversation_for_authorized_opportunity(

@@ -1,0 +1,95 @@
+<div class="detail-page opportunity-compose-page {{ 'opportunity-compose-page--embedded' if embedded else '' }}">
+  <header class="detail-hero">
+    <div class="detail-hero-copy">
+      <h1 class="detail-title">Compose Email</h1>
+      <p class="detail-agency">{{ opportunity.title }}</p>
+      <p class="detail-due-summary">Send from your connected Microsoft account and continue reviewing opportunities.</p>
+    </div>
+    {% if embedded %}
+      <button
+        type="button"
+        class="opportunity-compose-close"
+        aria-label="Close compose email"
+        onclick="if (window.parent && window.parent.closeOpportunityEmailDialog) { window.parent.closeOpportunityEmailDialog(); } else { window.location.href={{ return_to|tojson }}; }"
+      >
+        &times;
+      </button>
+    {% else %}
+      <a href="{{ return_to }}" class="detail-back-link">Cancel</a>
+    {% endif %}
+  </header>
+
+  <div class="detail-primary">
+    {% if error %}
+      <div class="alert alert-warning">{{ error_message }}</div>
+    {% endif %}
+
+    <section class="configuration-center-section">
+      <div class="configuration-center-section-heading">
+        <div>
+          <span>Microsoft</span>
+          <h2>Sender</h2>
+        </div>
+        <span class="configuration-health configuration-health--{{ status.level or 'neutral' }}">
+          <i aria-hidden="true"></i>{{ status.label }}
+        </span>
+      </div>
+
+      {% if not status.connected %}
+        <p>Connect your Microsoft account before sending email from BidLens. BidLens will request identity permissions and delegated Mail.Send only.</p>
+        <a href="{{ connect_url }}" class="btn btn-primary" {% if embedded %}target="_top"{% endif %}>Connect Microsoft Account</a>
+      {% elif not status.has_mail_send %}
+        <p>Your Microsoft account is connected as {{ status.connected_display_name or 'Microsoft user' }}{% if status.connected_email %} &lt;{{ status.connected_email }}&gt;{% endif %}, but email sending permission has not been granted yet.</p>
+        <a href="{{ connect_url }}" class="btn btn-primary" {% if embedded %}target="_top"{% endif %}>Enable Email Sending</a>
+      {% elif status.status != 'connected' %}
+        <p>Reconnect your Microsoft account before sending email.</p>
+        <a href="{{ connect_url }}" class="btn btn-primary" {% if embedded %}target="_top"{% endif %}>Reconnect Microsoft Account</a>
+      {% else %}
+        <p>Sending as <strong>{{ status.connected_display_name or 'Microsoft user' }}</strong>{% if status.connected_email %} &lt;{{ status.connected_email }}&gt;{% endif %}</p>
+      {% endif %}
+    </section>
+
+    {% if status.connected and status.has_mail_send and status.status == 'connected' %}
+      <form method="post" action="/opportunity/{{ opportunity.id }}/conversation/send" class="configuration-center-section opportunity-compose-form" {% if embedded %}target="_top"{% endif %}>
+        <input type="hidden" name="send_token" value="{{ send_token }}">
+        <input type="hidden" name="return_to" value="{{ return_to }}">
+        <div class="form-group opportunity-compose-recipient-group">
+          <label for="conversation-to">To</label>
+          <input id="conversation-to" name="to" type="text" class="form-control" placeholder="name@example.com, teammate@example.com" autocomplete="off">
+          <p class="muted">Add teammates or external recipients. Use commas or semicolons between addresses.</p>
+          <div class="opportunity-compose-colleagues">
+            <label class="checkbox-row">
+              <input type="checkbox" name="add_interested_colleagues" value="1">
+              <span>Add interested colleagues</span>
+            </label>
+            {% if colleagues %}
+              <div class="conversation-colleague-preview">
+                {% for colleague in colleagues %}
+                  <span>{{ colleague.label }} &lt;{{ colleague.email }}&gt;</span>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="muted">No interested colleagues are available for this opportunity.</p>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="conversation-subject">Subject</label>
+          <input id="conversation-subject" name="subject" type="text" class="form-control" maxlength="180" value="{{ default_subject }}" required>
+        </div>
+
+        <div class="form-group opportunity-compose-message-group">
+          <label for="conversation-message">Message</label>
+          <textarea id="conversation-message" name="message" class="form-control" rows="8" maxlength="10000" required></textarea>
+          <p class="muted">Plain text only. BidLens adds a small opportunity footer and does not store the full message body.</p>
+        </div>
+
+        <div class="form-actions">
+          <a href="{{ return_to }}" class="btn btn-outline-secondary" {% if embedded %}target="_top"{% endif %}>Cancel</a>
+          <button type="submit" class="btn btn-primary">Send</button>
+        </div>
+      </form>
+    {% endif %}
+  </div>
+</div>

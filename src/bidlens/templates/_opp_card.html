@@ -261,7 +261,7 @@
           class="opp-icon-button opp-footer-icon opp-email-action"
           aria-label="Email Opportunity"
           aria-describedby="opp-email-tooltip-{{ opp.id }}"
-          onclick='event.preventDefault(); event.stopPropagation(); openOpportunityEmail({ title: {{ opp.title|tojson }}, agency: {{ agency_display|tojson }}, due: {{ due_label|tojson }}, path: {{ ("/opportunity/" ~ opp.id)|tojson }}, samUrl: {{ (opp.source_url or opp.sam_url or "")|tojson }} })'>
+          onclick='event.preventDefault(); event.stopPropagation(); openOpportunityEmail({ id: {{ opp.id|tojson }}, path: {{ ("/opportunity/" ~ opp.id)|tojson }} })'>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <rect x="3" y="5" width="18" height="14" rx="2"></rect>
             <path d="m4 7 8 6 8-6"></path>

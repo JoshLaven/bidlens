@@ -142,6 +142,30 @@ def merge_recipients(manual: list[str], colleagues: list[Recipient]) -> list[str
     return merged
 
 
+def ensure_user_shortlisted_from_email(db: Session, *, opportunity: Opportunity, user: User) -> bool:
+    """Mark the sender as interested after Microsoft accepts an outbound email.
+
+    Returns True only when the email workflow newly added the opportunity to the
+    user's My Shortlist. Existing Pursue votes are left untouched.
+    """
+    row = (
+        db.query(Vote)
+        .filter(
+            Vote.org_id == opportunity.organization_id,
+            Vote.opp_id == opportunity.id,
+            Vote.user_id == user.id,
+        )
+        .first()
+    )
+    if row and row.vote == "PURSUE":
+        return False
+    if not row:
+        db.add(Vote(org_id=opportunity.organization_id, opp_id=opportunity.id, user_id=user.id, vote="PURSUE"))
+    else:
+        row.vote = "PURSUE"
+    return True
+
+
 def default_subject(opportunity: Opportunity) -> str:
     return " ".join(f"Discussion: {opportunity.title}".split())[:MAX_SUBJECT_LENGTH]
 

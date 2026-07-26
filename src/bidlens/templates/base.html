@@ -248,6 +248,9 @@
       </main>
     </div>
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <dialog id="opportunity-email-dialog" class="opportunity-email-dialog" aria-label="Compose email">
+      <iframe id="opportunity-email-frame" class="opportunity-email-frame" title="Compose email"></iframe>
+    </dialog>
     {% set show_past_due_notification = request_path == '/' or request_path.startswith('/my-shortlist') or request_path.startswith('/archive') %}
     {% if user and not platform_mode and show_past_due_notification and user.past_due_outcome_count is defined and user.past_due_outcome_count > 0 %}
       <a
@@ -374,7 +377,7 @@
       }, 2500);
     }
 
-    function showToastWithLink(message, linkText, linkUrl, type = 'success') {
+    function showToastWithLink(message, linkText, linkUrl, type = 'success', options = {}) {
       const region = document.getElementById('toast-region');
       if (!region || !linkUrl) {
         showToast(message, type);
@@ -390,8 +393,10 @@
 
       const link = document.createElement('a');
       link.href = linkUrl;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
+      if (!options.sameTab) {
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+      }
       link.textContent = linkText;
       link.style.display = 'block';
       link.style.marginTop = '4px';
@@ -428,43 +433,71 @@
       return copied;
     }
 
-    async function openOpportunityEmail(payload) {
-      const title = (payload && payload.title) || 'Opportunity';
-      const agency = (payload && payload.agency) || '—';
-      const due = (payload && payload.due) || '—';
-      const internalPath = (payload && payload.path) || '/';
-      const samUrl = (payload && payload.samUrl) || '';
-      const internalUrl = `${window.location.origin}${internalPath}`;
-
-      const subject = `BidLens Opportunity: ${title}`;
-      const body = [
-        `Opportunity: ${title}`,
-        `Agency: ${agency}`,
-        `Due: ${due}`,
-        '',
-        'View in BidLens:',
-        internalUrl,
-        '',
-        'SAM Link:',
-        samUrl || '—',
-      ].join('\n');
-
-      const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-
-      try {
-        const popup = window.open(mailtoUrl, '_self');
-        if (popup === null) {
-          throw new Error('blocked');
-        }
-      } catch (error) {
-        try {
-          await copyTextToClipboard(internalUrl);
-          showToast('Mail client unavailable. BidLens link copied.', 'error');
-        } catch (copyError) {
-          showToast('Unable to open email draft.', 'error');
-        }
+    function openOpportunityEmail(payload) {
+      const id = payload && payload.id;
+      const internalPath = (payload && payload.path) || (id ? `/opportunity/${id}` : '/');
+      const match = internalPath.match(/\/opportunity\/(\d+)/);
+      const oppId = id || (match ? match[1] : null);
+      if (!oppId) {
+        showToast('Unable to open email compose.', 'error');
+        return;
       }
+      const returnTo = `${window.location.pathname}${window.location.search}`;
+      const composeUrl = `/opportunity/${encodeURIComponent(oppId)}/conversation/new?return_to=${encodeURIComponent(returnTo)}&embedded=1`;
+      const dialog = document.getElementById('opportunity-email-dialog');
+      const frame = document.getElementById('opportunity-email-frame');
+      if (!dialog || !frame || typeof dialog.showModal !== 'function') {
+        window.location.href = composeUrl.replace('&embedded=1', '');
+        return;
+      }
+      frame.src = composeUrl;
+      dialog.showModal();
     }
+
+    (function initializeOpportunityEmailDialog() {
+      const dialog = document.getElementById('opportunity-email-dialog');
+      const frame = document.getElementById('opportunity-email-frame');
+      if (!dialog || !frame) return;
+      window.closeOpportunityEmailDialog = function closeOpportunityEmailDialog() {
+        dialog.close();
+      };
+      dialog.addEventListener('click', (event) => {
+        if (event.target === dialog) {
+          dialog.close();
+        }
+      });
+      dialog.addEventListener('close', () => {
+        frame.removeAttribute('src');
+      });
+    })();
+
+    (function showWorkflowToastsFromQuery() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('email_sent') === '1') {
+        const lines = ['Email sent.'];
+        if (params.get('added_to_shortlist') === '1') {
+          lines.push('Added to My Shortlist.');
+        }
+        showToastWithLink(
+          lines.join('\n'),
+          'View Opportunity Folder →',
+          params.get('opportunity_folder') || '',
+          'success',
+          { sameTab: true }
+        );
+      } else if (params.get('email_status') === 'uncertain') {
+        showToast('BidLens could not confirm whether Microsoft accepted this email. Check your Sent Items before trying again.', 'warning');
+      } else if (params.get('email_status') === 'failed') {
+        showToast('Microsoft could not accept the email request.', 'error');
+      }
+      if (params.has('email_sent') || params.has('added_to_shortlist') || params.has('opportunity_folder') || params.has('email_status')) {
+        for (const key of ['email_sent', 'added_to_shortlist', 'opportunity_folder', 'email_status']) {
+          params.delete(key);
+        }
+        const cleanUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}${window.location.hash}`;
+        window.history.replaceState({}, '', cleanUrl);
+      }
+    })();
 
     function renderSidebarSection(containerId, items, emptyText, viewAllHref = null) {
       const container = document.getElementById(containerId);
