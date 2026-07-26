@@ -16,7 +16,7 @@ from bidlens.models import (
     Workspace,
 )
 from bidlens.services.integration_credentials import encrypt_credentials
-from bidlens.services.microsoft import MicrosoftConnectionService
+from bidlens.services.microsoft import MicrosoftConnectionError, MicrosoftConnectionService
 from bidlens.services.microsoft_conversation_sync import sync_tracked_microsoft_conversations
 from bidlens.services.opportunity_conversations import get_opportunity_conversation_context, safe_message_body
 
@@ -145,6 +145,27 @@ class MicrosoftConversationSyncTests(unittest.TestCase):
     def test_plain_and_html_body_normalization(self):
         self.assertEqual(safe_message_body("plain <tag>", "text"), "plain <tag>")
         self.assertEqual(safe_message_body("<div>Hello<br>world</div><style>secret</style>", "html"), "Hello\nworld")
+
+    @patch.object(MicrosoftConnectionService, "list_conversation_messages")
+    def test_scheduled_mode_stops_after_authorization_failure_and_marks_connection(self, list_messages):
+        self.db.add(OpportunityConversation(
+            workspace_id=self.workspace.id, opportunity_id=self.opportunity.id, provider="microsoft",
+            external_conversation_id="thread-2", subject="Second", started_by_user_id=self.user.id,
+            provider_mailbox_id="mailbox-1", initial_provider_message_id="initial-2", tracking_status="tracked",
+        ))
+        self.db.commit()
+        list_messages.side_effect = MicrosoftConnectionError("reauthorization_required", "token=do-not-log")
+
+        result = sync_tracked_microsoft_conversations(
+            self.db, workspace=self.workspace, stop_on_authorization_failure=True,
+        )
+
+        self.assertEqual(result["conversations_checked"], 1)
+        self.assertEqual(result["reauthorization_required"], 1)
+        self.assertEqual(list_messages.call_count, 1)
+        self.db.refresh(self.connection)
+        self.assertEqual(self.connection.connection_status, "reauthorization_required")
+        self.assertNotIn("do-not-log", self.connection.last_error_message)
 
 
 class MicrosoftConversationGraphTests(unittest.TestCase):

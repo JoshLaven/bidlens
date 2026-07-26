@@ -87,10 +87,11 @@ class GrantsSchedulerTests(unittest.TestCase):
             returned = scheduler.start_scheduler()
 
         self.assertIs(returned, fake_scheduler)
-        self.assertEqual(fake_scheduler.add_job.call_count, 2)
+        self.assertEqual(fake_scheduler.add_job.call_count, 3)
         scheduled_functions = [call.args[0] for call in fake_scheduler.add_job.call_args_list]
         self.assertIn(scheduler.run_sam_ingest, scheduled_functions)
         self.assertIn(scheduler.run_grants_ingest, scheduled_functions)
+        self.assertIn(scheduler.run_outlook_conversation_sync, scheduled_functions)
         fake_scheduler.start.assert_called_once()
 
 

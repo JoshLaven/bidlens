@@ -17,6 +17,7 @@ from ..models import (
 from .microsoft import (
     PROVIDER_MICROSOFT,
     STATUS_CONNECTED,
+    STATUS_REAUTHORIZATION_REQUIRED,
     MicrosoftConnectionError,
     MicrosoftConnectionService,
 )
@@ -103,22 +104,32 @@ def _refresh_aggregate(db: Session, conversation: OpportunityConversation) -> No
     conversation.participant_summary = ", ".join(sorted(participants)) or conversation.participant_summary
 
 
-def sync_tracked_microsoft_conversations(db: Session, *, workspace: Workspace) -> dict[str, int]:
+def eligible_tracked_microsoft_conversations(db: Session, *, workspace_id: int):
+    """Canonical Phase 2A eligibility query, reusable by operational wrappers."""
+    return db.query(OpportunityConversation).filter(
+        OpportunityConversation.workspace_id == workspace_id,
+        OpportunityConversation.provider == PROVIDER_MICROSOFT,
+        OpportunityConversation.provider_mailbox_id.isnot(None),
+        OpportunityConversation.external_conversation_id.isnot(None),
+        OpportunityConversation.initial_provider_message_id.isnot(None),
+        OpportunityConversation.started_by_user_id.isnot(None),
+        OpportunityConversation.tracking_status.in_(TRACKABLE_STATUSES),
+    )
+
+
+def sync_tracked_microsoft_conversations(
+    db: Session,
+    *,
+    workspace: Workspace,
+    stop_on_authorization_failure: bool = False,
+) -> dict[str, int]:
     """Synchronize only Outlook threads that BidLens previously initiated and tracked."""
     result = ConversationSyncResult()
     conversation_ids = [
         row[0]
         for row in (
-            db.query(OpportunityConversation.id)
-            .filter(
-                OpportunityConversation.workspace_id == workspace.id,
-                OpportunityConversation.provider == PROVIDER_MICROSOFT,
-                OpportunityConversation.provider_mailbox_id.isnot(None),
-                OpportunityConversation.external_conversation_id.isnot(None),
-                OpportunityConversation.initial_provider_message_id.isnot(None),
-                OpportunityConversation.started_by_user_id.isnot(None),
-                OpportunityConversation.tracking_status.in_(TRACKABLE_STATUSES),
-            )
+            eligible_tracked_microsoft_conversations(db, workspace_id=workspace.id)
+            .with_entities(OpportunityConversation.id)
             .order_by(OpportunityConversation.id.asc())
             .all()
         )
@@ -213,8 +224,22 @@ def sync_tracked_microsoft_conversations(db: Session, *, workspace: Workspace) -
                 failed.last_attempted_sync_at = _now()
                 failed.tracking_status = "tracking_error"
                 failed.last_sync_error = code
-                db.commit()
+            if code in REAUTHORIZATION_CODES:
+                failed_mailbox_id = failed.provider_mailbox_id if failed else None
+                connection = db.query(ExternalIntegrationConnection).filter(
+                    ExternalIntegrationConnection.workspace_id == workspace.id,
+                    ExternalIntegrationConnection.provider == PROVIDER_MICROSOFT,
+                    ExternalIntegrationConnection.external_user_id == failed_mailbox_id,
+                ).one_or_none()
+                if connection:
+                    connection.connection_status = STATUS_REAUTHORIZATION_REQUIRED
+                    connection.last_error_at = _now()
+                    connection.last_error_code = code
+                    connection.last_error_message = "Microsoft authorization must be renewed."
+            db.commit()
             result.conversations_failed += 1
             if code in REAUTHORIZATION_CODES:
                 result.reauthorization_required += 1
+                if stop_on_authorization_failure:
+                    break
     return result.to_dict()

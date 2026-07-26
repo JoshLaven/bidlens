@@ -192,6 +192,7 @@ PYTHONPATH=src python -m bidlens.jobs.run_sam_ingest
 PYTHONPATH=src python -m bidlens.jobs.run_grants_ingest
 PYTHONPATH=src python -m bidlens.jobs.run_daily_snapshots
 PYTHONPATH=src python -m bidlens.jobs.run_daily_brief_emails
+PYTHONPATH=src python -m bidlens.jobs.run_outlook_conversation_sync
 ```
 
 Each command defaults to `--trigger-type scheduled`. For local manual testing, pass:
@@ -222,6 +223,16 @@ PYTHONPATH=src python -m bidlens.jobs.run_sam_refresh
 
 Schedule it with cron expression `0 12 * * *` for approximately 5:00 AM
 Phoenix time. Keep `ENABLE_INTERNAL_SCHEDULER=false` on the Railway web service.
+
+Run tracked Outlook synchronization from one separate Railway Cron service:
+
+```text
+Schedule: */15 * * * *
+Command: PYTHONPATH=src python -m bidlens.jobs.run_outlook_conversation_sync
+```
+
+The command checks only conversations initiated and tracked by BidLens. Keep
+`ENABLE_INTERNAL_SCHEDULER=false` on the cron service as well.
 
 Each standalone job creates one `JobRun` per eligible organization. SAM.gov and Grants.gov jobs also preserve their existing `IngestionRun` records for source-specific ingestion history. Daily Snapshot creates one organization-level `JobRun` with aggregate user counts.
 Daily Brief Email creates one organization-level `JobRun` and one durable

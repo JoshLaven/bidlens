@@ -79,6 +79,7 @@
           </div>
           <div>
             <p>Admins can sync BidLens-tracked conversations. They cannot test, refresh, disconnect, or manage another user's credentials.</p>
+            <p>BidLens automatically checks tracked Outlook conversations approximately every 15 minutes. Only conversations initiated from BidLens are synchronized.</p>
             <form method="post" action="/integrations/microsoft/sync" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Syncing…';">
               <button class="btn btn-primary" type="submit">Sync Now</button>
             </form>

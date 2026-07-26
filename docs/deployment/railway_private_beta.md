@@ -302,6 +302,25 @@ Manual validation command:
 PYTHONPATH=src python -m bidlens.jobs.run_daily_brief_emails --trigger-type manual
 ```
 
+### Outlook Conversation Synchronization
+
+Use one separate Railway Cron Job for tracked Outlook conversations.
+
+```text
+Schedule: */15 * * * *
+Command: PYTHONPATH=src python -m bidlens.jobs.run_outlook_conversation_sync
+```
+
+It requires the same `DATABASE_URL`, `SECRET_KEY`, `MICROSOFT_CLIENT_ID`,
+`MICROSOFT_CLIENT_SECRET`, Microsoft redirect/tenant settings, and production
+safety flags as the web service. Keep `ENABLE_INTERNAL_SCHEDULER=false`. The
+existing pre-deploy `alembic upgrade head` remains sufficient because Phase 2B
+adds no schema migration.
+
+Configure only one cron service for this command. Message uniqueness prevents
+duplicate imports if processes race, but BidLens currently has no distributed
+scheduler lock; horizontal scheduling would require one.
+
 ### Other Operational Jobs
 
 Other standalone jobs can be run by separate Railway cron or worker services:
