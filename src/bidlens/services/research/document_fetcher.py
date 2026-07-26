@@ -7,6 +7,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 
 from ...sam_client import _is_url_like
+from ..grants_gov_documents import grants_gov_document_resources, is_grants_gov_opportunity
 from .document_text_parser import extract_doc_text, extract_docx_text, extract_txt_text
 from .pdf_parser import extract_pdf_text
 
@@ -337,15 +338,16 @@ def _fetch_public_file_resources(opportunity) -> tuple[list[dict], dict]:
 
 
 def fetch_opportunity_attachment_metadata(opportunity) -> dict:
-    """Return lightweight SAM attachment/resource metadata without downloading files."""
-    resources, summary = _fetch_public_file_resources(opportunity)
+    """Return source-aware attachment metadata without downloading files."""
+    resources, summary = _discover_file_resources(opportunity)
+    source = "grants_gov" if is_grants_gov_opportunity(opportunity) else "sam"
     attachments = [
         {
             "filename": resource.get("filename"),
             "url": resource.get("source_url"),
             "content_type": resource.get("content_type"),
             "file_kind": resource.get("file_kind"),
-            "source": "sam",
+            "source": source,
         }
         for resource in resources
     ]
@@ -362,6 +364,33 @@ def fetch_opportunity_attachment_metadata(opportunity) -> dict:
         "attachments": attachments,
         "summary": summary,
     }
+
+
+def _discover_file_resources(opportunity) -> tuple[list[dict], dict]:
+    if not is_grants_gov_opportunity(opportunity):
+        return _fetch_public_file_resources(opportunity)
+
+    resources = grants_gov_document_resources(opportunity)
+    summary = _empty_summary()
+    summary["total_attachments_found"] = len(resources)
+    summary["discovery_method"] = "grants_gov_raw_source_payload"
+    for resource in resources:
+        file_kind = _classify_attachment(
+            f"{resource.get('filename') or ''} {resource.get('source_url') or ''}",
+            str(resource.get("content_type") or ""),
+        )
+        resource["file_kind"] = file_kind
+        if file_kind == "pdf":
+            summary["pdf_candidates_found"] += 1
+        elif file_kind in {"docx", "doc"}:
+            summary["doc_candidates_found"] += 1
+        elif file_kind == "txt":
+            summary["txt_candidates_found"] += 1
+        elif file_kind == "spreadsheet":
+            summary["spreadsheet_candidates_found"] += 1
+        else:
+            summary["non_pdfs_skipped"] += 1
+    return _prioritize_resources(resources), summary
 
 
 def _extract_pdf_links_from_html(html: str, base_url: str) -> list[str]:
@@ -429,8 +458,8 @@ def _download_attachment(url: str) -> bytes | None:
 def fetch_opportunity_documents(opportunity) -> dict:
     page_urls = [url for url in [getattr(opportunity, "sam_url", None) or getattr(opportunity, "source_url", None)] if _is_url_like(url)]
 
-    resources, summary = _fetch_public_file_resources(opportunity)
-    if not resources and page_urls:
+    resources, summary = _discover_file_resources(opportunity)
+    if not resources and page_urls and not is_grants_gov_opportunity(opportunity):
         pdf_links: list[str] = []
         for page_url in page_urls:
             html = _fetch_html(page_url)
@@ -465,7 +494,11 @@ def fetch_opportunity_documents(opportunity) -> dict:
         summary["pdf_candidates_found"] = len(resources)
         resources = _prioritize_resources(resources)
     elif not resources:
-        logger.info("No SAM page URL available for document discovery opp_id=%s", getattr(opportunity, "id", None))
+        logger.info(
+            "No source documents available for document discovery opp_id=%s source=%s",
+            getattr(opportunity, "id", None),
+            getattr(opportunity, "source", None),
+        )
         return {"documents": [], "summary": summary}
 
     documents: list[dict] = []

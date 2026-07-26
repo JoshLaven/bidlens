@@ -41,6 +41,12 @@ SOURCE_TEXT_FIELD_ORDER = (
 )
 
 
+def _source_label(opportunity: Opportunity) -> str:
+    if str(opportunity.source or "").strip().lower() in {"grants_gov", "grants.gov"}:
+        return "Grants.gov"
+    return "SAM.gov"
+
+
 def _truncate(text: str, limit: int) -> str:
     text = (text or "").strip()
     if len(text) <= limit:
@@ -83,11 +89,11 @@ def _render_brief_instructions() -> str:
             "Use concise, plain-English, decision-oriented language.",
             "Return a JSON object only.",
             "Use solicitation document text as the primary source of truth when it is available.",
-            "Use the SAM description only as supplemental context.",
+            "Use the source opportunity description only as supplemental context.",
             "Prefer exact extracted requirements, instructions, dates, and evaluation language over generic summaries.",
             "Every section below is required, even if the answer is missing.",
             "If information is missing, write exactly: Not found in available materials",
-            "Do not guess or infer facts that are not stated in the SAM description or solicitation documents.",
+            "Do not guess or infer facts that are not stated in the source description or solicitation documents.",
             "Use short bullet-style strings in each array.",
             "Required sections:",
             section_labels,
@@ -137,10 +143,12 @@ def _render_document_sections(documents: list[dict[str, Any]]) -> str:
 def _render_attachment_metadata(
     documents: list[dict[str, Any]],
     source_summary: dict[str, Any],
+    *,
+    source_label: str,
 ) -> str:
     filenames = [doc["filename"] for doc in documents if doc.get("filename")]
     lines = [
-        f"Attachments found on SAM: {source_summary.get('total_attachments_found', 0)}",
+        f"Attachments found for {source_label}: {source_summary.get('total_attachments_found', 0)}",
         f"PDFs processed: {source_summary.get('pdfs_processed', 0)}",
         f"Word documents processed: {source_summary.get('docs_processed', 0)}",
         f"Text files processed: {source_summary.get('txts_processed', 0)}",
@@ -164,19 +172,25 @@ def _build_text_for_brief(
     source_summary: dict[str, Any],
 ) -> str:
     due_date = opportunity.response_deadline.strftime("%B %d, %Y") if opportunity.response_deadline else "Unknown"
+    source_label = _source_label(opportunity)
     prompt_sections = [
         f"Title: {opportunity.title}",
         f"Agency: {opportunity.agency}",
         f"Due Date: {due_date}",
         "Primary Solicitation Document Text:\n" + _render_document_sections(documents),
-        "Supplemental SAM Description:\n" + (description or "No SAM description text available."),
-        "Attachment Metadata:\n" + _render_attachment_metadata(documents, source_summary),
+        f"Supplemental {source_label} Description:\n" + (description or f"No {source_label} description text available."),
+        "Attachment Metadata:\n" + _render_attachment_metadata(
+            documents,
+            source_summary,
+            source_label=source_label,
+        ),
         "Brief Instructions:\n" + _render_brief_instructions(),
     ]
     return "\n\n".join(prompt_sections)
 
 
 def build_brief_request_payload(opportunity: Opportunity) -> dict[str, Any]:
+    source_label = _source_label(opportunity)
     source_text, source_text_field = build_opportunity_source_text(opportunity)
     description = _truncate(source_text, MAX_DESCRIPTION_CHARS)
     fetch_result = fetch_opportunity_documents(opportunity)
@@ -205,8 +219,8 @@ def build_brief_request_payload(opportunity: Opportunity) -> dict[str, Any]:
     if description:
         sources_used.append(
             {
-                "type": "sam_description",
-                "label": "SAM description",
+                "type": "grants_description" if source_label == "Grants.gov" else "sam_description",
+                "label": f"{source_label} description",
                 "url": opportunity.source_url or opportunity.sam_url,
             }
         )
@@ -229,7 +243,11 @@ def build_brief_request_payload(opportunity: Opportunity) -> dict[str, Any]:
     input_chars = len(text_for_brief)
     estimated_input_tokens = _estimate_tokens_from_chars(input_chars)
     document_chars_sent = sum(len(doc.get("extracted_text", "")) for doc in documents)
-    attachment_metadata_text = _render_attachment_metadata(documents, source_summary)
+    attachment_metadata_text = _render_attachment_metadata(
+        documents,
+        source_summary,
+        source_label=source_label,
+    )
     if estimated_input_tokens > MAX_INPUT_TOKENS_ESTIMATE:
         logger.warning(
             "Brief payload estimated tokens exceed V1 target opp_id=%s estimated_tokens=%s limit=%s",
@@ -402,7 +420,9 @@ def generate_local_brief(opportunity: Opportunity, payload: dict[str, Any]) -> d
     if payload.get("used_solicitation_documents"):
         recommended_action.append("Review the solicitation documents first, then decide whether to advance, based on scope, compliance requirements, and evaluation approach.")
     else:
-        recommended_action.append("Review the SAM.gov notice directly and confirm whether additional attachments need review before advancing.")
+        recommended_action.append(
+            f"Review the {_source_label(opportunity)} opportunity directly and confirm whether additional attachments need review before advancing."
+        )
     if opportunity.naics:
         naics_label = f"{opportunity.naics} ({opportunity.naics_title})" if opportunity.naics_title else opportunity.naics
         recommended_action.append(f"Verify fit against NAICS {naics_label} and any related capability statements.")
@@ -412,7 +432,7 @@ def generate_local_brief(opportunity: Opportunity, payload: dict[str, Any]) -> d
     if not summary_bullets:
         summary_bullets = [
             f"{opportunity.title} is a {opportunity.opportunity_type.lower()} opportunity from {opportunity.agency}.",
-            "The available brief was generated from limited source text, so the SAM notice should be reviewed directly.",
+            f"The available brief was generated from limited source text, so the {_source_label(opportunity)} opportunity should be reviewed directly.",
         ]
 
     key_dates: list[str] = []
