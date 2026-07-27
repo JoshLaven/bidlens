@@ -141,6 +141,12 @@ class Opportunity(Base):
         back_populates="opportunity",
         cascade="all, delete-orphan",
     )
+    communication_summary = relationship(
+        "OpportunityCommunicationSummary",
+        back_populates="opportunity",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
     outcomes = relationship(
         "OpportunityOutcome",
         back_populates="opportunity",
@@ -280,6 +286,39 @@ class OpportunityCommunicationMessage(Base):
     workspace = relationship("Workspace", back_populates="opportunity_communication_messages")
     opportunity = relationship("Opportunity")
     associated_user = relationship("User")
+
+
+class OpportunityCommunicationSummary(Base):
+    __tablename__ = "opportunity_communication_summaries"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "opportunity_id", name="uq_opp_comm_summary_workspace_opportunity"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    opportunity_id = Column(Integer, ForeignKey("opportunities.id"), nullable=False, index=True)
+    status = Column(String, nullable=False, default="ready", server_default="ready", index=True)
+    current_status = Column(Text, nullable=True)
+    key_updates_json = Column(JSON, nullable=True)
+    open_questions_json = Column(JSON, nullable=True)
+    next_action = Column(Text, nullable=True)
+    waiting_on = Column(String, nullable=True)
+    provider = Column(String, nullable=True)
+    model = Column(String, nullable=True)
+    message_count_included = Column(Integer, nullable=False, default=0, server_default="0")
+    message_count_available = Column(Integer, nullable=False, default=0, server_default="0")
+    latest_message_timestamp_included = Column(DateTime(timezone=True), nullable=True)
+    generated_at = Column(DateTime(timezone=True), nullable=True)
+    generated_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    opportunity = relationship("Opportunity", back_populates="communication_summary")
+    workspace = relationship("Workspace")
+    organization = relationship("Organization")
+    generated_by_user = relationship("User")
 
 
 class OpportunityConversationSendAttempt(Base):

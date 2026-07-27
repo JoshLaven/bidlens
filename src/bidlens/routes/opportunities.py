@@ -4,6 +4,8 @@ import logging
 import re
 import csv
 import io
+import json
+from time import perf_counter
 import requests
 from fastapi import APIRouter, Request, Form, Depends, HTTPException
 from fastapi.responses import RedirectResponse, Response
@@ -23,6 +25,7 @@ from ..models import (
     OpportunityOutcome,
     OrganizationMembership,
     ExternalIntegrationConnection,
+    OpportunityCommunicationSummary,
 )
 from ..auth import attach_request_user_context, get_current_user
 from ..services import get_vote_counts, get_user_votes, get_last_activity, get_vote_user_maps
@@ -31,6 +34,13 @@ from ..services.opportunity_conversations import (
     OpportunityConversationTenancyError,
     empty_conversation_context,
     get_opportunity_conversation_context,
+)
+from ..services.communication_summary import (
+    CommunicationSummaryError,
+    csrf_token as communication_summary_csrf_token,
+    generate_and_save_summary,
+    summary_is_stale,
+    validate_csrf_token as validate_communication_summary_csrf_token,
 )
 from ..services.microsoft import (
     PROVIDER_MICROSOFT,
@@ -2111,6 +2121,16 @@ async def opportunity_detail(
             opportunity.organization_id,
         )
         conversation_context = empty_conversation_context()
+    workspace = _workspace_for_user(db, user)
+    communication_summary = None
+    communication_summary_stale = False
+    if workspace:
+        communication_summary = db.query(OpportunityCommunicationSummary).filter(
+            OpportunityCommunicationSummary.workspace_id == workspace.id,
+            OpportunityCommunicationSummary.opportunity_id == opportunity.id,
+        ).one_or_none()
+        if communication_summary and communication_summary.status == "ready":
+            communication_summary_stale = summary_is_stale(db, communication_summary)
 
     return templates.TemplateResponse("detail.html", {
         "request": request,
@@ -2148,8 +2168,54 @@ async def opportunity_detail(
         "history_events": history_events,
         "history_unread_count": history_unread_count,
         "conversation_context": conversation_context,
+        "communication_summary": communication_summary,
+        "communication_summary_stale": communication_summary_stale,
+        "communication_summary_csrf_token": communication_summary_csrf_token(user.id, opportunity.id),
         "sidebar": get_sidebar(db, user),
     })
+
+
+@router.post("/opportunity/{opp_id}/communication-summary")
+async def generate_opportunity_communication_summary(
+    request: Request,
+    opp_id: int,
+    csrf_token: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    request_started = perf_counter()
+    request_timings = {"event": "communication_summary_http_timing", "opportunity_id": opp_id, "request_received": True}
+    phase_started = perf_counter()
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    opportunity = _authorized_opportunity_for_user(db, user, opp_id)
+    if not opportunity:
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+    if not validate_communication_summary_csrf_token(csrf_token, user.id, opp_id):
+        raise HTTPException(status_code=403, detail="Invalid form token")
+    request_timings["authentication_authorization_ms"] = round((perf_counter() - phase_started) * 1000, 2)
+    phase_started = perf_counter()
+    workspace = _workspace_for_user(db, user)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    request_timings["conversation_scope_lookup_ms"] = round((perf_counter() - phase_started) * 1000, 2)
+    generation_started = perf_counter()
+    try:
+        generate_and_save_summary(db, workspace=workspace, opportunity=opportunity, user=user)
+        outcome = "generated"
+    except CommunicationSummaryError as exc:
+        db.rollback()
+        outcome = exc.code
+    request_timings["generation_service_ms"] = round((perf_counter() - generation_started) * 1000, 2)
+    response = RedirectResponse(
+        url=_redirect_with_query(f"/opportunity/{opp_id}", tab="communication", summary=outcome),
+        status_code=303,
+    )
+    request_timings["response_construction_ms"] = round((perf_counter() - generation_started) * 1000 - request_timings["generation_service_ms"], 2)
+    request_timings["total_request_handler_ms"] = round((perf_counter() - request_started) * 1000, 2)
+    request_timings["outcome"] = outcome
+    logger.info("communication_summary_http_timing %s", json.dumps(request_timings, sort_keys=True))
+    return response
 
 
 @router.get("/opportunity/{opp_id}/conversation/new")

@@ -388,3 +388,8 @@ src/bidlens/
 - **Opportunity**: Global records from SAM.gov
 - **User**: Email-based accounts with is_paid flag
 - **UserOpportunity**: Per-user state (saved/status/deadline/notes)
+# On-demand communication summaries
+
+Opportunity Communication summaries are generated only when an authorized user submits **Generate Summary** or **Refresh Summary**. Each action makes one model request; page loads, Outlook synchronization, and scheduled jobs make none. Configure the feature with `AI_SUMMARY_PROVIDER`, `AI_SUMMARY_API_KEY`, `AI_SUMMARY_MODEL`, `AI_SUMMARY_MAX_INPUT_CHARS`, `AI_SUMMARY_MAX_OUTPUT_TOKENS`, `AI_SUMMARY_TEMPERATURE`, `AI_SUMMARY_TIMEOUT_SECONDS`, and `AI_SUMMARY_MAX_RETRIES` (default `0`, preserving one HTTP attempt per click). `AI_SUMMARY_BASE_URL` is optional. The API key and model fall back to `OPENAI_API_KEY` and `OPENAI_MODEL` for compatibility.
+
+Cost is therefore approximately the provider's price for one bounded input plus one bounded output per click. Input and output caps are the first cost controls; future controls could add per-workspace quotas or cooldowns at the POST/service boundary. The application stores the structured summary and usage metadata is logged when supplied, but prompts, raw responses, credentials, and chain-of-thought are not persisted.

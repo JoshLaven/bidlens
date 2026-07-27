@@ -392,6 +392,40 @@
         {% endif %}
 
         <section class="detail-memory-section" aria-labelledby="detail-communication-heading">
+          <article class="detail-memory-card communication-summary-card" aria-labelledby="communication-summary-heading">
+            <div class="detail-memory-card-header">
+              <div>
+                <p class="detail-column-kicker">AI synthesis</p>
+                <h2 id="communication-summary-heading">Communication Summary</h2>
+              </div>
+            </div>
+            {% if request.query_params.get('summary') and request.query_params.get('summary') != 'generated' %}
+              <div class="alert alert-warning">
+                {% if request.query_params.get('summary') == 'no_messages' %}There are no communication messages to summarize.
+                {% elif request.query_params.get('summary') == 'missing_configuration' %}AI communication summaries are not configured.
+                {% else %}The summary could not be generated. Please try again.{% endif %}
+              </div>
+            {% endif %}
+            {% if communication_summary and communication_summary.status == 'ready' %}
+              {% if communication_summary_stale %}
+                <div class="alert alert-warning">New communication has arrived since this summary was generated.</div>
+              {% endif %}
+              <dl class="communication-summary-content">
+                <dt>Current status</dt><dd>{{ communication_summary.current_status }}</dd>
+                <dt>Key updates</dt><dd>{% if communication_summary.key_updates_json %}<ul>{% for item in communication_summary.key_updates_json %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}None identified.{% endif %}</dd>
+                <dt>Open questions</dt><dd>{% if communication_summary.open_questions_json %}<ul>{% for item in communication_summary.open_questions_json %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}None identified.{% endif %}</dd>
+                <dt>Next action</dt><dd>{{ communication_summary.next_action }}</dd>
+                <dt>Waiting on</dt><dd>{{ communication_summary.waiting_on|replace('_', ' ')|title }}</dd>
+              </dl>
+              <p class="detail-panel-meta">Generated {{ communication_summary.generated_at.strftime('%b %-d, %Y at %-I:%M %p') if communication_summary.generated_at else 'recently' }} · {{ communication_summary.message_count_included }} of {{ communication_summary.message_count_available }} messages included</p>
+            {% else %}
+              <p>Generate a concise summary of the communication history currently stored for this opportunity.</p>
+            {% endif %}
+            <form method="POST" action="/opportunity/{{ opportunity.id }}/communication-summary">
+              <input type="hidden" name="csrf_token" value="{{ communication_summary_csrf_token }}">
+              <button type="submit" class="btn btn-sm btn-primary">{% if communication_summary and communication_summary.status == 'ready' %}Refresh Summary{% else %}Generate Summary{% endif %}</button>
+            </form>
+          </article>
           <article class="detail-memory-card" aria-labelledby="detail-conversations-heading">
             <div class="detail-memory-card-header">
               <div>
