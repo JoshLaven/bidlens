@@ -24,7 +24,9 @@ from bidlens.services.opportunity_conversations import (
     OpportunityConversationTenancyError,
     create_activity_for_authorized_opportunity,
     create_conversation_for_authorized_opportunity,
+    clean_participant_label,
     display_safe_metadata,
+    format_timeline_timestamp,
     get_opportunity_conversation_context,
     find_tracked_conversation,
     human_activity_text,
@@ -320,17 +322,34 @@ class OpportunityConversationFoundationTests(unittest.TestCase):
         self.assertNotIn("<a href", rendered)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", rendered)
 
+    def test_participant_labels_choose_one_clean_identifier(self):
+        self.assertEqual(clean_participant_label("Joshua Taylor", "josh@example.com"), "Joshua Taylor")
+        self.assertEqual(clean_participant_label("josh@example.com", "josh@example.com"), "josh@example.com")
+        self.assertEqual(clean_participant_label("Joshua Taylor <josh@example.com>", "josh@example.com"), "josh@example.com")
+        self.assertEqual(clean_participant_label(None, "josh@example.com"), "josh@example.com")
+
+    def test_timeline_timestamp_uses_centered_dot(self):
+        self.assertEqual(
+            format_timeline_timestamp(dt.datetime(2026, 7, 26, 17, 5)),
+            "Jul 26, 2026 · 5:05 PM",
+        )
+
     def test_detail_template_contains_foundation_sections_and_empty_states(self):
         with open("src/bidlens/templates/detail.html", encoding="utf-8") as template:
             html = template.read()
 
         self.assertIn('id="detail-tab-communication"', html)
         self.assertIn('id="detail-panel-communication"', html)
-        self.assertIn("Email record", html)
-        self.assertIn("Conversations", html)
-        self.assertIn("Communication Timeline", html)
-        self.assertIn("No outbound email has been recorded for this opportunity yet.", html)
-        self.assertIn("No communication activity has been recorded yet.", html)
+        self.assertIn("Communication Summary", html)
+        self.assertIn("communication-timeline-count", html)
+        self.assertIn("communication-accordion", html)
+        self.assertIn("detail-tab-panel--plain", html)
+        self.assertNotIn("AI synthesis", html)
+        self.assertNotIn("Email history", html)
+        self.assertNotIn("Email record", html)
+        self.assertNotIn("Communication Timeline", html)
+        self.assertIn("No email messages have been recorded yet.", html)
+        self.assertNotIn("for event in recent_activity", html)
 
     def test_deleting_opportunity_removes_conversations_and_activity(self):
         conversation = create_conversation_for_authorized_opportunity(

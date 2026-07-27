@@ -1,5 +1,7 @@
 import datetime as dt
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -16,7 +18,9 @@ from bidlens.services.communication_summary import (
     select_messages,
     summary_is_stale,
     validate_csrf_token,
+    SYSTEM_INSTRUCTIONS,
 )
+from bidlens.routes import opportunities as opportunity_routes
 
 
 class FakeGenerator:
@@ -61,7 +65,7 @@ class CommunicationSummaryTests(unittest.TestCase):
         return OpportunityConversation(workspace_id=workspace_id, opportunity_id=opportunity_id, provider="microsoft", subject=subject)
 
     def _message(self, conv, minute, body="Substantive update", user_id=None):
-        row = OpportunityCommunicationMessage(workspace_id=conv.workspace_id, opportunity_id=conv.opportunity_id, conversation_id=conv.id, associated_user_id=user_id or self.user.id, provider="microsoft", direction="inbound", provider_mailbox_id="secret-mailbox", provider_message_id=f"secret-{conv.id}-{minute}", provider_conversation_id="secret-thread", internet_message_id="secret-internet", sender_address="sender@example.com", recipients_json=[{"address": "team@example.com"}], subject="Update", body=body, body_content_type="text", provider_timestamp=dt.datetime(2026, 7, 27, 12, minute), provider_web_link="https://secret")
+        row = OpportunityCommunicationMessage(workspace_id=conv.workspace_id, opportunity_id=conv.opportunity_id, conversation_id=conv.id, associated_user_id=user_id or self.user.id, provider="microsoft", direction="inbound", provider_mailbox_id="secret-mailbox", provider_message_id=f"secret-{conv.id}-{minute}", provider_conversation_id="secret-thread", internet_message_id=f"secret-internet-{conv.id}-{minute}", sender_address="sender@example.com", recipients_json=[{"address": "team@example.com"}], subject="Update", body=body, body_content_type="text", provider_timestamp=dt.datetime(2026, 7, 27, 12, minute), provider_web_link="https://secret")
         self.db.add(row); self.db.flush(); return row
 
     def test_selection_scopes_orders_and_uses_multiple_conversations_and_users(self):
@@ -112,6 +116,86 @@ class CommunicationSummaryTests(unittest.TestCase):
         self.assertTrue(validate_csrf_token(token, self.user.id, self.opp.id))
         self.assertFalse(validate_csrf_token(token, self.user.id, self.other_opp.id))
         self.assertFalse(validate_csrf_token("bad", self.user.id, self.opp.id))
+
+    def test_prompt_requests_natural_prose_without_forced_sections(self):
+        self.assertIn("fewest words necessary", SYSTEM_INSTRUCTIONS)
+        self.assertIn("Prefer one sentence", SYSTEM_INSTRUCTIONS)
+        self.assertIn("Begin directly with what happened", SYSTEM_INSTRUCTIONS)
+        self.assertIn("Do not editorialize or add interpretation", SYSTEM_INSTRUCTIONS)
+        self.assertIn("or next steps", SYSTEM_INSTRUCTIONS)
+        self.assertIn("editorialize", SYSTEM_INSTRUCTIONS)
+        for forced_heading in ("Current status", "Key updates", "Open questions", "Next action", "Waiting on"):
+            self.assertNotIn(forced_heading, SYSTEM_INSTRUCTIONS)
+
+    def test_template_has_header_actions_unified_conversation_and_metadata(self):
+        with open("src/bidlens/templates/detail.html", encoding="utf-8") as source:
+            html = source.read()
+        header_start = html.index('class="detail-memory-card-header communication-accordion-summary"')
+        header_end = html.index("</summary>", header_start)
+        action_position = html.index('class="communication-summary-action"')
+        self.assertLess(action_position, html.index("{% if request.query_params.get('summary')"))
+        self.assertIn("Update Summary", html)
+        self.assertIn("Generate Summary", html)
+        self.assertIn("messages included", html)
+        self.assertIn("message_count_included == communication_summary.message_count_available", html)
+        self.assertIn("of {{ communication_summary.message_count_available }} messages included", html)
+        self.assertIn('Timeline <span class="communication-timeline-count">({{ communication_messages|length }})</span>', html)
+        self.assertIn("From: {{ message.sender }}", html)
+        self.assertIn("To: {{ message.recipients", html)
+        self.assertIn("{{ message.timeline_timestamp_label }}", html)
+        self.assertNotIn("Date: {{ message", html)
+        self.assertIn("<details open class=\"detail-memory-card communication-summary-card communication-accordion\"", html)
+        self.assertIn("<details class=\"detail-memory-card communication-accordion\"", html)
+        self.assertIn('class="detail-section detail-tab-panel detail-tab-panel--plain"', html)
+        self.assertNotIn('<details open class="accordion detail-section detail-tab-panel" id="detail-panel-communication"', html)
+        self.assertNotIn('<span class="detail-memory-count">{{ communication_messages|length }}</span>', html)
+        self.assertIn('onclick="event.stopPropagation()"', html)
+        self.assertNotIn("Communication Timeline", html)
+        self.assertNotIn("Email record", html)
+        self.assertNotIn("for event in recent_activity", html)
+        self.assertGreater(action_position, header_start)
+        self.assertLess(action_position, header_end)
+        with open("src/bidlens/static/css/styles.css", encoding="utf-8") as source:
+            css = source.read()
+        self.assertIn(".detail-tab-panel--plain", css)
+        self.assertIn(".communication-summary-card { border-left: 1px solid var(--gray-300); }", css)
+        self.assertNotIn(".communication-summary-card { border-left: 4px", css)
+
+    def test_internet_message_id_duplicates_are_collapsed_for_summary_input(self):
+        first = self._message(self.conv1, 1)
+        duplicate = self._message(self.conv1, 2)
+        duplicate.internet_message_id = first.internet_message_id
+        rows = select_messages(self.db, workspace_id=self.workspace.id, opportunity_id=self.opp.id)
+        self.assertEqual([row.id for row in rows], [first.id])
+
+
+class CommunicationSummaryRedirectTests(unittest.IsolatedAsyncioTestCase):
+    async def _request(self, *, failure=None):
+        user = SimpleNamespace(id=7)
+        opportunity = SimpleNamespace(id=42)
+        workspace = SimpleNamespace(id=3)
+        request = SimpleNamespace()
+        effect = failure if failure else None
+        with (
+            patch.object(opportunity_routes, "require_user", return_value=user),
+            patch.object(opportunity_routes, "_authorized_opportunity_for_user", return_value=opportunity),
+            patch.object(opportunity_routes, "validate_communication_summary_csrf_token", return_value=True),
+            patch.object(opportunity_routes, "_workspace_for_user", return_value=workspace),
+            patch.object(opportunity_routes, "generate_and_save_summary", side_effect=effect),
+        ):
+            return await opportunity_routes.generate_opportunity_communication_summary(
+                request=request, opp_id=42, csrf_token="valid", db=SimpleNamespace(rollback=lambda: None)
+            )
+
+    async def test_success_redirect_preserves_communication_tab(self):
+        response = await self._request()
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/opportunity/42?tab=communication&summary=generated")
+
+    async def test_handled_failure_redirect_preserves_communication_tab_and_feedback(self):
+        response = await self._request(failure=CommunicationSummaryError("timeout", "safe"))
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/opportunity/42?tab=communication&summary=timeout")
 
 
 if __name__ == "__main__": unittest.main()

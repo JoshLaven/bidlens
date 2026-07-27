@@ -12569,10 +12569,25 @@ details[open] .accordion-summary::after {
     border-left: 0;
   }
 }
-.communication-summary-card { border-left: 4px solid var(--accent, #315f8c); }
+.detail-tab-panel--plain { min-height: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.detail-tab-panel--plain .detail-communication-folder { padding: 0; }
+.communication-summary-card { border-left: 1px solid var(--gray-300); }
 .communication-summary-content { display: grid; grid-template-columns: minmax(7rem, 0.25fr) 1fr; gap: .65rem 1rem; margin: 1rem 0; }
 .communication-summary-content dt { font-weight: 700; }
 .communication-summary-content dd { margin: 0; }
 .communication-summary-content ul { margin: 0; padding-left: 1.2rem; }
 .detail-panel-meta { color: var(--text-muted, #64748b); font-size: .875rem; }
+.communication-summary-action { flex: 0 0 auto; }
+.communication-summary-narrative { margin-top: 1rem; line-height: 1.6; }
+.communication-accordion { padding: 0; overflow: hidden; }
+.communication-accordion-summary { cursor: pointer; list-style: none; padding: 1rem 1.15rem; }
+.communication-accordion-summary::-webkit-details-marker { display: none; }
+.communication-accordion-summary h2 { margin: 0; }
+.communication-timeline-count { color: var(--gray-600); font-weight: 650; }
+.communication-accordion-summary .detail-panel-meta { margin: .25rem 0 0; }
+.communication-accordion-chevron { width: .55rem; height: .55rem; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform .16s ease; }
+.communication-accordion[open] > .communication-accordion-summary .communication-accordion-chevron { transform: rotate(45deg); }
+.communication-accordion-body { border-top: 1px solid var(--border, #d8dee8); padding: 1rem 1.15rem 1.15rem; }
+.detail-conversation-list--messages li { display: grid; grid-template-columns: minmax(5rem, .45fr) minmax(12rem, 2fr) auto; align-items: center; gap: .75rem; padding-top: .65rem; padding-bottom: .65rem; }
 @media (max-width: 640px) { .communication-summary-content { grid-template-columns: 1fr; gap: .25rem; } }
+@media (max-width: 760px) { .detail-conversation-list--messages li { grid-template-columns: 1fr; gap: .2rem; } }

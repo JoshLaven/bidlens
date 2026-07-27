@@ -41,6 +41,7 @@ def empty_conversation_context() -> dict:
             "is_placeholder": True,
         },
         "conversations": [],
+        "messages": [],
         "recent_activity": [],
     }
 
@@ -92,6 +93,14 @@ def format_activity_timestamp(value: datetime | None) -> str:
     return f"{month} {value.day}, {value.year} {hour}:{value:%M} {value:%p}"
 
 
+def format_timeline_timestamp(value: datetime | None) -> str:
+    if not value:
+        return "Not yet available"
+    month = value.strftime("%b")
+    hour = value.strftime("%I").lstrip("0") or "0"
+    return f"{month} {value.day}, {value.year} · {hour}:{value:%M} {value:%p}"
+
+
 def message_count_label(count: int | None) -> str:
     count = int(count or 0)
     if count == 1:
@@ -133,16 +142,58 @@ def safe_message_body(body: str | None, content_type: str | None) -> str | None:
     return _truncate_display_text(text, max_length=4000)
 
 
+def clean_participant_label(name: Any, address: Any) -> str | None:
+    clean_address = _truncate_display_text(address, max_length=160)
+    clean_name = _truncate_display_text(name, max_length=160)
+    if clean_name and clean_address:
+        normalized_name = clean_name.strip().lower()
+        normalized_address = clean_address.strip().lower()
+        if normalized_name != normalized_address and "<" not in clean_name and ">" not in clean_name:
+            return clean_name
+        return clean_address
+    return clean_name or clean_address
+
+
 def _recipient_label(records: list | None) -> str | None:
     labels = []
     for record in records or []:
         if not isinstance(record, dict):
             continue
-        address = _truncate_display_text(record.get("address"), max_length=160)
-        name = _truncate_display_text(record.get("name"), max_length=160)
-        if address:
-            labels.append(f"{name} <{address}>" if name else address)
+        label = clean_participant_label(record.get("name"), record.get("address"))
+        if label:
+            labels.append(label)
     return ", ".join(labels) or None
+
+
+def deduplicate_communication_messages(
+    messages: list[OpportunityCommunicationMessage],
+) -> list[OpportunityCommunicationMessage]:
+    """Collapse Graph representations of the same mailbox message.
+
+    A sent message can receive a different immutable Graph item ID after it is
+    copied to Sent Items, while retaining its Internet Message ID. Keep the
+    earliest stored representation and never fingerprint-dedupe ordinary mail.
+    """
+    seen: set[tuple] = set()
+    unique: list[OpportunityCommunicationMessage] = []
+    for message in messages:
+        internet_id = str(message.internet_message_id or "").strip().lower()
+        if internet_id:
+            identity = ("internet", message.provider, message.provider_mailbox_id, internet_id)
+        elif message.provider_message_id:
+            identity = (
+                "provider",
+                message.provider,
+                message.provider_mailbox_id,
+                message.provider_message_id,
+            )
+        else:
+            identity = ("row", message.id)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(message)
+    return unique
 
 
 def human_activity_text(event: OpportunityActivityEvent) -> str:
@@ -313,7 +364,8 @@ def get_opportunity_conversation_context(
         .all()
     )
     conversation_id_set = {conversation.id for conversation in conversations}
-    message_rows = (
+    message_rows = deduplicate_communication_messages(
+        (
         db.query(OpportunityCommunicationMessage)
         .filter(
             OpportunityCommunicationMessage.workspace_id == workspace.id,
@@ -326,13 +378,13 @@ def get_opportunity_conversation_context(
         )
         .all()
         if conversation_id_set else []
+        )
     )
     messages_by_conversation: dict[int, list[dict]] = {identifier: [] for identifier in conversation_id_set}
+    message_display_rows: list[dict] = []
     for message in message_rows:
-        sender = message.sender_display_name or message.sender_address or "Unknown sender"
-        if message.sender_display_name and message.sender_address:
-            sender = f"{message.sender_display_name} <{message.sender_address}>"
-        messages_by_conversation[message.conversation_id].append({
+        sender = clean_participant_label(message.sender_display_name, message.sender_address) or "Unknown sender"
+        display_row = {
             "direction": message.direction if message.direction in {"inbound", "outbound"} else "external",
             "direction_label": "Received" if message.direction == "inbound" else "Sent" if message.direction == "outbound" else "Message",
             "sender": sender,
@@ -340,7 +392,10 @@ def get_opportunity_conversation_context(
             "subject": _truncate_display_text(message.subject),
             "body": safe_message_body(message.body, message.body_content_type),
             "occurred_at_label": format_activity_timestamp(message.provider_timestamp or message.created_at),
-        })
+            "timeline_timestamp_label": format_timeline_timestamp(message.provider_timestamp or message.created_at),
+        }
+        messages_by_conversation[message.conversation_id].append(display_row)
+        message_display_rows.append(display_row)
 
     latest_timestamp = None
     if activity_events:
@@ -404,5 +459,6 @@ def get_opportunity_conversation_context(
     context["current_status"]["narrative"] = status_narrative
     context["current_status"]["last_activity_label"] = format_activity_timestamp(latest_timestamp)
     context["conversations"] = conversation_rows
+    context["messages"] = message_display_rows
     context["recent_activity"] = activity_rows
     return context

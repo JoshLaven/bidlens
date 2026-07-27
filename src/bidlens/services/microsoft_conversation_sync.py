@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 
 from ..models import (
@@ -171,16 +172,24 @@ def sync_tracked_microsoft_conversations(
                     result.messages_skipped += 1
                     skipped_for_error = True
                     continue
+                body = message.get("body") if isinstance(message.get("body"), dict) else {}
+                internet_message_id = _text(message.get("internetMessageId"))
+                duplicate_filters = [
+                    OpportunityCommunicationMessage.provider_message_id == provider_id,
+                ]
+                if internet_message_id:
+                    duplicate_filters.append(
+                        OpportunityCommunicationMessage.internet_message_id == internet_message_id
+                    )
                 duplicate = db.query(OpportunityCommunicationMessage.id).filter(
                     OpportunityCommunicationMessage.workspace_id == workspace.id,
                     OpportunityCommunicationMessage.provider == PROVIDER_MICROSOFT,
                     OpportunityCommunicationMessage.provider_mailbox_id == conversation.provider_mailbox_id,
-                    OpportunityCommunicationMessage.provider_message_id == provider_id,
+                    or_(*duplicate_filters),
                 ).first()
                 if duplicate:
                     result.duplicates_skipped += 1
                     continue
-                body = message.get("body") if isinstance(message.get("body"), dict) else {}
                 try:
                     with db.begin_nested():
                         db.add(OpportunityCommunicationMessage(
@@ -193,7 +202,7 @@ def sync_tracked_microsoft_conversations(
                             provider_mailbox_id=conversation.provider_mailbox_id,
                             provider_message_id=provider_id,
                             provider_conversation_id=returned_conversation_id,
-                            internet_message_id=_text(message.get("internetMessageId")),
+                            internet_message_id=internet_message_id,
                             sender_address=sender["address"],
                             sender_display_name=sender["name"],
                             recipients_json=_recipients(message.get("toRecipients")),

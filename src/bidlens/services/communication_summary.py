@@ -15,6 +15,7 @@ from sqlalchemy import func
 
 from .. import config
 from ..models import Opportunity, OpportunityCommunicationMessage, OpportunityCommunicationSummary, User, Workspace
+from .opportunity_conversations import deduplicate_communication_messages
 
 logger = logging.getLogger(__name__)
 WAITING_ON_VALUES = {"our_team", "external_party", "both", "nobody", "unclear"}
@@ -114,7 +115,8 @@ def _recipient_addresses(value: Any) -> str:
 
 
 def select_messages(db: Session, *, workspace_id: int, opportunity_id: int) -> list[OpportunityCommunicationMessage]:
-    return (
+    return deduplicate_communication_messages(
+        (
         db.query(OpportunityCommunicationMessage)
         .filter(
             OpportunityCommunicationMessage.workspace_id == workspace_id,
@@ -125,6 +127,7 @@ def select_messages(db: Session, *, workspace_id: int, opportunity_id: int) -> l
             OpportunityCommunicationMessage.id.asc(),
         )
         .all()
+        )
     )
 
 
@@ -190,17 +193,13 @@ def _schema() -> dict[str, Any]:
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "current_status": {"type": "string"},
-            "key_updates": {"type": "array", "items": {"type": "string"}},
-            "open_questions": {"type": "array", "items": {"type": "string"}},
-            "next_action": {"type": "string"},
-            "waiting_on": {"type": "string", "enum": sorted(WAITING_ON_VALUES)},
+            "summary": {"type": "string"},
         },
-        "required": ["current_status", "key_updates", "open_questions", "next_action", "waiting_on"],
+        "required": ["summary"],
     }
 
 
-SYSTEM_INSTRUCTIONS = """Summarize only the supplied communication records. Never invent facts. Distinguish confirmed facts from unresolved questions and do not treat silence as agreement. Identify the latest meaningful status, open questions, commitments or stated deadlines, and who appears to owe the next response. State clearly when the record is insufficient. Be concise, avoid reproducing long email text, and return only the requested JSON fields."""
+SYSTEM_INSTRUCTIONS = """Summarize only the supplied communication records using the fewest words necessary. Prefer one sentence when one sentence is sufficient; use two or more sentences only when material factual context would otherwise be lost. Begin directly with what happened. Preserve important facts, and include commitments or actions only when explicitly stated. Do not editorialize or add interpretation. Do not infer significance, sentiment, collaboration, status, or next steps. Do not invent owners, deadlines, risks, open questions, decisions, outcomes, or status changes. Do not treat silence as agreement. Avoid introductory narration such as 'the communication records detail,' 'the exchange indicates,' or 'the discussion focused on.' If the record is insufficient, say so briefly. Return only the requested JSON field."""
 
 
 class OpenAICommunicationSummaryGenerator:
@@ -235,14 +234,8 @@ class OpenAICommunicationSummaryGenerator:
             parse_started = perf_counter()
             raw = response.output_text or ""
             parsed = json.loads(raw)
-            if not isinstance(parsed, dict) or parsed.get("waiting_on") not in WAITING_ON_VALUES:
+            if not isinstance(parsed, dict) or not isinstance(parsed.get("summary"), str) or not parsed["summary"].strip():
                 raise ValueError("invalid structured response")
-            for field in ("current_status", "next_action"):
-                if not isinstance(parsed.get(field), str):
-                    raise ValueError("invalid structured response")
-            for field in ("key_updates", "open_questions"):
-                if not isinstance(parsed.get(field), list) or not all(isinstance(item, str) for item in parsed[field]):
-                    raise ValueError("invalid structured response")
             response_parse_ms = (perf_counter() - parse_started) * 1000
         except CommunicationSummaryError:
             raise
@@ -267,10 +260,8 @@ class OpenAICommunicationSummaryGenerator:
         usage_obj = getattr(response, "usage", None)
         usage = {key: getattr(usage_obj, key, None) for key in ("input_tokens", "output_tokens", "total_tokens")} if usage_obj else {}
         return CommunicationSummaryResult(
-            current_status=parsed["current_status"].strip(),
-            key_updates=[item.strip() for item in parsed["key_updates"] if item.strip()],
-            open_questions=[item.strip() for item in parsed["open_questions"] if item.strip()],
-            next_action=parsed["next_action"].strip(), waiting_on=parsed["waiting_on"],
+            current_status=parsed["summary"].strip(),
+            key_updates=[], open_questions=[], next_action="", waiting_on="unclear",
             provider="openai", model=config.AI_SUMMARY_MODEL, usage=usage,
             timings_ms={
                 "openai_api_request": round(openai_request_ms, 2),

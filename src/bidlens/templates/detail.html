@@ -77,8 +77,7 @@
 
   <div class="detail-primary">
     {% set conversations = (conversation_context or {}).get('conversations', []) %}
-    {% set recent_activity = (conversation_context or {}).get('recent_activity', []) %}
-    {% set communication_messages = conversations|map(attribute='messages')|sum(start=[]) %}
+    {% set communication_messages = (conversation_context or {}).get('messages', []) %}
 
     <!-- Opportunity Summary -->
     <details open class="accordion detail-section detail-tab-panel" id="detail-panel-overview"
@@ -379,10 +378,9 @@
       </div>
     </details>
 
-    <details open class="accordion detail-section detail-tab-panel" id="detail-panel-communication"
+    <section class="detail-section detail-tab-panel detail-tab-panel--plain" id="detail-panel-communication"
              role="tabpanel" aria-labelledby="detail-tab-communication" data-detail-panel="communication" hidden>
-      <summary class="accordion-summary">Communication</summary>
-      <div class="accordion-body detail-communication-folder">
+      <div class="detail-communication-folder">
         {% if request.query_params.get('conversation') == 'accepted' %}
           <div class="alert alert-success">Microsoft accepted the email for sending.</div>
         {% elif request.query_params.get('conversation') == 'uncertain' %}
@@ -392,116 +390,66 @@
         {% endif %}
 
         <section class="detail-memory-section" aria-labelledby="detail-communication-heading">
-          <article class="detail-memory-card communication-summary-card" aria-labelledby="communication-summary-heading">
-            <div class="detail-memory-card-header">
+          <details open class="detail-memory-card communication-summary-card communication-accordion" aria-labelledby="communication-summary-heading">
+            <summary class="detail-memory-card-header communication-accordion-summary">
               <div>
-                <p class="detail-column-kicker">AI synthesis</p>
                 <h2 id="communication-summary-heading">Communication Summary</h2>
+                {% if communication_summary and communication_summary.status == 'ready' %}
+                  <p class="detail-panel-meta">Generated {{ communication_summary.generated_at.strftime('%b %-d, %Y at %-I:%M %p') if communication_summary.generated_at else 'recently' }} · {% if communication_summary.message_count_included == communication_summary.message_count_available %}{{ communication_summary.message_count_included }} message{% if communication_summary.message_count_included != 1 %}s{% endif %} included{% else %}{{ communication_summary.message_count_included }} of {{ communication_summary.message_count_available }} messages included{% endif %}</p>
+                {% endif %}
               </div>
-            </div>
-            {% if request.query_params.get('summary') and request.query_params.get('summary') != 'generated' %}
-              <div class="alert alert-warning">
-                {% if request.query_params.get('summary') == 'no_messages' %}There are no communication messages to summarize.
-                {% elif request.query_params.get('summary') == 'missing_configuration' %}AI communication summaries are not configured.
-                {% else %}The summary could not be generated. Please try again.{% endif %}
-              </div>
-            {% endif %}
-            {% if communication_summary and communication_summary.status == 'ready' %}
-              {% if communication_summary_stale %}
-                <div class="alert alert-warning">New communication has arrived since this summary was generated.</div>
+              <form method="POST" action="/opportunity/{{ opportunity.id }}/communication-summary" class="communication-summary-action" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                <input type="hidden" name="csrf_token" value="{{ communication_summary_csrf_token }}">
+                <button type="submit" class="btn btn-sm btn-primary">{% if communication_summary and communication_summary.status == 'ready' %}Update Summary{% else %}Generate Summary{% endif %}</button>
+              </form>
+              <span class="communication-accordion-chevron" aria-hidden="true"></span>
+            </summary>
+            <div class="communication-accordion-body">
+              {% if request.query_params.get('summary') and request.query_params.get('summary') != 'generated' %}
+                <div class="alert alert-warning">
+                  {% if request.query_params.get('summary') == 'no_messages' %}There are no communication messages to summarize.
+                  {% elif request.query_params.get('summary') == 'missing_configuration' %}AI communication summaries are not configured.
+                  {% else %}The summary could not be generated. Please try again.{% endif %}
+                </div>
               {% endif %}
-              <dl class="communication-summary-content">
-                <dt>Current status</dt><dd>{{ communication_summary.current_status }}</dd>
-                <dt>Key updates</dt><dd>{% if communication_summary.key_updates_json %}<ul>{% for item in communication_summary.key_updates_json %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}None identified.{% endif %}</dd>
-                <dt>Open questions</dt><dd>{% if communication_summary.open_questions_json %}<ul>{% for item in communication_summary.open_questions_json %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}None identified.{% endif %}</dd>
-                <dt>Next action</dt><dd>{{ communication_summary.next_action }}</dd>
-                <dt>Waiting on</dt><dd>{{ communication_summary.waiting_on|replace('_', ' ')|title }}</dd>
-              </dl>
-              <p class="detail-panel-meta">Generated {{ communication_summary.generated_at.strftime('%b %-d, %Y at %-I:%M %p') if communication_summary.generated_at else 'recently' }} · {{ communication_summary.message_count_included }} of {{ communication_summary.message_count_available }} messages included</p>
-            {% else %}
-              <p>Generate a concise summary of the communication history currently stored for this opportunity.</p>
-            {% endif %}
-            <form method="POST" action="/opportunity/{{ opportunity.id }}/communication-summary">
-              <input type="hidden" name="csrf_token" value="{{ communication_summary_csrf_token }}">
-              <button type="submit" class="btn btn-sm btn-primary">{% if communication_summary and communication_summary.status == 'ready' %}Refresh Summary{% else %}Generate Summary{% endif %}</button>
-            </form>
-          </article>
-          <article class="detail-memory-card" aria-labelledby="detail-conversations-heading">
-            <div class="detail-memory-card-header">
-              <div>
-                <p class="detail-column-kicker">Email record</p>
-                <h2 id="detail-conversations-heading">Conversations</h2>
-              </div>
-              <span class="detail-memory-count">{{ conversations|length }}</span>
+              {% if communication_summary and communication_summary.status == 'ready' %}
+                {% if communication_summary_stale %}
+                  <div class="alert alert-warning">New communication has arrived since this summary was generated.</div>
+                {% endif %}
+                <div class="communication-summary-narrative prewrap">{{ communication_summary.current_status }}</div>
+              {% else %}
+                <p>Generate a concise summary of the communication history currently stored for this opportunity.</p>
+              {% endif %}
             </div>
-            {% if conversations %}
-              <ul class="detail-conversation-list">
-                {% for conversation in conversations %}
-                  <li>
-                    <div>
-                      <strong>{{ conversation.subject }}</strong>
-                      <span>{{ conversation.provider_label }} · {{ conversation.message_count_label }}</span>
-                      {% if conversation.send_status_label %}
-                        <span>{{ conversation.send_status_label }}</span>
+          </details>
+          <details class="detail-memory-card communication-accordion" aria-labelledby="communication-timeline-heading">
+            <summary class="detail-memory-card-header communication-accordion-summary">
+              <h2 id="communication-timeline-heading">Timeline <span class="communication-timeline-count">({{ communication_messages|length }})</span></h2>
+              <span class="communication-accordion-chevron" aria-hidden="true"></span>
+            </summary>
+            <div class="communication-accordion-body">
+              {% if communication_messages %}
+                <ol class="detail-conversation-list detail-conversation-list--messages">
+                  {% for message in communication_messages %}
+                    <li class="detail-message detail-message--{{ message.direction }}">
+                      <strong>{{ message.direction_label }}</strong>
+                      {% if message.direction == 'outbound' %}
+                        <span>To: {{ message.recipients or 'Unknown recipient' }}</span>
+                      {% else %}
+                        <span>From: {{ message.sender }}</span>
                       {% endif %}
-                      {% if conversation.participants %}
-                        <span>{{ conversation.participants }}</span>
-                      {% endif %}
-                    </div>
-                    <time>{{ conversation.last_activity_label }}</time>
-                  </li>
-                {% endfor %}
-              </ul>
-            {% else %}
-              <p class="detail-panel-empty">No outbound email has been recorded for this opportunity yet.</p>
-            {% endif %}
-          </article>
-
-          <article class="detail-memory-card" aria-labelledby="detail-recent-activity-heading">
-            <div class="detail-memory-card-header">
-              <div>
-                <p class="detail-column-kicker">Timeline</p>
-                <h2 id="detail-recent-activity-heading">Communication Timeline</h2>
-              </div>
-              <span class="detail-memory-count">{{ communication_messages|length + recent_activity|length }}</span>
+                      <time>{{ message.timeline_timestamp_label }}</time>
+                    </li>
+                  {% endfor %}
+                </ol>
+              {% else %}
+                <p class="detail-panel-empty">No email messages have been recorded yet.</p>
+              {% endif %}
             </div>
-            {% if communication_messages %}
-              <ol class="detail-activity-timeline detail-message-timeline">
-                {% for message in communication_messages %}
-                  <li class="detail-message detail-message--{{ message.direction }}">
-                    <span class="detail-activity-marker" aria-hidden="true"></span>
-                    <div>
-                      <strong>{{ message.direction_label }} · {{ message.subject }}</strong>
-                      <p>From: {{ message.sender }}{% if message.recipients %}<br>To: {{ message.recipients }}{% endif %}</p>
-                      {% if message.body %}<p class="prewrap">{{ message.body }}</p>{% endif %}
-                      <time>{{ message.occurred_at_label }}</time>
-                    </div>
-                  </li>
-                {% endfor %}
-              </ol>
-            {% endif %}
-            {% if recent_activity %}
-              <ol class="detail-activity-timeline">
-                {% for event in recent_activity %}
-                  <li>
-                    <span class="detail-activity-marker" aria-hidden="true"></span>
-                    <div>
-                      <strong>{{ event.text }}</strong>
-                      {% if event.description %}
-                        <p>{{ event.description }}</p>
-                      {% endif %}
-                      <time>{{ event.occurred_at_label }}</time>
-                    </div>
-                  </li>
-                {% endfor %}
-              </ol>
-            {% elif not communication_messages %}
-              <p class="detail-panel-empty">No communication activity has been recorded yet.</p>
-            {% endif %}
-          </article>
+          </details>
         </section>
       </div>
-    </details>
+    </section>
 
     <details open class="accordion detail-section detail-tab-panel" id="detail-panel-notes"
              role="tabpanel" aria-labelledby="detail-tab-notes" data-detail-panel="notes" hidden>
@@ -805,7 +753,8 @@ detailTabs.forEach((tab, index) => {
     activateDetailTab(detailTabs[nextIndex].dataset.detailTab, true);
   });
 });
-activateDetailTab('overview');
+const requestedDetailTab = new URLSearchParams(window.location.search).get('tab');
+activateDetailTab(requestedDetailTab || 'overview');
 
 let briefGenerationInFlight = false;
 

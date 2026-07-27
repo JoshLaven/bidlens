@@ -147,6 +147,35 @@ class MicrosoftConversationSyncTests(unittest.TestCase):
         self.assertEqual(safe_message_body("<div>Hello<br>world</div><style>secret</style>", "html"), "Hello\nworld")
 
     @patch.object(MicrosoftConnectionService, "list_conversation_messages")
+    def test_sent_items_copy_with_same_internet_message_id_is_not_reimported(self, list_messages):
+        existing = OpportunityCommunicationMessage(
+            workspace_id=self.workspace.id,
+            opportunity_id=self.opportunity.id,
+            conversation_id=self.conversation.id,
+            associated_user_id=self.user.id,
+            provider="microsoft",
+            direction="outbound",
+            provider_mailbox_id="mailbox-1",
+            provider_message_id="send-endpoint-id",
+            provider_conversation_id="thread-1",
+            internet_message_id="<same-message@example.com>",
+            sender_address="owner@example.com",
+            recipients_json=[{"address": "to@example.com", "name": "Recipient"}],
+            subject="Tracked subject",
+        )
+        self.db.add(existing)
+        self.db.commit()
+        sent_copy = graph_message("sent-items-id", sender="owner@example.com")
+        sent_copy["internetMessageId"] = "<same-message@example.com>"
+        list_messages.return_value = [sent_copy]
+
+        result = sync_tracked_microsoft_conversations(self.db, workspace=self.workspace)
+
+        self.assertEqual(result["new_messages_imported"], 0)
+        self.assertEqual(result["duplicates_skipped"], 1)
+        self.assertEqual(self.db.query(OpportunityCommunicationMessage).count(), 1)
+
+    @patch.object(MicrosoftConnectionService, "list_conversation_messages")
     def test_scheduled_mode_stops_after_authorization_failure_and_marks_connection(self, list_messages):
         self.db.add(OpportunityConversation(
             workspace_id=self.workspace.id, opportunity_id=self.opportunity.id, provider="microsoft",
