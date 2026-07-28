@@ -13,7 +13,7 @@
                     <div class="calendar-week">
                         <div class="calendar-week-label">{{ week_label }}</div>
                         {% for item in items %}
-                            <a href="/opportunity/{{ item.opportunity.id }}" class="calendar-item">
+                            <a href="/opportunity/{{ item.opportunity.id }}?return_to=calendar" class="calendar-item">
                                 <span class="calendar-item-title">{{ item.opportunity.title }}</span>
                                 <span class="calendar-item-date">
                                     {{ (item.internal_deadline or item.opportunity.response_deadline).strftime('%b %d') }}

@@ -1,15 +1,16 @@
 {% extends "base.html" %}
+{% from "_back_navigation.html" import back_navigation %}
 {% block title %}{{ organization.name }} - Platform - BidLens{% endblock %}
 
 {% block content %}
 <div class="platform-shell">
+  {{ back_navigation('Platform', '/platform') }}
   <header class="platform-hero platform-hero--compact">
     <div>
       <span class="platform-eyebrow">Customer Organization</span>
       <h1>{{ organization.name }}</h1>
       <p>Inspect workspace access, invitations, and private-beta cleanup controls.</p>
     </div>
-    <a class="btn btn-secondary" href="/platform">Back to Platform</a>
   </header>
 
   {% if request.query_params.get('recovered') %}

@@ -1,9 +1,10 @@
 {% extends "base.html" %}
+{% from "_back_navigation.html" import back_navigation %}
 {% set hide_context_sidebar = true %}
 {% block title %}My Lanes - BidLens{% endblock %}
 {% block content %}
 <div class="personal-settings-page">
-  <a href="/my-settings{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="back-link">← My Settings</a>
+  {{ back_navigation('My Settings', '/my-settings' ~ ('?org_id=' ~ request.query_params.get('org_id') if request.query_params.get('org_id') else '')) }}
 
   <div class="page-header">
     <h1>My Lanes</h1>

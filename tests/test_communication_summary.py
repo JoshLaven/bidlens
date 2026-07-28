@@ -158,8 +158,14 @@ class CommunicationSummaryTests(unittest.TestCase):
         with open("src/bidlens/static/css/styles.css", encoding="utf-8") as source:
             css = source.read()
         self.assertIn(".detail-tab-panel--plain", css)
+        self.assertIn("flex: 1 0 120px;", css)
+        self.assertIn("width: calc(100% - 36px);", css)
+        self.assertNotIn(".detail-tab-panel--plain .detail-memory-section { width:", css)
         self.assertIn(".communication-summary-card { border-left: 1px solid var(--gray-300); }", css)
         self.assertNotIn(".communication-summary-card { border-left: 4px", css)
+        self.assertEqual(html.count('data-detail-panel="'), 7)
+        for panel_name in ("overview", "description", "communication", "crm", "history"):
+            self.assertIn(f'data-detail-panel="{panel_name}"', html)
 
     def test_internet_message_id_duplicates_are_collapsed_for_summary_input(self):
         first = self._message(self.conv1, 1)
@@ -184,18 +190,18 @@ class CommunicationSummaryRedirectTests(unittest.IsolatedAsyncioTestCase):
             patch.object(opportunity_routes, "generate_and_save_summary", side_effect=effect),
         ):
             return await opportunity_routes.generate_opportunity_communication_summary(
-                request=request, opp_id=42, csrf_token="valid", db=SimpleNamespace(rollback=lambda: None)
+                request=request, opp_id=42, csrf_token="valid", return_to_context="shortlist", db=SimpleNamespace(rollback=lambda: None)
             )
 
     async def test_success_redirect_preserves_communication_tab(self):
         response = await self._request()
         self.assertEqual(response.status_code, 303)
-        self.assertEqual(response.headers["location"], "/opportunity/42?tab=communication&summary=generated")
+        self.assertEqual(response.headers["location"], "/opportunity/42?return_to=shortlist&tab=communication&summary=generated")
 
     async def test_handled_failure_redirect_preserves_communication_tab_and_feedback(self):
         response = await self._request(failure=CommunicationSummaryError("timeout", "safe"))
         self.assertEqual(response.status_code, 303)
-        self.assertEqual(response.headers["location"], "/opportunity/42?tab=communication&summary=timeout")
+        self.assertEqual(response.headers["location"], "/opportunity/42?return_to=shortlist&tab=communication&summary=timeout")
 
 
 if __name__ == "__main__": unittest.main()

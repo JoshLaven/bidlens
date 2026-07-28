@@ -1,10 +1,11 @@
 {% extends "base.html" %}
+{% from "_back_navigation.html" import back_navigation %}
 {% set hide_context_sidebar = true %}
 {% block title %}Source Update Details - BidLens{% endblock %}
 {% block content %}
 <div class="admin-page-layout">
   <div class="admin-page-content">
-    <a href="/admin/source-updates" class="back-link">← Source Update Log</a>
+    {{ back_navigation('Source Update Log', '/admin/source-updates') }}
     <div class="page-header admin-page-header">
       <div>
         <h1>{{ event.opportunity.title }}</h1>

@@ -384,7 +384,7 @@ class PastDueOutcomeTemplateTests(unittest.TestCase):
         self.assertNotIn("RECORDED OUTCOMES", template)
         self.assertIn("Recorded {{ outcome.recorded_at.strftime('%b') }}", template)
         self.assertIn("by {{ recorder.email }}", template)
-        self.assertIn('href="/opportunity/{{ opp.id }}"', template)
+        self.assertIn('href="/opportunity/{{ opp.id }}?return_to=past_due"', template)
         self.assertNotIn("More Info", template)
         self.assertNotIn("opp_card", template)
         self.assertNotIn("showArchiveModal", template)

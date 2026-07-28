@@ -17,7 +17,7 @@
       {% for opp in opportunities %}
         <article class="past-due-review-item" id="past-due-outcome-{{ opp.id }}" data-past-due-outcome-item>
           <div class="past-due-review-item__body">
-            <a href="/opportunity/{{ opp.id }}" class="past-due-review-title">{{ opp.title }}</a>
+            <a href="/opportunity/{{ opp.id }}?return_to=past_due" class="past-due-review-title">{{ opp.title }}</a>
             <div class="past-due-review-agency">{{ opp.agency }}</div>
             <div class="past-due-review-date">
               Due {{ opp.response_deadline.strftime('%b') }} {{ opp.response_deadline.day }}
@@ -67,7 +67,7 @@
         {% for outcome, opp, recorder in resolved_outcomes %}
           <article class="past-due-resolved-item">
             <div>
-              <a href="/opportunity/{{ opp.id }}" class="past-due-review-title">{{ opp.title }}</a>
+              <a href="/opportunity/{{ opp.id }}?return_to=past_due" class="past-due-review-title">{{ opp.title }}</a>
               <div class="past-due-review-agency">{{ opp.agency }}</div>
               <div class="past-due-review-date">
                 Recorded {{ outcome.recorded_at.strftime('%b') }} {{ outcome.recorded_at.day }}

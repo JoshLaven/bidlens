@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_back_navigation.html" import back_navigation %}
 {% from "_setup_back_link.html" import setup_back_link with context %}
 {% set hide_context_sidebar = true %}
 {% block title %}SAM.gov Monitoring - BidLens{% endblock %}
@@ -10,7 +11,7 @@
 {% set preserved_notice_types = form_values.notice_types if form_values.notice_types else notice_type_options %}
 <div class="admin-page-layout">
   <div class="admin-page-content sam-dashboard-page">
-    <a href="/opportunity-discovery{% if org_id %}?org_id={{ org_id }}{% endif %}#sam-gov" class="detail-back-link">← Opportunity Sources</a>
+    {{ back_navigation('Opportunity Sources', '/opportunity-discovery' ~ ('?org_id=' ~ org_id|string if org_id else '') ~ '#sam-gov') }}
     <div class="sam-dashboard-hero">
       <div class="sam-dashboard-identity">
         <div class="sam-dashboard-icon" aria-hidden="true">

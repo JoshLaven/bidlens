@@ -16,6 +16,7 @@
 {% set source_link_label = 'View on SAM.gov' if source_value == 'sam' else 'View on Grants.gov' if source_value == 'grants_gov' else 'View on GovWin' if source_value == 'govwin_export' else 'View Source' %}
 {% set opportunity_type_label = opp.normalized_opportunity_type or 'RFP' %}
 {% set primary_pursuit_lane = pursuit_lanes[0] if pursuit_lanes else none %}
+{% set return_context = 'shortlist' if view in ['shortlist', 'my_shortlist'] else 'archive' if view in ['archive', 'user_archive'] else 'triage' if view == 'triage' else 'feed' %}
 <div
   id="opp-card-{{ opp.id }}"
   class="opp-card{% if view != 'archive' %}{% if opp.user_vote == 'PURSUE' %} opp-card--pursue{% elif opp.user_vote == 'PASS' %} opp-card--pass{% endif %}{% endif %}{% if view == 'archive' %} opp-card--archived{% endif %}"
@@ -41,7 +42,7 @@
         <div class="opp-card-title-group">
           <span class="opp-card-title-wrap">
             <a
-              href="/opportunity/{{ opp.id }}"
+              href="/opportunity/{{ opp.id }}?return_to={{ return_context }}"
               class="opp-card-title"
               aria-describedby="opp-title-tooltip-{{ opp.id }}"
             >{{ opp.title }}</a>
@@ -433,7 +434,7 @@
 
       <div class="opp-detail-actions">
         {% if view == 'triage' %}
-          <a href="/opportunity/{{ opp.id }}" class="details-link">Details &rarr;</a>
+          <a href="/opportunity/{{ opp.id }}?return_to={{ return_context }}" class="details-link">Details &rarr;</a>
         {% elif view == 'user_archive' %}
           {# Restore is the only archive workflow action. #}
         {% elif view != 'archive' %}
@@ -451,7 +452,7 @@
           {% endif %}
         {% endif %}
         {% if view != 'triage' %}
-          <a href="/opportunity/{{ opp.id }}" class="details-link">Details &rarr;</a>
+          <a href="/opportunity/{{ opp.id }}?return_to={{ return_context }}" class="details-link">Details &rarr;</a>
         {% endif %}
       </div>
 

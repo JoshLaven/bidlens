@@ -1,8 +1,10 @@
 {% extends "base.html" %}
+{% from "_back_navigation.html" import back_navigation %}
 {% block title %}Operation Detail - BidLens{% endblock %}
 
 {% block content %}
 <div class="platform-shell">
+  {{ back_navigation('Operations', '/platform/operations') }}
   <header class="platform-hero platform-hero--compact">
     <div>
       <span class="platform-eyebrow">Internal Platform</span>
@@ -17,7 +19,6 @@
         <span>Run Detail</span>
         <h2 id="operation-detail-heading">Outcome</h2>
       </div>
-      <a href="/platform/operations" class="btn btn-secondary">Back to Operations</a>
     </div>
 
     <dl class="operation-detail-grid">

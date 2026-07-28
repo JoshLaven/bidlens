@@ -1,8 +1,9 @@
 {% extends "base.html" %}
+{% from "_back_navigation.html" import back_navigation %}
 {% block title %}GovWin Integration - BidLens{% endblock %}
 {% block content %}
 <div class="integration-config-header">
-  <a href="/integrations{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="back-link">&larr; Integrations</a>
+  {{ back_navigation('Integrations', '/integrations' ~ ('?org_id=' ~ request.query_params.get('org_id') if request.query_params.get('org_id') else '')) }}
   <div class="page-header">
     <h1>GovWin</h1>
     <p class="page-subtitle">Configure organization credentials for the future GovWin Web Services connection.</p>

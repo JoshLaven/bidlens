@@ -56,7 +56,7 @@
                 {% set opportunity = item.opportunity %}
                 <tr>
                   <td>
-                    <a class="opportunity-lookup-title" href="/opportunity/{{ opportunity.id }}{{ lookup_org_q }}">{{ opportunity.title }}</a>
+                    <a class="opportunity-lookup-title" href="/opportunity/{{ opportunity.id }}?return_to=search{% if lookup_org_id %}&org_id={{ lookup_org_id }}{% endif %}">{{ opportunity.title }}</a>
                     <span class="opportunity-lookup-agency">{{ opportunity.agency }}</span>
                   </td>
                   <td>
@@ -88,7 +88,7 @@
                   </td>
                   <td>{{ item.last_updated.strftime("%b %d, %Y %I:%M %p") if item.last_updated else "—" }}</td>
                   <td>
-                    <a href="/opportunity/{{ opportunity.id }}{{ lookup_org_q }}" class="admin-row-arrow" aria-label="Open {{ opportunity.title }}">›</a>
+                    <a href="/opportunity/{{ opportunity.id }}?return_to=search{% if lookup_org_id %}&org_id={{ lookup_org_id }}{% endif %}" class="admin-row-arrow" aria-label="Open {{ opportunity.title }}">›</a>
                   </td>
                 </tr>
               {% endfor %}

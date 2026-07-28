@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_back_navigation.html" import back_navigation %}
 {% set hide_context_sidebar = true %}
 {% block title %}Salesforce Configuration - BidLens{% endblock %}
 {% block content %}
@@ -8,13 +9,13 @@
 
 <div class="admin-page-layout">
   <div class="admin-page-content">
+    {{ back_navigation('Business Systems', '/integrations' ~ org_q) }}
     <div class="page-header admin-page-header configuration-center-header">
       <div>
         <span class="configuration-center-eyebrow">Workspace Management · Business Systems</span>
         <h1>Salesforce</h1>
         <p class="page-subtitle">Manage the Salesforce organization connected to this workspace.</p>
       </div>
-      <a href="/integrations{{ org_q }}" class="btn btn-outline-secondary">Back to Business Systems</a>
     </div>
 
     {% if connected_success %}<div class="alert alert-success">Salesforce connected successfully.</div>{% endif %}

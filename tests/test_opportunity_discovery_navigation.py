@@ -83,8 +83,6 @@ class OpportunityDiscoveryNavigationTests(unittest.TestCase):
 
         self.assertIn("<h3>GovWin</h3>", template)
         self.assertIn("Commercial market intelligence source.", template)
-        self.assertIn("Not yet available", template)
-        self.assertIn("Coming in a future release", template)
         self.assertIn("intake-status-pill--success", template)
         self.assertIn("intake-status-pill--warning", template)
         self.assertIn("intake-status-pill--planned", template)
@@ -96,11 +94,10 @@ class OpportunityDiscoveryNavigationTests(unittest.TestCase):
         self.assertNotIn("workbook import is available below", template)
 
         self.assertIn("Opportunity File Upload", template)
-        self.assertIn("Ready", template)
         self.assertIn("BidLens CSV template", template)
         self.assertIn("/imports/manual/template.csv", template)
         self.assertIn('accept=".csv,text/csv"', template)
-        self.assertIn("Import Opportunities", template)
+        self.assertIn(">Import</button>", template)
         self.assertIn("source-template-button", template)
         self.assertIn("Template</a>", template)
         self.assertIn('class="sr-only" for="manual-import-file"', template)

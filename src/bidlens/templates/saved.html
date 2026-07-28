@@ -32,7 +32,7 @@
     {% for item in saved_items %}
         <div class="card">
             <div class="card-header">
-                <a href="/opportunity/{{ item.opportunity.id }}" class="card-title">{{ item.opportunity.title }}</a>
+                <a href="/opportunity/{{ item.opportunity.id }}?return_to=shortlist" class="card-title">{{ item.opportunity.title }}</a>
                 {% if state_filter == 'saved' %}
                   <span class="badge badge-status-saved">Interested</span>
                 {% elif state_filter == 'bid' %}
@@ -90,7 +90,7 @@
               </div>
 
               <div class="actions-right">
-                <a href="/opportunity/{{ item.opportunity.id }}" class="details-link">Details</a>
+                <a href="/opportunity/{{ item.opportunity.id }}?return_to=shortlist" class="details-link">Details</a>
               </div>
             </div>
             <div class="card-footer">

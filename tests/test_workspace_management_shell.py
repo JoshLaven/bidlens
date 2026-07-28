@@ -76,7 +76,7 @@ class WorkspaceManagementShellTests(unittest.TestCase):
         self.assertNotIn(">Organization</span>", source)
         self.assertNotIn(">Opportunities</span>", source)
         for label in (
-            "Overview",
+            "Organization",
             "Users",
             "Opportunity Sources",
             "Feed Settings",

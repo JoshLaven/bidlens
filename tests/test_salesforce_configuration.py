@@ -340,7 +340,10 @@ class SalesforceConfigurationTests(unittest.TestCase):
                     instance_url="https://workspace-a.my.salesforce.com",
                     mappings=[],
                     validation_error=None,
-                )
+                ),
+                microsoft=SimpleNamespace(
+                    directory_status=SimpleNamespace(level="neutral", label="Not connected"),
+                ),
             ),
         )
 

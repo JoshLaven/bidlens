@@ -1,11 +1,12 @@
 {% extends "base.html" %}
+{% from "_back_navigation.html" import back_navigation %}
 {% set hide_context_sidebar = true %}
 {% block title %}Microsoft Connection - BidLens{% endblock %}
 {% block content %}
 <div class="admin-page-layout workspace-management-page">
   <div class="admin-page-content">
     <div class="integration-config-header">
-      <a href="/integrations{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}{% endif %}" class="back-link">&larr; Integrations</a>
+      {{ back_navigation('Integrations', '/integrations' ~ ('?org_id=' ~ request.query_params.get('org_id') if request.query_params.get('org_id') else '')) }}
       <div>
         <h1>Microsoft 365 Connection</h1>
         <p>Connect your own Microsoft account so future BidLens actions can use your delegated identity.</p>

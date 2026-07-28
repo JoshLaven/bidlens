@@ -142,6 +142,34 @@ BRIEF_SECTION_DEFS = [
     ("recommended_action", "Recommended Action"),
 ]
 
+@dataclass(frozen=True)
+class OpportunityBackDestination:
+    label: str
+    url: str
+    active_page: str
+
+
+OPPORTUNITY_BACK_DESTINATIONS = {
+    "feed": OpportunityBackDestination("Feed", "/", "feed"),
+    "shortlist": OpportunityBackDestination("My Shortlist", "/my-shortlist", "my_shortlist"),
+    "archive": OpportunityBackDestination("Archive", "/archive", "archive"),
+    "past_due": OpportunityBackDestination("Past Due Opportunities", "/past-due-outcomes", "feed"),
+    "triage": OpportunityBackDestination("Triage", "/triage", "triage"),
+    "search": OpportunityBackDestination("Opportunity Search", "/admin/opportunity-lookup", "feed"),
+    "calendar": OpportunityBackDestination("Calendar", "/calendar", "feed"),
+    "import_history": OpportunityBackDestination("Import History", "/imports/history", "feed"),
+}
+
+
+def opportunity_back_context(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    return normalized if normalized in OPPORTUNITY_BACK_DESTINATIONS else "feed"
+
+
+def opportunity_back_navigation(value: str | None) -> tuple[str, str]:
+    destination = OPPORTUNITY_BACK_DESTINATIONS[opportunity_back_context(value)]
+    return destination.label, destination.url
+
 
 def _normalize_brief_status(value: str | None) -> str:
     if value == "pending":
@@ -2132,6 +2160,18 @@ async def opportunity_detail(
         if communication_summary and communication_summary.status == "ready":
             communication_summary_stale = summary_is_stale(db, communication_summary)
 
+    requested_back_context = request.query_params.get("return_to")
+    back_context = opportunity_back_context(requested_back_context)
+    back_destination = OPPORTUNITY_BACK_DESTINATIONS[back_context]
+    back_label = back_destination.label
+    back_url = back_destination.url
+    logger.info(
+        'opportunity_back_navigation opportunity_id=%s return_to=%s back_label="%s" back_url=%s',
+        opportunity.id,
+        requested_back_context or "",
+        back_label,
+        back_url,
+    )
     return templates.TemplateResponse("detail.html", {
         "request": request,
         "user": user,
@@ -2171,6 +2211,10 @@ async def opportunity_detail(
         "communication_summary": communication_summary,
         "communication_summary_stale": communication_summary_stale,
         "communication_summary_csrf_token": communication_summary_csrf_token(user.id, opportunity.id),
+        "back_label": back_label,
+        "back_url": back_url,
+        "back_context": back_context,
+        "opportunity_origin_active_page": back_destination.active_page,
         "sidebar": get_sidebar(db, user),
     })
 
@@ -2180,6 +2224,7 @@ async def generate_opportunity_communication_summary(
     request: Request,
     opp_id: int,
     csrf_token: str = Form(""),
+    return_to_context: str = Form("feed"),
     db: Session = Depends(get_db),
 ):
     request_started = perf_counter()
@@ -2208,7 +2253,12 @@ async def generate_opportunity_communication_summary(
         outcome = exc.code
     request_timings["generation_service_ms"] = round((perf_counter() - generation_started) * 1000, 2)
     response = RedirectResponse(
-        url=_redirect_with_query(f"/opportunity/{opp_id}", tab="communication", summary=outcome),
+        url=_redirect_with_query(
+            f"/opportunity/{opp_id}",
+            return_to=opportunity_back_context(return_to_context),
+            tab="communication",
+            summary=outcome,
+        ),
         status_code=303,
     )
     request_timings["response_construction_ms"] = round((perf_counter() - generation_started) * 1000 - request_timings["generation_service_ms"], 2)

@@ -96,7 +96,7 @@ class NavigationShellTests(unittest.TestCase):
         self.assertNotIn('>Organization</span>', html)
         self.assertNotIn('>Opportunities</span>', html)
         self.assertIn('primary-sidebar-subnav-divider', html)
-        self.assertIn('>Overview</strong>', html)
+        self.assertIn('>Organization</strong>', html)
         self.assertIn('>Users</strong>', html)
         self.assertIn('>Opportunity Sources</strong>', html)
         self.assertIn('>Feed Settings</strong>', html)
@@ -215,7 +215,7 @@ class NavigationShellTests(unittest.TestCase):
         live_html = template.render(request=_Request("/settings"), user=live_user)
 
         self.assertIn("← Back to Setup", pre_live_html)
-        self.assertIn('class="setup-back-link"', pre_live_html)
+        self.assertIn('class="back-navigation"', pre_live_html)
         self.assertIn('href="/organization-setup?org_id=7"', pre_live_html)
         self.assertNotIn("Back to Setup", live_html)
 
@@ -323,12 +323,12 @@ class NavigationShellTests(unittest.TestCase):
         self.assertIn("Grants.gov", setup_html)
         self.assertIn("GovWin", setup_html)
         self.assertNotIn('id="manual-import"', setup_html)
-        self.assertNotIn("Manual Opportunity Import", setup_html)
+        self.assertNotIn("Opportunity File Upload", setup_html)
         self.assertNotIn('id="operational-history"', setup_html)
         self.assertNotIn("Recent Activity", setup_html)
 
         self.assertIn('id="manual-import"', management_html)
-        self.assertIn("Manual Opportunity Import", management_html)
+        self.assertIn("Opportunity File Upload", management_html)
         self.assertIn('id="operational-history"', management_html)
         self.assertIn("Recent Activity", management_html)
 

@@ -1,0 +1,5 @@
+{% macro back_navigation(back_label='Feed', back_url='/') -%}
+  {% set resolved_back_label = back_label|default('Feed', true) %}
+  {% set resolved_back_url = back_url|default('/', true) %}
+  <a href="{{ resolved_back_url }}" class="back-navigation">← Back to {{ resolved_back_label }}</a>
+{%- endmacro %}
