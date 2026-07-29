@@ -4,6 +4,17 @@ from bidlens.config import DeploymentConfigError, startup_diagnostics, validate_
 
 
 class DeploymentConfigValidationTests(unittest.TestCase):
+    @staticmethod
+    def _storage_config():
+        return {
+            "source_material_storage_backend": "s3",
+            "source_material_s3_bucket": "test-private-bucket",
+            "source_material_s3_endpoint_url": "https://storage.example.test",
+            "source_material_s3_access_key_id": "test-access-key",
+            "source_material_s3_secret_access_key": "test-secret-key",
+            "source_material_s3_use_ssl": True,
+        }
+
     def test_local_dev_defaults_do_not_require_hosted_settings(self):
         validate_deployment_config(
             raw_database_url=None,
@@ -61,7 +72,36 @@ class DeploymentConfigValidationTests(unittest.TestCase):
             session_cookie_secure=True,
             auto_create_schema=False,
             enable_internal_scheduler=False,
+            **self._storage_config(),
         )
+
+    def test_hosted_rejects_local_or_incomplete_source_material_storage(self):
+        with self.assertRaisesRegex(DeploymentConfigError, "SOURCE_MATERIAL_STORAGE_BACKEND"):
+            validate_deployment_config(
+                raw_database_url="postgresql://user:secret@example.com:5432/bidlens",
+                database_url="postgresql://user:secret@example.com:5432/bidlens",
+                database_scheme="postgresql",
+                secret_key="not-the-default-secret",
+                session_cookie_secure=True,
+                auto_create_schema=False,
+                enable_internal_scheduler=False,
+                source_material_storage_backend="local",
+            )
+        with self.assertRaisesRegex(DeploymentConfigError, "SOURCE_MATERIAL_S3_BUCKET"):
+            validate_deployment_config(
+                raw_database_url="postgresql://user:secret@example.com:5432/bidlens",
+                database_url="postgresql://user:secret@example.com:5432/bidlens",
+                database_scheme="postgresql",
+                secret_key="not-the-default-secret",
+                session_cookie_secure=True,
+                auto_create_schema=False,
+                enable_internal_scheduler=False,
+                source_material_storage_backend="s3",
+                source_material_s3_bucket="",
+                source_material_s3_access_key_id="key",
+                source_material_s3_secret_access_key="secret",
+                source_material_s3_use_ssl=True,
+            )
 
     def test_validation_errors_and_startup_diagnostics_do_not_expose_secrets(self):
         with self.assertRaises(DeploymentConfigError) as raised:

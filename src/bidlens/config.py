@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -44,6 +45,36 @@ def safe_database_url(value: str) -> str:
         return "<unparseable database url>"
 
 
+_SENSITIVE_TEXT_PATTERNS = (
+    (re.compile(r"([a-z][a-z0-9+.-]*://)([^/\s:@]+):([^@\s/]+)@", re.IGNORECASE), r"\1[redacted]:[redacted]@"),
+    (re.compile(r"(?i)(access[_-]?key(?:_id)?|secret(?:_access)?[_-]?key|password|token|signature|x-amz-signature)(\s*[=:]\s*)[^\s,;&]+"), r"\1\2[redacted]"),
+    (re.compile(r"(?i)([?&](?:x-amz-credential|x-amz-signature|x-amz-security-token|signature|token)=)[^&#\s]+"), r"\1[redacted]"),
+)
+
+
+def redact_sensitive_text(value: object) -> str:
+    """Redact common credentials and signed-URL values from diagnostic text."""
+
+    redacted = str(value)
+    for pattern, replacement in _SENSITIVE_TEXT_PATTERNS:
+        redacted = pattern.sub(replacement, redacted)
+    return redacted
+
+
+def database_target_summary(value: str) -> str:
+    """Describe a database target without returning credentials or query values."""
+
+    try:
+        url = make_url(value)
+    except Exception:
+        return "provider=unknown host=unknown port=unknown database=unknown"
+    return (
+        f"provider={url.get_backend_name() or 'unknown'} "
+        f"host={url.host or 'local'} port={url.port or 'default'} "
+        f"database={url.database or 'unknown'}"
+    )
+
+
 RAW_DATABASE_URL = os.getenv("DATABASE_URL")
 DATABASE_URL = normalize_database_url(RAW_DATABASE_URL)
 DATABASE_SCHEME = database_url_scheme(DATABASE_URL)
@@ -83,7 +114,25 @@ SOURCE_MATERIAL_STORAGE_BACKEND = os.getenv("SOURCE_MATERIAL_STORAGE_BACKEND", "
 SOURCE_MATERIAL_LOCAL_ROOT = Path(
     os.getenv("SOURCE_MATERIAL_LOCAL_ROOT", str(BASE_DIR / ".bidlens" / "source-materials"))
 ).expanduser()
+SOURCE_MATERIAL_S3_BUCKET = os.getenv("SOURCE_MATERIAL_S3_BUCKET", "").strip()
+SOURCE_MATERIAL_S3_ENDPOINT_URL = os.getenv("SOURCE_MATERIAL_S3_ENDPOINT_URL", "").strip() or None
+SOURCE_MATERIAL_S3_REGION = os.getenv("SOURCE_MATERIAL_S3_REGION", "us-east-1").strip()
+SOURCE_MATERIAL_S3_ACCESS_KEY_ID = os.getenv("SOURCE_MATERIAL_S3_ACCESS_KEY_ID", "").strip()
+SOURCE_MATERIAL_S3_SECRET_ACCESS_KEY = os.getenv("SOURCE_MATERIAL_S3_SECRET_ACCESS_KEY", "").strip()
+SOURCE_MATERIAL_S3_PATH_PREFIX = os.getenv("SOURCE_MATERIAL_S3_PATH_PREFIX", "bidlens/source-materials").strip()
+SOURCE_MATERIAL_S3_USE_SSL = _env_bool("SOURCE_MATERIAL_S3_USE_SSL", True)
 SOURCE_MATERIAL_MAX_BYTES = int(os.getenv("SOURCE_MATERIAL_MAX_BYTES", str(25 * 1024 * 1024)))
+INTAKE_DOCUMENT_MAX_TEXT_CHARS = int(os.getenv("INTAKE_DOCUMENT_MAX_TEXT_CHARS", "60000"))
+INTAKE_DOCUMENT_MAX_PDF_PAGES = int(os.getenv("INTAKE_DOCUMENT_MAX_PDF_PAGES", "50"))
+INTAKE_EXTRACTION_MODEL = os.getenv("INTAKE_EXTRACTION_MODEL") or OPENAI_MODEL
+INTAKE_EXTRACTION_TIMEOUT_SECONDS = float(os.getenv("INTAKE_EXTRACTION_TIMEOUT_SECONDS", "30"))
+INTAKE_EXTRACTION_MAX_OUTPUT_TOKENS = int(os.getenv("INTAKE_EXTRACTION_MAX_OUTPUT_TOKENS", "1800"))
+INTAKE_EMAIL_MAX_BODY_CHARS = int(os.getenv("INTAKE_EMAIL_MAX_BODY_CHARS", "20000"))
+INTAKE_EMAIL_MAX_ATTACHMENTS = int(os.getenv("INTAKE_EMAIL_MAX_ATTACHMENTS", "10"))
+INTAKE_EMAIL_MAX_ATTACHMENT_BYTES = int(os.getenv("INTAKE_EMAIL_MAX_ATTACHMENT_BYTES", str(15 * 1024 * 1024)))
+INTAKE_EMAIL_MAX_TOTAL_ATTACHMENT_BYTES = int(os.getenv("INTAKE_EMAIL_MAX_TOTAL_ATTACHMENT_BYTES", str(20 * 1024 * 1024)))
+INTAKE_EMAIL_MAX_EXTRACTION_CHARS = int(os.getenv("INTAKE_EMAIL_MAX_EXTRACTION_CHARS", "80000"))
+INTAKE_EMAIL_MAX_PARSING_SECONDS = float(os.getenv("INTAKE_EMAIL_MAX_PARSING_SECONDS", "15"))
 
 
 class DeploymentConfigError(RuntimeError):
@@ -114,6 +163,12 @@ def validate_deployment_config(
     auto_create_schema: bool | None = None,
     enable_internal_scheduler: bool | None = None,
     explicit_validate: bool | None = None,
+    source_material_storage_backend: str | None = None,
+    source_material_s3_bucket: str | None = None,
+    source_material_s3_endpoint_url: str | None = None,
+    source_material_s3_access_key_id: str | None = None,
+    source_material_s3_secret_access_key: str | None = None,
+    source_material_s3_use_ssl: bool | None = None,
 ) -> None:
     """Validate hosted web-process settings without exposing secret values."""
 
@@ -131,6 +186,18 @@ def validate_deployment_config(
         auto_create_schema = AUTO_CREATE_SCHEMA
     if enable_internal_scheduler is None:
         enable_internal_scheduler = ENABLE_INTERNAL_SCHEDULER
+    if source_material_storage_backend is None:
+        source_material_storage_backend = SOURCE_MATERIAL_STORAGE_BACKEND
+    if source_material_s3_bucket is None:
+        source_material_s3_bucket = SOURCE_MATERIAL_S3_BUCKET
+    if source_material_s3_endpoint_url is None:
+        source_material_s3_endpoint_url = SOURCE_MATERIAL_S3_ENDPOINT_URL
+    if source_material_s3_access_key_id is None:
+        source_material_s3_access_key_id = SOURCE_MATERIAL_S3_ACCESS_KEY_ID
+    if source_material_s3_secret_access_key is None:
+        source_material_s3_secret_access_key = SOURCE_MATERIAL_S3_SECRET_ACCESS_KEY
+    if source_material_s3_use_ssl is None:
+        source_material_s3_use_ssl = SOURCE_MATERIAL_S3_USE_SSL
 
     if not deployment_validation_enabled(
         auto_create_schema=auto_create_schema,
@@ -156,6 +223,20 @@ def validate_deployment_config(
     if enable_internal_scheduler:
         errors.append("ENABLE_INTERNAL_SCHEDULER must be false for the Railway web service.")
 
+    if source_material_storage_backend != "s3":
+        errors.append("SOURCE_MATERIAL_STORAGE_BACKEND must be s3 for hosted deployment.")
+    else:
+        if not source_material_s3_bucket:
+            errors.append("SOURCE_MATERIAL_S3_BUCKET is required for hosted deployment.")
+        if not source_material_s3_access_key_id:
+            errors.append("SOURCE_MATERIAL_S3_ACCESS_KEY_ID is required for hosted deployment.")
+        if not source_material_s3_secret_access_key:
+            errors.append("SOURCE_MATERIAL_S3_SECRET_ACCESS_KEY is required for hosted deployment.")
+        if not source_material_s3_use_ssl:
+            errors.append("SOURCE_MATERIAL_S3_USE_SSL must be true for hosted deployment.")
+        if source_material_s3_endpoint_url and not source_material_s3_endpoint_url.lower().startswith("https://"):
+            errors.append("SOURCE_MATERIAL_S3_ENDPOINT_URL must use HTTPS for hosted deployment.")
+
     if errors:
         raise DeploymentConfigError(
             "Hosted deployment configuration is invalid:\n- " + "\n- ".join(errors)
@@ -169,6 +250,7 @@ def startup_diagnostics(
     enable_internal_scheduler: bool | None = None,
     session_cookie_secure: bool | None = None,
     explicit_validate: bool | None = None,
+    source_material_storage_backend: str | None = None,
 ) -> list[str]:
     """Return non-secret startup facts for deployment troubleshooting."""
 
@@ -180,6 +262,8 @@ def startup_diagnostics(
         enable_internal_scheduler = ENABLE_INTERNAL_SCHEDULER
     if session_cookie_secure is None:
         session_cookie_secure = SESSION_COOKIE_SECURE
+    if source_material_storage_backend is None:
+        source_material_storage_backend = SOURCE_MATERIAL_STORAGE_BACKEND
 
     validation_enabled = deployment_validation_enabled(
         auto_create_schema=auto_create_schema,
@@ -192,4 +276,5 @@ def startup_diagnostics(
         f"Internal scheduler: {'enabled' if enable_internal_scheduler else 'disabled'}",
         f"Secure session cookie: {'enabled' if session_cookie_secure else 'disabled'}",
         f"Hosted deployment validation: {'enabled' if validation_enabled else 'disabled'}",
+        f"Source-material storage backend: {source_material_storage_backend or '<unset>'}",
     ]

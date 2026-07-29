@@ -1,6 +1,10 @@
 import re
+import io
+import tempfile
 import unittest
+import zipfile
 from datetime import date
+from email.message import EmailMessage
 from pathlib import Path
 from unittest.mock import patch
 
@@ -20,7 +24,68 @@ from bidlens.models import (
     Vote,
     Workspace,
 )
-from bidlens.services.opportunity_intake import create_draft
+from bidlens.services.opportunity_intake import (
+    LocalSourceMaterialStorage,
+    create_draft,
+    parse_extraction_payload,
+    parse_email_extraction_payload,
+)
+
+
+def _docx_bytes(text="Department of Health requests evaluation services"):
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>',
+        )
+        archive.writestr(
+            "word/document.xml",
+            '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>'
+            + text
+            + "</w:t></w:r></w:p></w:body></w:document>",
+        )
+    return output.getvalue()
+
+
+def _extracted_document():
+    return parse_extraction_payload(
+        {
+            "title": {"value": "Extracted Evaluation", "confidence": "high", "evidence": "Title"},
+            "client": {"value": "Department of Health", "confidence": "high", "evidence": "Client"},
+            "response_deadline": {"value": "2026-10-30", "confidence": "high", "evidence": "Deadline"},
+            "solicitation_number": {"value": "RFP-42", "confidence": "high", "evidence": "Number"},
+            "opportunity_type": {"value": "RFP", "confidence": "high", "evidence": "Type"},
+            "description": {"value": "Evaluation services.", "confidence": "high", "evidence": "Scope"},
+            "warnings": [],
+        },
+        model="test-model",
+    )
+
+
+def _email_bytes(subject="Email Intake Opportunity"):
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = "sender@example.test"
+    message["To"] = "reviewer@example.test"
+    message["Message-ID"] = "<ui-email@example.test>"
+    message.set_content("The Department of Health requests evaluation proposals due October 30, 2026.")
+    return message.as_bytes()
+
+
+def _extracted_email():
+    return parse_email_extraction_payload(
+        {
+            "title": {"value": "Email Intake Opportunity", "confidence": "high", "evidence": "Subject", "source": "email"},
+            "client": {"value": "Department of Health", "confidence": "high", "evidence": "Body", "source": "email"},
+            "response_deadline": {"value": "2026-10-30", "confidence": "high", "evidence": "Body", "source": "email"},
+            "solicitation_number": {"value": None, "confidence": "unknown", "evidence": None, "source": "unknown"},
+            "opportunity_type": {"value": "RFP", "confidence": "high", "evidence": "Body", "source": "email"},
+            "description": {"value": "Evaluation proposals requested.", "confidence": "high", "evidence": "Body", "source": "email"},
+            "warnings": [],
+        },
+        model="test-model",
+    )
 
 
 class ManualOpportunityIntakeUiTests(unittest.TestCase):
@@ -131,14 +196,106 @@ class ManualOpportunityIntakeUiTests(unittest.TestCase):
         values.update(overrides)
         return values
 
-    def test_member_can_open_start_and_future_methods_are_disabled(self):
+    def test_member_can_open_start_with_all_three_intake_methods(self):
         response = self.client.get("/opportunities/new")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Create Opportunity", response.text)
         self.assertIn("Enter Manually", response.text)
-        self.assertEqual(response.text.count("Coming soon"), 2)
-        self.assertNotIn('action="/opportunity-intake/email"', response.text)
+        self.assertEqual(response.text.count("Coming soon"), 0)
+        self.assertIn('action="/opportunity-intake/email"', response.text)
+        self.assertIn('accept=".eml,message/rfc822"', response.text)
+        self.assertIn('action="/opportunity-intake/document"', response.text)
+        self.assertIn('accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"', response.text)
         self.assertNotIn('action="/opportunity-intake/upload"', response.text)
+
+    def test_document_upload_uses_real_route_and_prefills_review_without_opportunity(self):
+        page = self.client.get("/opportunities/new")
+        token = self._token(page.text, "/opportunity-intake/document")
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "bidlens.routes.opportunity_intake.configured_source_material_storage",
+            return_value=LocalSourceMaterialStorage(Path(directory)),
+        ), patch(
+            "bidlens.services.opportunity_intake.document_upload.OpenAIIntakeDocumentExtractor.extract",
+            return_value=_extracted_document(),
+        ) as extract:
+            response = self.client.post(
+                "/opportunity-intake/document",
+                data={"csrf_token": token},
+                files={
+                    "document": (
+                        "request.docx",
+                        _docx_bytes(),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                },
+                follow_redirects=False,
+            )
+            self.assertIn(response.status_code, (200, 303), response.text)
+            location = self._redirect_location(response)
+            review = self.client.get(location)
+            self.assertIn('value="Extracted Evaluation"', review.text)
+            self.assertIn('value="Department of Health"', review.text)
+            self.assertIn('value="2026-10-30"', review.text)
+            self.assertEqual(extract.call_count, 1)
+            self.client.get(location)
+            self.assertEqual(extract.call_count, 1)
+        self.assertEqual(self.db.query(Opportunity).count(), 0)
+        draft = self.db.query(OpportunityIntakeDraft).one()
+        self.assertEqual(draft.intake_method, "document")
+
+    def test_invalid_document_returns_actionable_error_without_draft(self):
+        page = self.client.get("/opportunities/new")
+        token = self._token(page.text, "/opportunity-intake/document")
+        response = self.client.post(
+            "/opportunity-intake/document",
+            data={"csrf_token": token},
+            files={"document": ("legacy.doc", b"not-a-docx", "application/msword")},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("Legacy .doc files are not supported", response.text)
+        self.assertEqual(self.db.query(OpportunityIntakeDraft).count(), 0)
+
+    def test_email_upload_uses_real_route_and_review_refresh_does_not_extract_again(self):
+        page = self.client.get("/opportunities/new")
+        token = self._token(page.text, "/opportunity-intake/email")
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "bidlens.routes.opportunity_intake.configured_source_material_storage",
+            return_value=LocalSourceMaterialStorage(Path(directory)),
+        ), patch(
+            "bidlens.services.opportunity_intake.email_upload.OpenAIIntakeEmailExtractor.extract",
+            return_value=_extracted_email(),
+        ) as extract:
+            response = self.client.post(
+                "/opportunity-intake/email",
+                data={"csrf_token": token, "organization_id": self.other_org.id},
+                files={"email_file": ("request.eml", _email_bytes(), "message/rfc822")},
+                follow_redirects=False,
+            )
+            location = self._redirect_location(response)
+            review = self.client.get(location)
+            self.assertIn('value="Email Intake Opportunity"', review.text)
+            self.assertIn('value="Department of Health"', review.text)
+            self.assertIn('value="2026-10-30"', review.text)
+            self.assertEqual(extract.call_count, 1)
+            self.client.get(location)
+            self.assertEqual(extract.call_count, 1)
+        draft = self.db.query(OpportunityIntakeDraft).one()
+        self.assertEqual(draft.organization_id, self.org.id)
+        self.assertEqual(draft.workspace_id, self.workspace.id)
+        self.assertEqual(draft.intake_method, "email")
+        self.assertEqual(self.db.query(Opportunity).count(), 0)
+
+    def test_msg_upload_is_rejected_clearly(self):
+        page = self.client.get("/opportunities/new")
+        token = self._token(page.text, "/opportunity-intake/email")
+        response = self.client.post(
+            "/opportunity-intake/email",
+            data={"csrf_token": token},
+            files={"email_file": ("outlook.msg", b"msg", "application/vnd.ms-outlook")},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("Outlook .msg files are not supported yet", response.text)
+        self.assertEqual(self.db.query(OpportunityIntakeDraft).count(), 0)
 
     def test_nonmember_is_denied(self):
         self._login(self.nonmember)
@@ -153,6 +310,14 @@ class ManualOpportunityIntakeUiTests(unittest.TestCase):
         self.assertTrue(draft.add_to_shortlist)
         self.assertTrue(draft.publish_idempotency_key)
         self.assertEqual(self.db.query(Opportunity).count(), 0)
+
+    def test_manual_intake_remains_available_when_storage_is_unavailable(self):
+        with patch(
+            "bidlens.routes.opportunity_intake.configured_source_material_storage",
+            side_effect=RuntimeError("storage unavailable"),
+        ):
+            draft_id = self._start_draft()
+        self.assertEqual(self.db.get(OpportunityIntakeDraft, draft_id).intake_method, "manual")
 
     def test_reopening_review_displays_persisted_values_and_accessible_labels(self):
         draft = create_draft(

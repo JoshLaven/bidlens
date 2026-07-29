@@ -16,4 +16,5 @@ dependencies = [
     "cryptography>=48.0.0",
     "openai>=1.109.1",
     "pypdf>=5.5.0",
+    "boto3>=1.43.58",
 ]

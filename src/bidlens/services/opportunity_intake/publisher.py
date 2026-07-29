@@ -4,6 +4,7 @@ from dataclasses import asdict
 from datetime import date, datetime
 from typing import Any, Mapping
 
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -167,6 +168,12 @@ class OpportunityPublisher:
             if draft is None:
                 raise OpportunityPublicationAccessError("Opportunity intake draft is not available")
             _require_publish_access(db, draft=draft, user=publishing_user)
+
+            if db.get_bind().dialect.name == "postgresql":
+                db.execute(
+                    text("SELECT pg_advisory_xact_lock(:namespace, :organization_id)"),
+                    {"namespace": 1179209541, "organization_id": draft.organization_id},
+                )
 
             if draft.published_opportunity_id is not None:
                 if draft.publish_idempotency_key == key:

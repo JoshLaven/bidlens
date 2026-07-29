@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
@@ -20,9 +21,14 @@ from .normalization import normalize_candidate
 from .references import format_internal_reference
 from .storage import (
     SourceMaterialStorage,
+    SourceMaterialStorageError,
+    cleanup_uploaded_objects,
     generate_storage_key,
     sanitize_original_filename,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 DRAFT_STATUSES = frozenset({"DRAFT", "EXTRACTING", "READY", "PUBLISHED", "FAILED"})
@@ -45,8 +51,22 @@ class DraftCleanupResult:
     storage_failures: int = 0
 
 
+@dataclass(frozen=True)
+class SourceMaterialReconciliationReport:
+    metadata_objects: int = 0
+    storage_objects: int = 0
+    missing_object_material_ids: tuple[int, ...] = ()
+    unreferenced_storage_keys: tuple[str, ...] = ()
+    expired_unpublished_material_ids: tuple[int, ...] = ()
+    errors: tuple[str, ...] = ()
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _comparable_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
 def _candidate_json(candidate: IntakeCandidate | Mapping[str, Any] | None) -> dict[str, Any]:
@@ -262,8 +282,11 @@ def store_source_material(
     db.add(material)
     try:
         db.flush()
-    except Exception:
-        storage.delete(storage_key)
+    except Exception as exc:
+        if cleanup_uploaded_objects(storage, [storage_key]):
+            raise SourceMaterialStorageError(
+                "Source-material metadata persistence failed and uploaded-object cleanup could not be confirmed"
+            ) from exc
         raise
     return material
 
@@ -315,6 +338,13 @@ def expire_abandoned_drafts(
                 storage.delete(material.storage_key)
         except Exception:
             failures += 1
+            logger.error(
+                "source_material_cleanup_failed draft_id=%s organization_id=%s workspace_id=%s material_count=%s",
+                draft.id,
+                draft.organization_id,
+                draft.workspace_id,
+                len(materials),
+            )
             continue
         for material in materials:
             if material.opportunity_id is not None:
@@ -327,4 +357,78 @@ def expire_abandoned_drafts(
         db.delete(draft)
         db.flush()
         expired += 1
+        logger.info(
+            "source_material_cleanup_succeeded draft_id=%s organization_id=%s workspace_id=%s materials_deleted=%s materials_preserved=%s",
+            draft.id,
+            draft.organization_id,
+            draft.workspace_id,
+            sum(1 for material in materials if material.opportunity_id is None),
+            sum(1 for material in materials if material.opportunity_id is not None),
+        )
     return DraftCleanupResult(expired, deleted, preserved, failures)
+
+
+def reconcile_source_materials(
+    db: Session,
+    storage: SourceMaterialStorage,
+    *,
+    organization_id: int | None = None,
+    workspace_id: int | None = None,
+    now: datetime | None = None,
+    detail_limit: int = 100,
+) -> SourceMaterialReconciliationReport:
+    cutoff = now or _utc_now()
+    query = db.query(OpportunitySourceMaterial)
+    if organization_id is not None:
+        query = query.filter(OpportunitySourceMaterial.organization_id == organization_id)
+    if workspace_id is not None:
+        query = query.filter(OpportunitySourceMaterial.workspace_id == workspace_id)
+    materials = query.all()
+    metadata_keys = {material.storage_key for material in materials}
+    missing: list[int] = []
+    errors: list[str] = []
+    for material in materials:
+        try:
+            if not storage.exists(material.storage_key):
+                missing.append(material.id)
+        except Exception:
+            errors.append("storage_existence_check_failed")
+
+    prefix = ""
+    if organization_id is not None:
+        prefix = f"org-{organization_id}/"
+        if workspace_id is not None:
+            prefix += f"workspace-{workspace_id}/"
+    try:
+        storage_keys = set(storage.list_keys(prefix))
+    except Exception:
+        storage_keys = set()
+        errors.append("storage_listing_failed")
+    unreferenced = sorted(storage_keys - metadata_keys)
+    expired = [
+        material.id
+        for material in materials
+        if material.opportunity_id is None
+        and material.intake_draft is not None
+        and material.intake_draft.status != "PUBLISHED"
+        and _comparable_utc(material.intake_draft.expires_at) <= _comparable_utc(cutoff)
+    ]
+    limit = max(0, int(detail_limit))
+    report = SourceMaterialReconciliationReport(
+        metadata_objects=len(materials),
+        storage_objects=len(storage_keys),
+        missing_object_material_ids=tuple(missing[:limit]),
+        unreferenced_storage_keys=tuple(unreferenced[:limit]),
+        expired_unpublished_material_ids=tuple(expired[:limit]),
+        errors=tuple(errors[:limit]),
+    )
+    logger.info(
+        "source_material_reconciliation metadata_objects=%s storage_objects=%s missing_objects=%s unreferenced_objects=%s expired_unpublished=%s errors=%s",
+        report.metadata_objects,
+        report.storage_objects,
+        len(missing),
+        len(unreferenced),
+        len(expired),
+        len(errors),
+    )
+    return report

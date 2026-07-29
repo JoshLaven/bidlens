@@ -31,6 +31,8 @@ def extract_docx_text(
     *,
     filename: str,
     max_chars: int,
+    max_archive_entries: int = 500,
+    max_expanded_bytes: int = 50 * 1024 * 1024,
 ) -> dict | None:
     if max_chars <= 0:
         logger.info("DOCX extraction skipped for %s because limits were already exhausted", filename)
@@ -38,6 +40,16 @@ def extract_docx_text(
 
     try:
         with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+            infos = archive.infolist()
+            if len(infos) > max_archive_entries:
+                logger.warning("DOCX parse rejected for %s because it has too many archive entries", filename)
+                return None
+            if sum(max(0, info.file_size) for info in infos) > max_expanded_bytes:
+                logger.warning("DOCX parse rejected for %s because expanded content exceeds the limit", filename)
+                return None
+            if "[Content_Types].xml" not in archive.namelist() or "word/document.xml" not in archive.namelist():
+                logger.warning("DOCX parse rejected for %s because required document parts are missing", filename)
+                return None
             parts = [
                 "word/document.xml",
                 "word/header1.xml",

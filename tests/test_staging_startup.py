@@ -35,6 +35,11 @@ class StagingStartupTests(unittest.TestCase):
             "AUTO_CREATE_SCHEMA": "false",
             "ENABLE_INTERNAL_SCHEDULER": "false",
             "SESSION_COOKIE_SECURE": "true",
+            "SOURCE_MATERIAL_STORAGE_BACKEND": "s3",
+            "SOURCE_MATERIAL_S3_BUCKET": "test-private-bucket",
+            "SOURCE_MATERIAL_S3_ACCESS_KEY_ID": "test-access-key",
+            "SOURCE_MATERIAL_S3_SECRET_ACCESS_KEY": "test-secret-key",
+            "SOURCE_MATERIAL_S3_USE_SSL": "true",
         }
 
     def _fresh_main(self, **env):

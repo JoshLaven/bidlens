@@ -14,6 +14,12 @@
   {% if page_error %}
     <div class="alert alert-error" role="alert">{{ page_error }}</div>
   {% endif %}
+  {% if extraction_warnings %}
+    <div class="alert alert-warning" role="status">
+      <strong>Review the extracted details.</strong>
+      {% for warning in extraction_warnings %}<span class="opportunity-intake-warning-line">{{ warning }}</span>{% endfor %}
+    </div>
+  {% endif %}
   {% if exact_matches %}
     <div class="opportunity-intake-duplicate-list" role="alert">
       {% for match in exact_matches %}

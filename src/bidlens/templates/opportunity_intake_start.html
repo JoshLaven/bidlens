@@ -10,22 +10,41 @@
       <p>Choose how you want to bring an opportunity into BidLens.</p>
     </div>
   </header>
+  {% if page_error %}<div class="alert alert-error" role="alert">{{ page_error }}</div>{% endif %}
 
   <section class="opportunity-intake-methods" aria-label="Opportunity creation methods">
-    <article class="card opportunity-intake-method is-disabled" aria-disabled="true">
+    <article class="card opportunity-intake-method opportunity-intake-method--active opportunity-intake-upload-method">
       <div class="opportunity-intake-method-icon" aria-hidden="true">✉</div>
       <div>
         <h2>Create from Email</h2>
-        <p>Use an email and its attachments to create an opportunity.</p>
-        <span class="opportunity-intake-coming-soon">Coming soon</span>
+        <p>Upload an email file (.eml), up to {{ max_upload_mb }} MB. Outlook .msg is not supported yet.</p>
+        <form method="post" action="/opportunity-intake/email" enctype="multipart/form-data" class="opportunity-intake-upload-form" data-intake-upload-form>
+          <input type="hidden" name="csrf_token" value="{{ email_csrf_token }}">
+          <label class="opportunity-intake-dropzone" for="intake-email" data-intake-dropzone>
+            <input id="intake-email" name="email_file" type="file" accept=".eml,message/rfc822" required data-intake-file-input>
+            <strong>Choose an .eml file</strong>
+            <span>or drag and drop it here</span>
+          </label>
+          <button type="submit" class="btn btn-primary" data-intake-submit disabled>Upload and Extract</button>
+          <p class="opportunity-intake-processing" data-intake-processing hidden>Uploading and extracting details…</p>
+        </form>
       </div>
     </article>
-    <article class="card opportunity-intake-method is-disabled" aria-disabled="true">
+    <article class="card opportunity-intake-method opportunity-intake-method--active opportunity-intake-upload-method">
       <div class="opportunity-intake-method-icon" aria-hidden="true">↥</div>
       <div>
         <h2>Upload an RFP</h2>
-        <p>Start from a PDF or Word solicitation document.</p>
-        <span class="opportunity-intake-coming-soon">Coming soon</span>
+        <p>Upload one readable PDF or DOCX, up to {{ max_upload_mb }} MB.</p>
+        <form method="post" action="/opportunity-intake/document" enctype="multipart/form-data" class="opportunity-intake-upload-form" data-intake-upload-form>
+          <input type="hidden" name="csrf_token" value="{{ document_csrf_token }}">
+          <label class="opportunity-intake-dropzone" for="intake-document" data-intake-dropzone>
+            <input id="intake-document" name="document" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required data-intake-file-input>
+            <strong>Choose a file</strong>
+            <span>or drag and drop it here</span>
+          </label>
+          <button type="submit" class="btn btn-primary" data-intake-submit disabled>Upload and Extract</button>
+          <p class="opportunity-intake-processing" data-intake-processing hidden>Uploading and extracting details…</p>
+        </form>
       </div>
     </article>
     <article class="card opportunity-intake-method opportunity-intake-method--active">
@@ -41,4 +60,37 @@
     </article>
   </section>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+  (() => {
+    document.querySelectorAll('[data-intake-upload-form]').forEach((form) => {
+    const input = form.querySelector('[data-intake-file-input]');
+    const dropzone = form.querySelector('[data-intake-dropzone]');
+    const submit = form.querySelector('[data-intake-submit]');
+    const processing = form.querySelector('[data-intake-processing]');
+    const update = () => { submit.disabled = !input.files.length; };
+    input.addEventListener('change', update);
+    ['dragenter', 'dragover'].forEach((eventName) => dropzone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      dropzone.classList.add('is-dragging');
+    }));
+    ['dragleave', 'drop'].forEach((eventName) => dropzone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      dropzone.classList.remove('is-dragging');
+    }));
+    dropzone.addEventListener('drop', (event) => {
+      if (!event.dataTransfer?.files?.length) return;
+      const transfer = new DataTransfer();
+      transfer.items.add(event.dataTransfer.files[0]);
+      input.files = transfer.files;
+      update();
+    });
+    form.addEventListener('submit', () => {
+      submit.disabled = true;
+      processing.hidden = false;
+    });
+    });
+  })();
+</script>
 {% endblock %}

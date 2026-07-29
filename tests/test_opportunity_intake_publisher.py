@@ -249,6 +249,27 @@ class OpportunityPublisherTests(unittest.TestCase):
                     "internet": "internet_message_id",
                 }[field], reasons)
 
+    def test_material_duplicate_is_detected_after_draft_link_is_detached(self):
+        existing_draft = self._draft()
+        existing = self._existing_opportunity(
+            source_record_id="detached-existing", solicitation_number="detached-existing"
+        )
+        material = self._material(
+            existing_draft,
+            opportunity=existing,
+            digest="detached-source-hash",
+        )
+        material.intake_draft_id = None
+        self.db.commit()
+        draft = self._draft()
+        self._material(draft, digest="detached-source-hash")
+        with self.assertRaises(OpportunityDuplicateError):
+            self._publish(
+                draft,
+                key="detached-duplicate",
+                review=self._review(solicitation_number="detached-new"),
+            )
+
     def test_probable_match_is_reported_without_blocking(self):
         self._existing_opportunity(
             title="Reviewed title", agency="Reviewed client", response_deadline=date(2026, 9, 30)

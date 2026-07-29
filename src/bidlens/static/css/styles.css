@@ -6979,6 +6979,56 @@ h2 {
     overflow-wrap: anywhere;
 }
 
+.opportunity-intake-upload-method > div:last-child {
+    min-width: 0;
+    width: 100%;
+}
+
+.opportunity-intake-upload-form {
+    display: grid;
+    gap: 10px;
+}
+
+.opportunity-intake-dropzone {
+    display: grid;
+    gap: 3px;
+    padding: 16px 12px;
+    border: 1px dashed var(--gray-300);
+    border-radius: 9px;
+    background: var(--gray-50);
+    color: var(--gray-700);
+    cursor: pointer;
+    text-align: center;
+}
+
+.opportunity-intake-dropzone:hover,
+.opportunity-intake-dropzone:focus-within,
+.opportunity-intake-dropzone.is-dragging {
+    border-color: var(--primary);
+    background: var(--primary-soft);
+}
+
+.opportunity-intake-dropzone input {
+    width: 100%;
+    margin-bottom: 6px;
+    font-size: 0.78rem;
+}
+
+.opportunity-intake-dropzone span,
+.opportunity-intake-processing {
+    color: var(--gray-500);
+    font-size: 0.76rem;
+}
+
+.opportunity-intake-processing {
+    margin: 0;
+}
+
+.opportunity-intake-warning-line {
+    display: block;
+    margin-top: 5px;
+}
+
 .opportunity-intake-method-icon {
     flex: 0 0 auto;
     color: var(--primary);

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ...models import Opportunity, OpportunityIntakeDraft, OpportunitySourceMaterial
@@ -98,7 +99,10 @@ def find_publication_duplicates(
         OpportunitySourceMaterial.organization_id == draft.organization_id,
         OpportunitySourceMaterial.workspace_id == draft.workspace_id,
         OpportunitySourceMaterial.opportunity_id.isnot(None),
-        OpportunitySourceMaterial.intake_draft_id != draft.id,
+        or_(
+            OpportunitySourceMaterial.intake_draft_id.is_(None),
+            OpportunitySourceMaterial.intake_draft_id != draft.id,
+        ),
     ).all()
     for material in draft_materials:
         for existing in published_materials:

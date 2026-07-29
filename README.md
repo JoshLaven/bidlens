@@ -256,6 +256,55 @@ PYTHONPATH=src python -m bidlens.jobs.run_daily_brief_emails
 
 Do not run overlapping copies of the same job yet; distributed locking is deferred.
 
+## Unified Intake Source-Material Storage
+
+Local development may use `SOURCE_MATERIAL_STORAGE_BACKEND=local` with
+`SOURCE_MATERIAL_LOCAL_ROOT=.bidlens/source-materials`. Hosted deployments reject
+local storage because Railway service disk is ephemeral.
+
+Production and staging must use a private S3-compatible bucket:
+
+```text
+SOURCE_MATERIAL_STORAGE_BACKEND=s3
+SOURCE_MATERIAL_S3_BUCKET=bidlens-source-materials
+SOURCE_MATERIAL_S3_ENDPOINT_URL=https://your-s3-compatible-endpoint
+SOURCE_MATERIAL_S3_REGION=us-east-1
+SOURCE_MATERIAL_S3_ACCESS_KEY_ID=replace-with-access-key
+SOURCE_MATERIAL_S3_SECRET_ACCESS_KEY=replace-with-secret-key
+SOURCE_MATERIAL_S3_PATH_PREFIX=bidlens/source-materials
+SOURCE_MATERIAL_S3_USE_SSL=true
+```
+
+`SOURCE_MATERIAL_S3_ENDPOINT_URL` may be omitted when the standard AWS S3 endpoint
+is appropriate. The bucket must remain private. BidLens never renders permanent
+object URLs: authenticated downloads are authorized against the workspace and
+draft or published Opportunity, then streamed through the application.
+
+Storage keys are generated independently of filenames and retain their
+organization, workspace, and intake-draft scope after publication. Uploaded bytes
+are stored only in object storage; the database stores hashes and metadata.
+
+Before enabling uploads in a hosted environment:
+
+1. Provision the private bucket and least-privilege credentials for object put,
+   get, head, list, and delete operations under the configured path prefix.
+2. Configure the variables above and keep `SOURCE_MATERIAL_S3_USE_SSL=true`.
+3. Run migrations before starting the web process.
+4. Verify PDF, DOCX, and EML upload, authenticated retrieval, application restart,
+   and abandoned-draft cleanup with non-sensitive fixtures.
+
+The report-only `reconcile_source_materials` service identifies missing objects,
+unreferenced objects, and expired unpublished materials without deleting orphaned
+bucket objects automatically. Abandoned-draft cleanup deletes only unpublished,
+unassociated materials and retains metadata when storage deletion fails so the
+operation can be retried safely.
+
+Run the bounded report with:
+
+```bash
+PYTHONPATH=src python scripts/reconcile_source_materials.py --organization-id 1 --workspace-id 1
+```
+
 ## Platform Operations
 
 Platform Owners can inspect durable operational job history at:

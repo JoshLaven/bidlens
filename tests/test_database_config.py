@@ -49,6 +49,25 @@ class DatabaseConfigTests(unittest.TestCase):
         self.assertIn("***", safe_url)
         self.assertNotIn("secret", safe_url)
 
+    def test_diagnostic_redaction_hides_database_and_signed_url_credentials(self):
+        _drop_bidlens_modules("bidlens.config")
+        config = importlib.import_module("bidlens.config")
+        database_url = "postgresql://db-user:db-password@db.example.test:5432/bidlens"
+        signed_url = (
+            "https://objects.example.test/private/file?"
+            "X-Amz-Credential=access-value&X-Amz-Signature=signature-value&token=token-value"
+        )
+
+        output = config.redact_sensitive_text(f"database={database_url} object={signed_url}")
+        target = config.database_target_summary(database_url)
+
+        for secret in ("db-user", "db-password", "access-value", "signature-value", "token-value"):
+            self.assertNotIn(secret, output + target)
+        self.assertIn("provider=postgresql", target)
+        self.assertIn("host=db.example.test", target)
+        self.assertIn("port=5432", target)
+        self.assertIn("database=bidlens", target)
+
     def test_database_engine_uses_postgres_url_without_sqlite_options(self):
         _drop_bidlens_modules("bidlens.database", "bidlens.config")
         with patch.dict(
