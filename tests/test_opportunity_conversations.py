@@ -340,7 +340,7 @@ class OpportunityConversationFoundationTests(unittest.TestCase):
 
         self.assertIn('id="detail-tab-communication"', html)
         self.assertIn('id="detail-panel-communication"', html)
-        self.assertIn("Communication Summary", html)
+        self.assertIn("AI Summary", html)
         self.assertIn("communication-timeline-count", html)
         self.assertIn("communication-accordion", html)
         self.assertIn("detail-tab-panel--plain", html)
@@ -349,6 +349,8 @@ class OpportunityConversationFoundationTests(unittest.TestCase):
         self.assertNotIn("Email record", html)
         self.assertNotIn("Communication Timeline", html)
         self.assertIn("No email messages have been recorded yet.", html)
+        self.assertIn("communication-email-accordion", html)
+        self.assertIn("Expand one to review the original email.", html)
         self.assertNotIn("for event in recent_activity", html)
 
     def test_deleting_opportunity_removes_conversations_and_activity(self):

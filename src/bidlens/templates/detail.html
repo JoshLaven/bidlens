@@ -6,6 +6,7 @@
 {% set source_value = opportunity.source or '' %}
 {% set source_label = 'SAM.gov' if source_value == 'sam' else 'GovWin' if source_value in ['govwin_export', 'govwin_api'] else 'Grants.gov' if source_value == 'grants_gov' else source_value %}
 {% set is_qualified = opportunity.qualification_status == 'qualified' %}
+{% from "_opportunity_sidebar.html" import opportunity_sidebar with context %}
 <div class="detail-page">
 
   {{ back_navigation(back_label, back_url) }}
@@ -64,134 +65,53 @@
 
   <nav class="detail-section-nav" aria-label="Opportunity sections" role="tablist">
     <button type="button" id="detail-tab-overview" role="tab" aria-selected="true" aria-controls="detail-panel-overview" data-detail-tab="overview"><span>Overview</span></button>
-    <button type="button" id="detail-tab-description" role="tab" aria-selected="false" aria-controls="detail-panel-description" data-detail-tab="description"><span>Description</span></button>
     <button type="button" id="detail-tab-communication" role="tab" aria-selected="false" aria-controls="detail-panel-communication" data-detail-tab="communication"><span>Communication</span></button>
     <button type="button" id="detail-tab-notes" role="tab" aria-selected="false" aria-controls="detail-panel-notes" data-detail-tab="notes"><span>Notes</span></button>
-    <button type="button" id="detail-tab-identifiers" role="tab" aria-selected="false" aria-controls="detail-panel-identifiers" data-detail-tab="identifiers"><span>Identifiers</span></button>
-    <button type="button" id="detail-tab-crm" role="tab" aria-selected="false" aria-controls="detail-panel-crm" data-detail-tab="crm"><span>CRM</span></button>
+    <button type="button" id="detail-tab-reference" role="tab" aria-selected="false" aria-controls="detail-panel-reference" data-detail-tab="reference"><span>Reference</span></button>
     <button type="button" id="detail-tab-history" role="tab" aria-selected="false" aria-controls="detail-panel-history" data-detail-tab="history">
-      <span>History{% if history_unread_count %} <span class="detail-history-badge" data-history-unread-count>({{ history_unread_count }})</span>{% endif %}</span>
+      <span>Solicitation History{% if history_unread_count %} <span class="detail-history-badge" data-history-unread-count>({{ history_unread_count }})</span>{% endif %}</span>
     </button>
   </nav>
 
-  <div class="detail-primary">
+  <div class="detail-primary detail-folder-workspace">
     {% set conversations = (conversation_context or {}).get('conversations', []) %}
     {% set communication_messages = (conversation_context or {}).get('messages', []) %}
+    {{ opportunity_sidebar('workspace-team-interest-tooltip') }}
+    <div class="detail-folder-tab-content">
 
     <!-- Opportunity Summary -->
     <details open class="accordion detail-section detail-tab-panel" id="detail-panel-overview"
              role="tabpanel" aria-labelledby="detail-tab-overview" data-detail-panel="overview">
       <summary class="accordion-summary">Opportunity Summary</summary>
       <div class="accordion-body detail-overview-sheet">
-        <article class="detail-workspace-spread">
-          <aside class="detail-workspace-column">
-            {% if is_qualified %}
-              <div class="detail-context-row detail-context-row--interest">
-                <button type="button"
-                        class="detail-context-interest"
-                        aria-label="{{ team_interest_label }}"
-                        aria-describedby="workspace-team-interest-tooltip">
-                  <span class="detail-context-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24">
-                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
-                      <circle cx="9" cy="7" r="4"></circle>
-                      <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
-                      <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                    </svg>
-                  </span>
-                  <span>
-                    <span class="detail-spread-label">Team Interest</span>
-                    <strong>{{ team_interest_label }}</strong>
-                  </span>
-                </button>
-                <span id="workspace-team-interest-tooltip" class="opp-card-team-interest-tooltip" role="tooltip">
-                  <strong>Interested</strong>
-                  {% if user_vote == 'PURSUE' %}<span>You</span>{% endif %}
-                  {% for teammate in teammate_interest_users %}<span>{{ teammate }}</span>{% endfor %}
-                  {% if user_vote != 'PURSUE' and not teammate_interest_users %}<span>No team interest yet</span>{% endif %}
-                </span>
-              </div>
+        <div class="detail-description-folder detail-overview-content detail-overview-main">
+        <section class="detail-description-section overview-description-card" aria-labelledby="overview-description-heading">
+          <div class="detail-description-section-header">
+            <h2 id="overview-description-heading">Description</h2>
+          </div>
+          {% if resolved_description %}
+            <div id="overview-description-text" class="prewrap overview-description-text{% if resolved_description|length > 650 %} is-collapsed{% endif %}">{{ resolved_description }}</div>
+            {% if resolved_description|length > 650 %}
+              <button type="button" class="overview-description-toggle" aria-expanded="false" aria-controls="overview-description-text" onclick="toggleOverviewDescription(this)">Read more</button>
             {% endif %}
+          {% else %}
+            <p class="detail-panel-empty">No source description is available.</p>
+          {% endif %}
+        </section>
 
-            <div class="detail-context-row">
-              <span class="detail-context-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M3 21h18"></path>
-                  <path d="M5 21V7l7-4 7 4v14"></path>
-                  <path d="M9 21v-4h6v4"></path>
-                  <path d="M9 9h.01M15 9h.01M9 13h.01M15 13h.01"></path>
-                </svg>
-              </span>
-              <span class="detail-context-copy">
-                <span class="detail-spread-label">Salesforce</span>
-                {% if opportunity.salesforce_opportunity_url %}
-                  <a href="{{ opportunity.salesforce_opportunity_url }}" target="_blank" rel="noreferrer">View Opportunity &#8599;</a>
-                {% else %}
-                  <span class="detail-spread-muted">Not linked</span>
-                {% endif %}
-              </span>
-            </div>
-          </aside>
-
-          <section class="detail-opportunity-column">
-            <p class="detail-column-kicker">Opportunity reference</p>
-
-            {% if source_value %}
-              <div class="detail-spread-source">
-                <div>
-                  <span class="detail-spread-label">Source</span>
-                  <span class="source-pill" title="Source: {{ source_value }}">{{ source_label }}</span>
-                </div>
-                {% if opportunity.source_url or opportunity.sam_url %}
-                  <a href="{{ opportunity.source_url or opportunity.sam_url }}" target="_blank" rel="noreferrer">View source &#8599;</a>
-                {% endif %}
-              </div>
-            {% endif %}
-
-            {% if opportunity.solicitation_number %}
-              <div class="detail-spread-reference">
-                <span class="detail-spread-label">Solicitation Number</span>
-                <strong>{{ opportunity.solicitation_number }}</strong>
-              </div>
-            {% endif %}
-
-            <dl class="detail-spread-folio">
-              <div>
-                <dt>Stage</dt>
-                <dd>{{ normalized_opportunity_type }}</dd>
-              </div>
-              {% if opportunity.source_stage and opportunity.source_stage != normalized_opportunity_type %}
-                <div>
-                  <dt>Source Stage</dt>
-                  <dd>{{ opportunity.source_stage }}</dd>
-                </div>
-              {% endif %}
-              <div>
-                <dt>Posted Date</dt>
-                <dd>{{ opportunity.posted_date.strftime('%B %d, %Y') }}</dd>
-              </div>
-            </dl>
-          </section>
-        </article>
-      </div>
-    </details>
-
-    <!-- Description: AI brief, solicitation, and documents -->
-    <details open class="accordion detail-section detail-tab-panel" id="detail-panel-description"
-             role="tabpanel" aria-labelledby="detail-tab-description" data-detail-panel="description" hidden>
-      <summary class="accordion-summary">Description</summary>
-      <div class="accordion-body detail-description-folder">
-        <section class="detail-description-section detail-description-section--brief" aria-labelledby="detail-description-brief-heading">
+        {% if brief %}
+        <section class="detail-description-section detail-description-section--brief overview-brief-card" aria-labelledby="detail-description-brief-heading">
           <div class="detail-description-section-header">
             <div>
-              <p class="detail-column-kicker">AI Brief</p>
-              <h2 id="detail-description-brief-heading">AI Brief</h2>
+              <h2 id="detail-description-brief-heading">Opportunity Brief</h2>
+              <span class="overview-ai-label">AI-generated</span>
             </div>
             <button class="btn btn-secondary btn-sm"
                     id="generate-brief-button"
+                    data-default-label="Regenerate Brief"
                     type="button"
                     onclick="generateBrief('{{ opportunity.id }}')">
-              Generate AI Brief
+              Regenerate Brief
             </button>
           </div>
 
@@ -261,48 +181,48 @@
               <p><strong>Brief failed:</strong> {{ brief_error or "unknown error" }}</p>
             {% endif %}
 
-            {% if brief %}
-              {% for section in brief_sections %}
-                <h4>{{ section["label"] }}</h4>
-                <ul>
-                  {% for item in section["items"] %}
-                    <li>{{ item }}</li>
-                  {% endfor %}
-                </ul>
-              {% endfor %}
-            {% else %}
-              {% if brief_status == "generating" %}
-                <p><em>Generating summary… refresh in a moment if it does not appear.</em></p>
-              {% elif brief_status == "failed" %}
-                <p><em>No completed brief is available yet.</em></p>
-              {% else %}
-                <p><em>No brief yet. Click "Generate AI Brief" to create one.</em></p>
-              {% endif %}
-            {% endif %}
+            {% for section in brief_sections %}
+              <h4>{{ section["label"] }}</h4>
+              <ul>
+                {% for item in section["items"] %}
+                  <li>{{ item }}</li>
+                {% endfor %}
+              </ul>
+            {% endfor %}
           </div>
         </section>
-
-        <section class="detail-description-section" aria-labelledby="detail-description-solicitation-heading">
-          <div class="detail-description-section-header">
+        {% else %}
+        <section class="detail-description-section overview-brief-action" aria-labelledby="detail-description-brief-heading">
+          <div class="overview-brief-action-copy">
+            <span class="overview-brief-action-icon" aria-hidden="true">&#10022;</span>
             <div>
-              <p class="detail-column-kicker">Solicitation</p>
-              <h2 id="detail-description-solicitation-heading">Original Solicitation Description</h2>
+              <h2 id="detail-description-brief-heading">Generate AI Brief</h2>
+              <p>Get an AI-generated summary of this opportunity.</p>
             </div>
           </div>
-          {% if resolved_description %}
-            <div class="prewrap detail-solicitation-description">{{ resolved_description }}</div>
-          {% else %}
-            <p class="detail-panel-empty">No source description is available.</p>
-          {% endif %}
+          <div>
+            <button class="btn btn-secondary btn-sm" id="generate-brief-button" data-default-label="Generate AI Brief" type="button" onclick="generateBrief('{{ opportunity.id }}')">Generate AI Brief</button>
+            <div id="brief-generate-status" class="muted overview-brief-status" style="display:none;"></div>
+            {% if brief_status == "failed" %}<p class="muted overview-brief-error">Last generation attempt failed.</p>{% endif %}
+          </div>
         </section>
+        {% endif %}
 
-        <section class="detail-description-section" aria-labelledby="detail-description-documents-heading">
-          <div class="detail-description-section-header">
+        {% set document_count = namespace(value=0) %}
+        {% if grants_gov_documents %}
+          {% for folder in grants_gov_documents.folders %}{% set document_count.value = document_count.value + (folder.attachments|length) %}{% endfor %}
+          {% set document_count.value = document_count.value + (grants_gov_documents.document_urls|length) %}
+        {% endif %}
+        <details class="detail-description-section overview-expandable" aria-labelledby="detail-description-documents-heading">
+          <summary class="overview-expandable-summary">
             <div>
-              <p class="detail-column-kicker">Documents</p>
               <h2 id="detail-description-documents-heading">Associated Documents</h2>
+              <p>Documents imported with this opportunity.</p>
             </div>
-          </div>
+            <span class="overview-document-count">{{ document_count.value }} document{% if document_count.value != 1 %}s{% endif %}</span>
+            <span class="communication-email-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="overview-expandable-body">
           {% if grants_gov_documents and (grants_gov_documents.folders or grants_gov_documents.document_urls) %}
             {% for folder in grants_gov_documents.folders %}
               <div class="opportunity-document-folder">
@@ -373,7 +293,9 @@
           {% else %}
             <p class="detail-panel-empty">No associated documents are available.</p>
           {% endif %}
-        </section>
+          </div>
+        </details>
+        </div>
       </div>
     </details>
 
@@ -388,11 +310,11 @@
           <div class="alert alert-warning">Microsoft could not accept the email request.</div>
         {% endif %}
 
-        <section class="detail-memory-section" aria-labelledby="detail-communication-heading">
+        <section class="detail-memory-section communication-workspace" aria-label="Opportunity communication history">
           <details open class="detail-memory-card communication-summary-card communication-accordion" aria-labelledby="communication-summary-heading">
             <summary class="detail-memory-card-header communication-accordion-summary">
               <div>
-                <h2 id="communication-summary-heading">Communication Summary</h2>
+                <h2 id="communication-summary-heading">AI Summary</h2>
                 {% if communication_summary and communication_summary.status == 'ready' %}
                   <p class="detail-panel-meta">Generated {{ communication_summary.generated_at.strftime('%b %-d, %Y at %-I:%M %p') if communication_summary.generated_at else 'recently' }} · {% if communication_summary.message_count_included == communication_summary.message_count_available %}{{ communication_summary.message_count_included }} message{% if communication_summary.message_count_included != 1 %}s{% endif %} included{% else %}{{ communication_summary.message_count_included }} of {{ communication_summary.message_count_available }} messages included{% endif %}</p>
                 {% endif %}
@@ -422,45 +344,67 @@
               {% endif %}
             </div>
           </details>
-          <details class="detail-memory-card communication-accordion" aria-labelledby="communication-timeline-heading">
-            <summary class="detail-memory-card-header communication-accordion-summary">
-              <h2 id="communication-timeline-heading">Timeline <span class="communication-timeline-count">({{ communication_messages|length }})</span></h2>
-              <span class="communication-accordion-chevron" aria-hidden="true"></span>
-            </summary>
-            <div class="communication-accordion-body">
-              {% if communication_messages %}
-                <ol class="detail-conversation-list detail-conversation-list--messages">
-                  {% for message in communication_messages %}
-                    <li class="detail-message detail-message--{{ message.direction }}">
-                      <strong>{{ message.direction_label }}</strong>
-                      {% if message.direction == 'outbound' %}
-                        <span>To: {{ message.recipients or 'Unknown recipient' }}</span>
-                      {% else %}
-                        <span>From: {{ message.sender }}</span>
-                      {% endif %}
-                      <time>{{ message.timeline_timestamp_label }}</time>
-                    </li>
-                  {% endfor %}
-                </ol>
-              {% else %}
-                <p class="detail-panel-empty">No email messages have been recorded yet.</p>
-              {% endif %}
+          <section class="communication-timeline" aria-labelledby="communication-timeline-heading">
+            <div class="communication-timeline-header">
+              <div>
+                <h2 id="communication-timeline-heading">Timeline</h2>
+                <p>Messages are collapsed for quick scanning. Expand one to review the original email.</p>
+              </div>
+              <span class="communication-timeline-count">{{ communication_messages|length }} message{% if communication_messages|length != 1 %}s{% endif %}</span>
             </div>
-          </details>
+            {% if communication_messages %}
+              <ol class="communication-message-timeline">
+                {% for message in communication_messages %}
+                  <li class="communication-message-row">
+                    <span class="communication-message-marker" aria-hidden="true"></span>
+                    <details class="communication-email-accordion">
+                      <summary>
+                        <span class="communication-email-summary-copy">
+                          <strong>{{ message.sender }}</strong>
+                          <span class="communication-email-recipient"><span aria-hidden="true">&#8594;</span> {{ message.recipients or 'Unknown recipient' }}</span>
+                        </span>
+                        <time>{{ message.timeline_timestamp_label }}</time>
+                        <span class="communication-email-chevron" aria-hidden="true"></span>
+                      </summary>
+                      <div class="communication-email-body">
+                        <dl class="communication-email-metadata">
+                          <div><dt>From</dt><dd>{{ message.sender }}</dd></div>
+                          <div><dt>To</dt><dd>{{ message.recipients or 'Unknown recipient' }}</dd></div>
+                          <div><dt>Subject</dt><dd>{{ message.subject or '(No subject)' }}</dd></div>
+                        </dl>
+                        {% if message.body %}
+                          <div class="communication-email-original prewrap">{{ message.body }}</div>
+                        {% else %}
+                          <p class="detail-panel-empty">No message body is available.</p>
+                        {% endif %}
+                      </div>
+                    </details>
+                  </li>
+                {% endfor %}
+              </ol>
+            {% else %}
+              <p class="detail-panel-empty">No email messages have been recorded yet.</p>
+            {% endif %}
+          </section>
         </section>
       </div>
     </section>
 
-    <details open class="accordion detail-section detail-tab-panel" id="detail-panel-notes"
+    <details open class="accordion detail-section detail-tab-panel detail-workspace-panel" id="detail-panel-notes"
              role="tabpanel" aria-labelledby="detail-tab-notes" data-detail-panel="notes" hidden>
-      <summary class="accordion-summary">Internal Notes</summary>
+      <summary class="accordion-summary">Personal Notes</summary>
       <div class="accordion-body">
+        <div class="detail-workspace-main detail-workspace-card detail-notes-card">
+        <div class="detail-panel-introduction">
+          <h2>Personal working notes</h2>
+          <p>Capture reminders, ideas, follow-ups, and questions you want to keep with this opportunity.</p>
+        </div>
         <form method="POST" action="/opportunities/{{ opportunity.id }}/notes" class="internal-notes-form">
           <textarea
             name="body"
             rows="4"
             class="notes-textarea"
-            placeholder="Add internal notes about routing, context, fit, or follow-up..."
+            placeholder="Add a reminder, idea, follow-up, or question..."
             required
           ></textarea>
           <div class="internal-notes-actions">
@@ -482,94 +426,53 @@
             {% endfor %}
           </div>
         {% else %}
-          <p class="internal-notes-empty"><em>No internal notes yet.</em></p>
+          <p class="internal-notes-empty"><em>No personal notes yet.</em></p>
         {% endif %}
-      </div>
-    </details>
-
-    <details open class="accordion detail-section detail-tab-panel" id="detail-panel-identifiers"
-             role="tabpanel" aria-labelledby="detail-tab-identifiers" data-detail-panel="identifiers" hidden>
-      <summary class="accordion-summary">Identifiers &amp; Metadata</summary>
-      <div class="accordion-body">
-        <div class="key-info-row">
-          <span class="key-info-label">BidLens Database ID</span>
-          <span class="key-info-value">{{ opportunity.id }}</span>
         </div>
-
-        {% if opportunity.bidlens_id %}
-          <div class="key-info-row">
-            <span class="key-info-label">BidLens Opportunity ID</span>
-            <span class="key-info-value">{{ opportunity.bidlens_id }}</span>
-          </div>
-        {% endif %}
-
-        {% if opportunity.source_record_id %}
-          <div class="key-info-row">
-            <span class="key-info-label">
-              {% if source_value == 'sam' %}SAM.gov Notice ID
-              {% elif source_value in ['govwin_export', 'govwin_api'] %}GovWin Opportunity ID
-              {% elif source_value == 'grants_gov' %}Grants.gov Opportunity ID
-              {% else %}{{ source_label or 'Source' }} Record ID{% endif %}
-            </span>
-            <span class="key-info-value">{{ opportunity.source_record_id }}</span>
-          </div>
-        {% endif %}
-
-        {% if opportunity.external_source_key %}
-          <div class="key-info-row">
-            <span class="key-info-label">External Source Key</span>
-            <span class="key-info-value">{{ opportunity.external_source_key }}</span>
-          </div>
-        {% endif %}
-
-        {% if opportunity.sam_notice_id and opportunity.sam_notice_id != opportunity.source_record_id %}
-          <div class="key-info-row">
-            <span class="key-info-label">SAM.gov Notice ID</span>
-            <span class="key-info-value">{{ opportunity.sam_notice_id }}</span>
-          </div>
-        {% endif %}
-
-        {% if opportunity.govwin_staging_id %}
-          <div class="key-info-row">
-            <span class="key-info-label">GovWin Staging ID</span>
-            <span class="key-info-value">{{ opportunity.govwin_staging_id }}</span>
-          </div>
-        {% endif %}
-
-        {% if opportunity.salesforce_opportunity_id %}
-          <div class="key-info-row">
-            <span class="key-info-label">Salesforce Opportunity ID</span>
-            <span class="key-info-value">{{ opportunity.salesforce_opportunity_id }}</span>
-          </div>
-        {% endif %}
-
-        {% if opportunity.upserted_at %}
-          <div class="key-info-row">
-            <span class="key-info-label">Last Upserted</span>
-            <span class="key-info-value">{{ opportunity.upserted_at.strftime("%Y-%m-%d %H:%M") }}</span>
-          </div>
-        {% endif %}
-
-        {% if opportunity.created_at %}
-          <div class="key-info-row">
-            <span class="key-info-label">Created</span>
-            <span class="key-info-value">{{ opportunity.created_at.strftime("%Y-%m-%d %H:%M") }}</span>
-          </div>
-        {% endif %}
-
-        {% if opportunity.updated_at %}
-          <div class="key-info-row">
-            <span class="key-info-label">Updated</span>
-            <span class="key-info-value">{{ opportunity.updated_at.strftime("%Y-%m-%d %H:%M") }}</span>
-          </div>
-        {% endif %}
       </div>
     </details>
 
-    <details open class="accordion detail-section detail-tab-panel" id="detail-panel-crm"
-             role="tabpanel" aria-labelledby="detail-tab-crm" data-detail-panel="crm" hidden>
-      <summary class="accordion-summary">CRM</summary>
+    <details open class="accordion detail-section detail-tab-panel detail-workspace-panel" id="detail-panel-reference"
+             role="tabpanel" aria-labelledby="detail-tab-reference" data-detail-panel="reference" hidden>
+      <summary class="accordion-summary">Reference</summary>
       <div class="accordion-body">
+        <div class="detail-workspace-main detail-workspace-card detail-reference-panel">
+        <div class="detail-panel-introduction">
+          <h2>Reference</h2>
+          <p>System identifiers, source details, and integration metadata for troubleshooting and support.</p>
+        </div>
+        <section class="detail-reference-section" aria-labelledby="reference-identifiers-heading">
+          <h3 id="reference-identifiers-heading">Identifiers</h3>
+          {% set reference_identifiers = [
+            ('BidLens Database ID', opportunity.id),
+            ('BidLens Opportunity ID', opportunity.bidlens_id),
+            ('External Solicitation ID', opportunity.source_record_id),
+            ('External Source Key', opportunity.external_source_key),
+            ('SAM.gov Notice ID', opportunity.sam_notice_id if opportunity.sam_notice_id != opportunity.source_record_id else none),
+            ('GovWin Staging ID', opportunity.govwin_staging_id),
+            ('Salesforce Opportunity ID', opportunity.salesforce_opportunity_id)
+          ] %}
+          {% for label, value in reference_identifiers if value %}
+            <div class="key-info-row detail-reference-row">
+              <span class="key-info-label">{{ label }}</span>
+              <span class="key-info-value"><code>{{ value }}</code><button type="button" class="reference-copy-action" data-copy-value="{{ value }}" aria-label="Copy {{ label }}">Copy</button></span>
+            </div>
+          {% endfor %}
+        </section>
+
+        <section class="detail-reference-section" aria-labelledby="reference-source-heading">
+          <h3 id="reference-source-heading">Source</h3>
+          <div class="key-info-row"><span class="key-info-label">Import Source</span><span class="key-info-value">{{ source_label or 'Unknown' }}</span></div>
+          {% if opportunity.source_url or opportunity.sam_url %}
+            <div class="key-info-row"><span class="key-info-label">Source URL</span><span class="key-info-value"><a href="{{ opportunity.source_url or opportunity.sam_url }}" target="_blank" rel="noreferrer">Open source &#8599;</a><button type="button" class="reference-copy-action" data-copy-value="{{ opportunity.source_url or opportunity.sam_url }}" aria-label="Copy source URL">Copy</button></span></div>
+          {% endif %}
+          {% if opportunity.upserted_at %}<div class="key-info-row"><span class="key-info-label">Last Imported</span><span class="key-info-value">{{ opportunity.upserted_at.strftime("%Y-%m-%d %H:%M") }}</span></div>{% endif %}
+          {% if opportunity.created_at %}<div class="key-info-row"><span class="key-info-label">Created in BidLens</span><span class="key-info-value">{{ opportunity.created_at.strftime("%Y-%m-%d %H:%M") }}</span></div>{% endif %}
+          {% if opportunity.updated_at %}<div class="key-info-row"><span class="key-info-label">Last Updated</span><span class="key-info-value">{{ opportunity.updated_at.strftime("%Y-%m-%d %H:%M") }}</span></div>{% endif %}
+        </section>
+
+        <section class="detail-reference-section" aria-labelledby="reference-salesforce-heading">
+          <h3 id="reference-salesforce-heading">Salesforce</h3>
         {% if opportunity.salesforce_opportunity_id or opportunity.salesforce_opportunity_url or opportunity.salesforce_synced_at %}
         {% if opportunity.salesforce_opportunity_id or opportunity.salesforce_opportunity_url %}
           <div class="key-info-row">
@@ -598,7 +501,7 @@
         {% if opportunity.salesforce_opportunity_id %}
           <div class="key-info-row">
             <span class="key-info-label">Opportunity ID</span>
-            <span class="key-info-value">{{ opportunity.salesforce_opportunity_id }}</span>
+            <span class="key-info-value"><code>{{ opportunity.salesforce_opportunity_id }}</code><button type="button" class="reference-copy-action" data-copy-value="{{ opportunity.salesforce_opportunity_id }}" aria-label="Copy Salesforce Opportunity ID">Copy</button></span>
           </div>
         {% endif %}
 
@@ -618,18 +521,24 @@
         {% else %}
           <p class="detail-panel-empty">This opportunity is not linked to Salesforce.</p>
         {% endif %}
-
+        </section>
+        </div>
       </div>
     </details>
 
-    <section class="detail-section detail-tab-panel" id="detail-panel-history"
+    <section class="detail-section detail-tab-panel detail-workspace-panel" id="detail-panel-history"
              role="tabpanel" aria-labelledby="detail-tab-history" data-detail-panel="history" hidden>
-      <div class="accordion-body detail-history-panel">
-        {% if opportunity.source in ['grants_gov', 'grants.gov'] and opportunity.source_url %}
-          <div class="opportunity-history-source-link">
-            <a href="{{ opportunity.source_url }}" target="_blank" rel="noreferrer">View on Grants.gov &#8599;</a>
+      <div class="accordion-body">
+        <div class="detail-workspace-main detail-workspace-card detail-history-panel">
+        <div class="detail-workspace-card-header">
+          <div class="detail-panel-introduction">
+            <h2>Solicitation History</h2>
+            <p>Amendments, updates, reposts, and source changes recorded for the external solicitation.</p>
           </div>
-        {% endif %}
+          {% if opportunity.source_url or opportunity.sam_url %}
+            <a class="opportunity-history-source-link" href="{{ opportunity.source_url or opportunity.sam_url }}" target="_blank" rel="noreferrer">View on {{ source_label or 'Source' }} &#8599;</a>
+          {% endif %}
+        </div>
         {% if history_events %}
           {% set history_group = namespace(day='') %}
           <div class="opportunity-history-timeline">
@@ -695,9 +604,11 @@
         {% else %}
           <p class="detail-panel-empty">No opportunity history has been recorded yet.</p>
         {% endif %}
+        </div>
       </div>
     </section>
 
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -754,7 +665,51 @@ detailTabs.forEach((tab, index) => {
   });
 });
 const requestedDetailTab = new URLSearchParams(window.location.search).get('tab');
-activateDetailTab(requestedDetailTab || 'overview');
+const legacyDetailTabMap = { description: 'overview', identifiers: 'reference', crm: 'reference' };
+activateDetailTab(legacyDetailTabMap[requestedDetailTab] || requestedDetailTab || 'overview');
+
+document.querySelectorAll('[data-copy-value]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const value = button.dataset.copyValue || '';
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      const originalLabel = button.textContent;
+      button.textContent = 'Copied';
+      window.setTimeout(() => { button.textContent = originalLabel; }, 1200);
+    } catch (error) {
+      showToast('Unable to copy this value', 'error');
+    }
+  });
+});
+
+async function linkOverviewSalesforce(oppId, button) {
+  if (!button || button.disabled) return;
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Linking…';
+  try {
+    const response = await fetch(`/api/opps/${oppId}/push-to-crm`, { method: 'POST' });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.detail || 'Unable to link this opportunity to Salesforce.');
+    }
+    window.location.reload();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = originalLabel;
+    showToast(error.message || 'Unable to link this opportunity to Salesforce.', 'error');
+  }
+}
+
+function toggleOverviewDescription(button) {
+  const description = document.getElementById(button.getAttribute('aria-controls'));
+  if (!description) return;
+  const willExpand = button.getAttribute('aria-expanded') !== 'true';
+  description.classList.toggle('is-collapsed', !willExpand);
+  button.setAttribute('aria-expanded', willExpand ? 'true' : 'false');
+  button.textContent = willExpand ? 'Show less' : 'Read more';
+}
 
 let briefGenerationInFlight = false;
 
@@ -766,6 +721,7 @@ async function generateBrief(oppId) {
 
   const button = document.getElementById('generate-brief-button');
   const status = document.getElementById('brief-generate-status');
+  const defaultButtonLabel = button?.dataset.defaultLabel || 'Generate Brief';
   briefGenerationInFlight = true;
 
   if (button) {
@@ -794,7 +750,7 @@ async function generateBrief(oppId) {
 
       if (button) {
         button.disabled = false;
-        button.textContent = 'Generate AI Brief';
+        button.textContent = defaultButtonLabel;
       }
       if (status) {
         status.textContent = message;
@@ -812,7 +768,7 @@ async function generateBrief(oppId) {
   } catch (error) {
     if (button) {
       button.disabled = false;
-      button.textContent = 'Generate AI Brief';
+      button.textContent = defaultButtonLabel;
     }
     if (status) {
       status.textContent = 'Unable to generate brief right now.';

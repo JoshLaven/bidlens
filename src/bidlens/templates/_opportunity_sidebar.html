@@ -1,0 +1,58 @@
+{% macro opportunity_sidebar(tooltip_id) %}
+<aside class="detail-workspace-column detail-overview-rail detail-communication-rail detail-persistent-rail">
+  {% if is_qualified %}
+    <div class="detail-context-row detail-context-row--interest">
+      <button type="button" class="detail-context-interest" aria-label="{{ team_interest_label }}" aria-describedby="{{ tooltip_id }}">
+        <span class="detail-context-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+        </span>
+        <span>
+          <span class="detail-spread-label">Team Interest</span>
+          <strong>{{ team_interest_label }}</strong>
+          {% if user_vote == 'PURSUE' or teammate_interest_users %}
+            <span class="detail-interest-participants">
+              {% if user_vote == 'PURSUE' %}<span>You</span>{% endif %}
+              {% for teammate in teammate_interest_users %}<span>{{ teammate }}</span>{% endfor %}
+            </span>
+          {% endif %}
+        </span>
+      </button>
+      <span id="{{ tooltip_id }}" class="opp-card-team-interest-tooltip" role="tooltip">
+        <strong>Interested</strong>
+        {% if user_vote == 'PURSUE' %}<span>You</span>{% endif %}
+        {% for teammate in teammate_interest_users %}<span>{{ teammate }}</span>{% endfor %}
+        {% if user_vote != 'PURSUE' and not teammate_interest_users %}<span>No team interest yet</span>{% endif %}
+      </span>
+    </div>
+  {% endif %}
+  <div class="detail-context-row detail-context-row--solicitation">
+    <span class="detail-context-icon" aria-hidden="true">#</span>
+    <span class="detail-context-copy">
+      <span class="detail-spread-label">Solicitation Number</span>
+      {% if opportunity.solicitation_number %}
+        <strong class="detail-rail-identifier">{{ opportunity.solicitation_number }}</strong>
+        <button type="button" class="reference-copy-action" data-copy-value="{{ opportunity.solicitation_number }}" aria-label="Copy solicitation number">Copy</button>
+      {% else %}<span class="detail-spread-muted">Not available</span>{% endif %}
+    </span>
+  </div>
+  <div class="detail-context-row">
+    <span class="detail-context-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M3 21h18"></path><path d="M5 21V7l7-4 7 4v14"></path><path d="M9 21v-4h6v4"></path><path d="M9 9h.01M15 9h.01M9 13h.01M15 13h.01"></path></svg>
+    </span>
+    <span class="detail-context-copy">
+      <span class="detail-spread-label">Salesforce</span>
+      {% if opportunity.salesforce_opportunity_url %}
+        <a href="{{ opportunity.salesforce_opportunity_url }}" target="_blank" rel="noreferrer">View Opportunity &#8599;</a>
+      {% else %}
+        <span class="detail-spread-muted">Not linked</span>
+        {% if user.current_role == 'admin' %}<button type="button" class="detail-inline-action detail-salesforce-link-action" data-salesforce-link-action onclick="linkOverviewSalesforce('{{ opportunity.id }}', this)">Link Opportunity &#8594;</button>{% endif %}
+      {% endif %}
+    </span>
+  </div>
+  <div class="detail-context-row detail-context-row--email">
+    <span class="detail-context-icon" aria-hidden="true">@</span>
+    <span class="detail-spread-label">Email</span>
+    <button type="button" class="detail-inline-action detail-rail-email-action" aria-label="Email this opportunity" title="Email this opportunity" onclick='openOpportunityEmail({ id: {{ opportunity.id|tojson }}, path: {{ request.url.path|tojson }} })'><span aria-hidden="true">&#9993;</span><span class="sr-only">Email this opportunity</span></button>
+  </div>
+</aside>
+{% endmacro %}

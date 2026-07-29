@@ -984,13 +984,26 @@ def _my_shortlist_query(db: Session, user, tab: str):
 def _best_description_text(opportunity: Opportunity) -> str:
     description_text = (opportunity.description_text or "").strip()
     if description_text:
-        return description_text
+        return _clean_solicitation_description(description_text)
 
     description = (opportunity.description or "").strip()
     if description and not _is_url_like(description):
-        return description
+        return _clean_solicitation_description(description)
 
     return ""
+
+
+def _clean_solicitation_description(value: str | None) -> str:
+    """Convert stored source HTML into readable text while preserving paragraphs."""
+    if not value:
+        return ""
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</(?:p|div|li|tr|h[1-6])\s*>", "\n\n", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text).replace("\xa0", " ")
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n")]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
 def _raw_path(payload: dict, *path: str):
