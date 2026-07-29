@@ -4,6 +4,7 @@
     <button type="button" id="source-sam-pull-button" class="btn btn-sm btn-outline-secondary">Pull SAM Opps</button>
     <button type="button" id="source-grants-pull-button" class="btn btn-sm btn-outline-secondary">Pull Grants.gov Opps</button>
     <a href="/opportunity-discovery{% if request.url.query %}?{{ request.url.query }}{% endif %}#manual-import" class="btn btn-sm btn-outline-secondary">Import Opportunities</a>
+    <a href="/opportunities/new" class="btn btn-sm btn-outline-secondary">Create Opportunity</a>
   </div>
 </div>
 <div id="source-pull-result" class="feed-sam-pull-result" hidden></div>

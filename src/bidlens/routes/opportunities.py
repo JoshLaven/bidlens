@@ -2178,6 +2178,11 @@ async def opportunity_detail(
     back_destination = OPPORTUNITY_BACK_DESTINATIONS[back_context]
     back_label = back_destination.label
     back_url = back_destination.url
+    intake_published = request.query_params.get("intake_published")
+    intake_success_message = {
+        "shortlisted": "Opportunity posted to the Feed and added to My Shortlist.",
+        "feed": "Opportunity posted to the Feed.",
+    }.get(intake_published)
     logger.info(
         'opportunity_back_navigation opportunity_id=%s return_to=%s back_label="%s" back_url=%s',
         opportunity.id,
@@ -2228,6 +2233,7 @@ async def opportunity_detail(
         "back_url": back_url,
         "back_context": back_context,
         "opportunity_origin_active_page": back_destination.active_page,
+        "message": intake_success_message,
         "sidebar": get_sidebar(db, user),
     })
 

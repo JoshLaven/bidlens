@@ -154,6 +154,83 @@ class Opportunity(Base):
     )
 
 
+class OpportunityIntakeDraft(Base):
+    __tablename__ = "opportunity_intake_drafts"
+    __table_args__ = (
+        UniqueConstraint("publish_idempotency_key", name="uq_opportunity_intake_publish_idempotency"),
+        UniqueConstraint("internal_reference", name="uq_opportunity_intake_internal_reference"),
+        Index("ix_opportunity_intake_drafts_org_workspace_status", "organization_id", "workspace_id", "status"),
+        Index("ix_opportunity_intake_drafts_workspace_creator", "workspace_id", "created_by_user_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    intake_method = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=False, default="DRAFT", server_default="DRAFT", index=True)
+    candidate_fields_json = Column(JSON, nullable=False, default=dict)
+    extraction_metadata_json = Column(JSON, nullable=True)
+    validation_errors_json = Column(JSON, nullable=True)
+    add_to_shortlist = Column(Boolean, nullable=False, default=True, server_default=true())
+    published_opportunity_id = Column(Integer, ForeignKey("opportunities.id", ondelete="SET NULL"), nullable=True, index=True)
+    publish_idempotency_key = Column(String, nullable=True)
+    internal_reference = Column(String, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    organization = relationship("Organization")
+    workspace = relationship("Workspace")
+    created_by_user = relationship("User", foreign_keys=[created_by_user_id])
+    published_opportunity = relationship("Opportunity", foreign_keys=[published_opportunity_id])
+    source_materials = relationship(
+        "OpportunitySourceMaterial",
+        back_populates="intake_draft",
+        passive_deletes=True,
+    )
+
+
+class OpportunitySourceMaterial(Base):
+    __tablename__ = "opportunity_source_materials"
+    __table_args__ = (
+        UniqueConstraint("storage_key", name="uq_opportunity_source_material_storage_key"),
+        Index("ix_opportunity_source_materials_workspace_draft", "workspace_id", "intake_draft_id"),
+        Index("ix_opportunity_source_materials_workspace_opportunity", "workspace_id", "opportunity_id"),
+        Index("ix_opportunity_source_materials_workspace_sha256", "workspace_id", "sha256_digest"),
+        Index("ix_opportunity_source_materials_workspace_provider_message", "workspace_id", "provider_message_id"),
+        Index("ix_opportunity_source_materials_workspace_internet_message", "workspace_id", "internet_message_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    intake_draft_id = Column(Integer, ForeignKey("opportunity_intake_drafts.id", ondelete="SET NULL"), nullable=True, index=True)
+    opportunity_id = Column(Integer, ForeignKey("opportunities.id", ondelete="SET NULL"), nullable=True, index=True)
+    parent_material_id = Column(Integer, ForeignKey("opportunity_source_materials.id", ondelete="SET NULL"), nullable=True, index=True)
+    material_type = Column(String, nullable=False, index=True)
+    original_filename = Column(String, nullable=False)
+    mime_type = Column(String, nullable=True)
+    byte_size = Column(BigInteger, nullable=False)
+    sha256_digest = Column(String(64), nullable=False, index=True)
+    storage_key = Column(String, nullable=False)
+    provider = Column(String, nullable=True)
+    provider_metadata_json = Column(JSON, nullable=True)
+    provider_message_id = Column(String, nullable=True, index=True)
+    internet_message_id = Column(String, nullable=True, index=True)
+    parsed_metadata_json = Column(JSON, nullable=True)
+    parse_status = Column(String, nullable=False, default="PENDING", server_default="PENDING", index=True)
+    parse_error_code = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    organization = relationship("Organization")
+    workspace = relationship("Workspace")
+    intake_draft = relationship("OpportunityIntakeDraft", back_populates="source_materials")
+    opportunity = relationship("Opportunity", foreign_keys=[opportunity_id])
+    parent_material = relationship("OpportunitySourceMaterial", remote_side=[id], back_populates="child_materials")
+    child_materials = relationship("OpportunitySourceMaterial", back_populates="parent_material", passive_deletes=True)
+
+
 class OpportunityOutcome(Base):
     __tablename__ = "opportunity_outcomes"
     __table_args__ = (

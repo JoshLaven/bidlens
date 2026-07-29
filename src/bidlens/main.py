@@ -9,7 +9,7 @@ for diagnostic in startup_diagnostics():
 validate_deployment_config()
 
 from .database import engine, Base
-from .routes import admin, auth, opportunities, api, settings, company_profile, pursuit_lanes, imports, grants, integrations, home, platform, connect_sources
+from .routes import admin, auth, opportunities, opportunity_intake, api, settings, company_profile, pursuit_lanes, imports, grants, integrations, home, platform, connect_sources
 from . import models
 from .routes import sam
 from .scheduler import start_scheduler
@@ -29,6 +29,7 @@ app.include_router(home.router)
 app.include_router(connect_sources.router)
 app.include_router(admin.router)
 app.include_router(opportunities.router)
+app.include_router(opportunity_intake.router)
 app.include_router(api.router)
 app.include_router(settings.router)
 app.include_router(company_profile.router)

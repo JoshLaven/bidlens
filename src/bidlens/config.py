@@ -79,6 +79,11 @@ MICROSOFT_CLIENT_ID = os.getenv("MICROSOFT_CLIENT_ID")
 MICROSOFT_CLIENT_SECRET = os.getenv("MICROSOFT_CLIENT_SECRET")
 MICROSOFT_REDIRECT_URI = os.getenv("MICROSOFT_REDIRECT_URI")
 MICROSOFT_TENANT_ID = os.getenv("MICROSOFT_TENANT_ID", "common")
+SOURCE_MATERIAL_STORAGE_BACKEND = os.getenv("SOURCE_MATERIAL_STORAGE_BACKEND", "local").strip().lower()
+SOURCE_MATERIAL_LOCAL_ROOT = Path(
+    os.getenv("SOURCE_MATERIAL_LOCAL_ROOT", str(BASE_DIR / ".bidlens" / "source-materials"))
+).expanduser()
+SOURCE_MATERIAL_MAX_BYTES = int(os.getenv("SOURCE_MATERIAL_MAX_BYTES", str(25 * 1024 * 1024)))
 
 
 class DeploymentConfigError(RuntimeError):

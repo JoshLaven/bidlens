@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "_back_navigation.html" import back_navigation %}
+{% block title %}Create Opportunity - BidLens{% endblock %}
+{% block content %}
+<div class="opportunity-intake-page">
+  {{ back_navigation('Feed', '/') }}
+  <header class="bidlens-page-header bidlens-page-header--operational opportunity-intake-heading">
+    <div class="bidlens-page-header-copy">
+      <h1>Create Opportunity</h1>
+      <p>Choose how you want to bring an opportunity into BidLens.</p>
+    </div>
+  </header>
+
+  <section class="opportunity-intake-methods" aria-label="Opportunity creation methods">
+    <article class="card opportunity-intake-method is-disabled" aria-disabled="true">
+      <div class="opportunity-intake-method-icon" aria-hidden="true">✉</div>
+      <div>
+        <h2>Create from Email</h2>
+        <p>Use an email and its attachments to create an opportunity.</p>
+        <span class="opportunity-intake-coming-soon">Coming soon</span>
+      </div>
+    </article>
+    <article class="card opportunity-intake-method is-disabled" aria-disabled="true">
+      <div class="opportunity-intake-method-icon" aria-hidden="true">↥</div>
+      <div>
+        <h2>Upload an RFP</h2>
+        <p>Start from a PDF or Word solicitation document.</p>
+        <span class="opportunity-intake-coming-soon">Coming soon</span>
+      </div>
+    </article>
+    <article class="card opportunity-intake-method opportunity-intake-method--active">
+      <div class="opportunity-intake-method-icon" aria-hidden="true">＋</div>
+      <div>
+        <h2>Enter Manually</h2>
+        <p>Enter the essential opportunity details and review them before posting.</p>
+        <form method="post" action="/opportunity-intake/manual">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="btn btn-primary">Enter Manually</button>
+        </form>
+      </div>
+    </article>
+  </section>
+</div>
+{% endblock %}

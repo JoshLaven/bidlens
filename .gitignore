@@ -12,6 +12,7 @@ wheels/
 
 # Database
 *.db
+.bidlens/
 
 # Environment
 .env

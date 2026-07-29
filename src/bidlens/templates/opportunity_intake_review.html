@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% from "_back_navigation.html" import back_navigation %}
+{% block title %}Review Opportunity - BidLens{% endblock %}
+{% block content %}
+<div class="opportunity-intake-page opportunity-intake-review-page">
+  {{ back_navigation('Create Opportunity', '/opportunities/new') }}
+  <header class="bidlens-page-header bidlens-page-header--operational opportunity-intake-heading">
+    <div class="bidlens-page-header-copy">
+      <h1>Review Opportunity</h1>
+      <p>Confirm the details below before posting this opportunity to your organization’s Feed.</p>
+    </div>
+  </header>
+
+  {% if page_error %}
+    <div class="alert alert-error" role="alert">{{ page_error }}</div>
+  {% endif %}
+  {% if exact_matches %}
+    <div class="opportunity-intake-duplicate-list" role="alert">
+      {% for match in exact_matches %}
+        <p>
+          Matching {{ match.reason|replace('_', ' ') }} found.
+          <a href="/opportunity/{{ match.opportunity_id }}?return_to=feed">View existing opportunity</a>
+        </p>
+      {% endfor %}
+    </div>
+  {% endif %}
+  {% if probable_matches %}
+    <div class="alert alert-warning" role="alert">
+      <strong>Possible duplicate found.</strong>
+      Review the existing opportunity before continuing.
+      {% for match in probable_matches %}
+        <a href="/opportunity/{{ match.opportunity_id }}?return_to=feed">View possible match</a>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <section class="card opportunity-intake-form-card">
+    <form method="post" action="/opportunity-intake/{{ draft.id }}/publish" class="opportunity-intake-form" novalidate>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      {% if confirm_probable %}
+        <input type="hidden" name="confirm_probable_duplicates" value="1">
+      {% endif %}
+
+      <div class="opportunity-intake-form-grid">
+        <div class="form-group opportunity-intake-field--wide">
+          <label for="intake-title">Opportunity Title <span aria-hidden="true">*</span></label>
+          <input id="intake-title" name="title" type="text" value="{{ form_values.title }}" maxlength="500" required aria-describedby="intake-title-error" {% if form_errors.title %}aria-invalid="true"{% endif %}>
+          {% if form_errors.title %}<small id="intake-title-error" class="opportunity-intake-field-error">{{ form_errors.title }}</small>{% endif %}
+        </div>
+
+        <div class="form-group">
+          <label for="intake-client">Client <span aria-hidden="true">*</span></label>
+          <input id="intake-client" name="client" type="text" value="{{ form_values.client }}" maxlength="500" required aria-describedby="intake-client-error" {% if form_errors.client %}aria-invalid="true"{% endif %}>
+          {% if form_errors.client %}<small id="intake-client-error" class="opportunity-intake-field-error">{{ form_errors.client }}</small>{% endif %}
+        </div>
+
+        <div class="form-group">
+          <label for="intake-deadline">Response Deadline <span aria-hidden="true">*</span></label>
+          <input id="intake-deadline" name="response_deadline" type="date" value="{{ form_values.response_deadline }}" required aria-describedby="intake-deadline-error" {% if form_errors.response_deadline %}aria-invalid="true"{% endif %}>
+          {% if form_errors.response_deadline %}<small id="intake-deadline-error" class="opportunity-intake-field-error">{{ form_errors.response_deadline }}</small>{% endif %}
+        </div>
+
+        <div class="form-group">
+          <label for="intake-solicitation">Solicitation Number</label>
+          <input id="intake-solicitation" name="solicitation_number" type="text" value="{{ form_values.solicitation_number }}" maxlength="255" aria-describedby="intake-solicitation-help">
+          <small id="intake-solicitation-help" class="opportunity-intake-field-help">BidLens will assign an internal reference if left blank.</small>
+        </div>
+
+        <div class="form-group">
+          <label for="intake-type">Opportunity Type</label>
+          <select id="intake-type" name="opportunity_type">
+            {% for value in ['RFP', 'RFI', 'Forecast'] %}
+              <option value="{{ value }}" {% if form_values.opportunity_type == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="form-group opportunity-intake-field--wide">
+          <label for="intake-description">Description</label>
+          <textarea id="intake-description" name="description" rows="8">{{ form_values.description }}</textarea>
+        </div>
+      </div>
+
+      <label class="opportunity-intake-shortlist-option" for="intake-shortlist">
+        <input id="intake-shortlist" name="add_to_shortlist" type="checkbox" value="1" {% if add_to_shortlist %}checked{% endif %}>
+        <span>
+          <strong>Also add to My Shortlist</strong>
+          <small>This is personal to you; the opportunity will be posted to the organization Feed either way.</small>
+        </span>
+      </label>
+
+      <div class="opportunity-intake-form-actions">
+        <a href="/" class="btn btn-outline-secondary">Cancel</a>
+        <button type="submit" class="btn btn-primary">
+          {% if confirm_probable %}Continue and Post to Feed{% else %}Save and Post to Feed{% endif %}
+        </button>
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}

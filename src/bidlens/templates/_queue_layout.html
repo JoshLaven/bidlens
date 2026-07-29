@@ -1,9 +1,14 @@
-{% macro queue_heading(title, description) %}
+{% macro queue_heading(title, description, action_url=none, action_label=none) %}
   <header class="bidlens-page-header bidlens-page-header--operational queue-page-heading" data-page-header-variant="operational">
     <div class="bidlens-page-header-copy">
       <h1>{{ title }}</h1>
       <p>{{ description }}</p>
     </div>
+    {% if action_url and action_label %}
+      <div class="bidlens-page-header-actions">
+        <a href="{{ action_url }}" class="btn btn-primary">{{ action_label }}</a>
+      </div>
+    {% endif %}
   </header>
 {% endmacro %}
 
