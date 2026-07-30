@@ -2,6 +2,7 @@ import asyncio
 import unittest
 from contextlib import ExitStack
 from datetime import date, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -9,7 +10,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from bidlens.database import Base
-from bidlens.models import Opportunity, Organization, User, Vote
+from fastapi import HTTPException
+
+from bidlens.models import Opportunity, OpportunityOutcome, Organization, User, Vote
 from bidlens.routes import api
 from bidlens.routes import opportunities
 from bidlens.services.feed_queries import feed_awaiting_review_query
@@ -137,6 +140,79 @@ class ArchiveQueryTests(unittest.TestCase):
         self.assertFalse(result["in_my_shortlist"])
         self.assertNotIn(self.opp.id, feed_ids)
 
+    def _api_vote(self, *, outcome_type=None):
+        setattr(self.user, "current_organization_id", self.user.organization_id)
+        setattr(self.user, "current_role", "member")
+        with patch("bidlens.routes.api.require_user", return_value=self.user):
+            return api.api_vote(
+                api.VoteIn(
+                    opp_id=self.opp.id,
+                    vote="PASS",
+                    ui_version="v1",
+                    outcome_type=outcome_type,
+                ),
+                request=MagicMock(),
+                db=self.db,
+            )
+
+    def test_shortlisted_archive_requires_outcome_and_cancel_can_leave_state_unchanged(self):
+        cast_vote(
+            self.db,
+            org_id=self.user.organization_id,
+            user_id=self.user.id,
+            opp_id=self.opp.id,
+            vote="PURSUE",
+        )
+
+        with self.assertRaises(HTTPException) as raised:
+            self._api_vote()
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(raised.exception.detail["code"], "opportunity_outcome_required")
+        self.assertEqual(
+            self.db.query(Vote).filter_by(opp_id=self.opp.id, user_id=self.user.id).one().vote,
+            "PURSUE",
+        )
+        self.assertEqual(self.db.query(OpportunityOutcome).count(), 0)
+
+    def test_shortlisted_archive_records_outcome_and_removes_shortlist(self):
+        cast_vote(
+            self.db,
+            org_id=self.user.organization_id,
+            user_id=self.user.id,
+            opp_id=self.opp.id,
+            vote="PURSUE",
+        )
+
+        result = self._api_vote(outcome_type="bidding")
+
+        self.assertEqual(result["vote"], "PASS")
+        self.assertFalse(result["in_my_shortlist"])
+        outcome = self.db.query(OpportunityOutcome).one()
+        self.assertEqual(outcome.outcome_type, "bidding")
+        self.assertEqual(outcome.organization_id, self.user.organization_id)
+
+    def test_existing_workspace_outcome_archives_shortlisted_without_new_prompt(self):
+        cast_vote(
+            self.db,
+            org_id=self.user.organization_id,
+            user_id=self.user.id,
+            opp_id=self.opp.id,
+            vote="PURSUE",
+        )
+        self.db.add(OpportunityOutcome(
+            organization_id=self.user.organization_id,
+            opportunity_id=self.opp.id,
+            outcome_type="no_bid",
+            recorded_by=self.other_user.id,
+        ))
+        self.db.commit()
+
+        result = self._api_vote()
+
+        self.assertEqual(result["vote"], "PASS")
+        self.assertEqual(self.db.query(OpportunityOutcome).count(), 1)
+
 
 class FeedRouteArchiveTests(unittest.TestCase):
     def test_legacy_show_passed_parameter_does_not_change_active_feed_query(self):
@@ -184,6 +260,21 @@ class FeedRouteArchiveTests(unittest.TestCase):
             organization_id=user.organization_id,
             user_id=user.id,
         )
+
+
+class ShortlistArchiveTemplateTests(unittest.TestCase):
+    def test_shared_outcome_dialog_and_archive_retry_contract(self):
+        templates = Path(__file__).resolve().parents[1] / "src" / "bidlens" / "templates"
+        modal = (templates / "_opportunity_outcome_modal.html").read_text()
+        base = (templates / "base.html").read_text()
+
+        self.assertIn("What happened with this opportunity?", modal)
+        self.assertIn("We're Bidding", modal)
+        self.assertIn("No Bid", modal)
+        self.assertIn("data-opportunity-outcome-cancel", modal)
+        self.assertIn('include "_opportunity_outcome_modal.html"', base)
+        self.assertIn("data.detail?.code === 'opportunity_outcome_required'", base)
+        self.assertIn("return voteOpp(oppId, vote, selectedOutcome)", base)
 
 
 if __name__ == "__main__":

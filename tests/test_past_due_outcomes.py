@@ -312,6 +312,22 @@ class PastDueOutcomeTests(unittest.TestCase):
 
         self.assertEqual(self.db.query(OpportunityOutcome).count(), 0)
 
+    def test_current_user_shortlist_allows_proactive_outcome(self):
+        opportunity = self._opportunity(response_deadline=dt.date.today() + dt.timedelta(days=10))
+        self._pursue_before_deadline(opportunity, user=self.member)
+
+        outcome = record_opportunity_outcome(
+            self.db,
+            organization_id=self.org.id,
+            opportunity_id=opportunity.id,
+            outcome_type=OUTCOME_NO_BID,
+            recorded_by=self.member.id,
+            allow_shortlisted_by=self.member.id,
+        )
+
+        self.assertEqual(outcome.outcome_type, OUTCOME_NO_BID)
+        self.assertEqual(unresolved_past_due_outcomes(self.db, organization_id=self.org.id), [])
+
 
 class PastDueOutcomeTemplateTests(unittest.TestCase):
     def test_routes_allow_workspace_users_and_return_remaining_count(self):

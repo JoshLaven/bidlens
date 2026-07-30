@@ -1,0 +1,41 @@
+<dialog class="opportunity-outcome-dialog" data-opportunity-outcome-dialog>
+  <form method="dialog" class="opportunity-outcome-dialog__content">
+    <h2>What happened with this opportunity?</h2>
+    <div class="opportunity-outcome-dialog__actions">
+      <button type="button" class="btn btn-primary" data-opportunity-outcome="bidding">We're Bidding</button>
+      <button type="button" class="btn btn-outline-secondary" data-opportunity-outcome="no_bid">No Bid</button>
+      <button type="button" class="btn btn-outline-secondary" data-opportunity-outcome-cancel>Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+  function requestOpportunityOutcome() {
+    const dialog = document.querySelector('[data-opportunity-outcome-dialog]');
+    if (!dialog) return Promise.resolve(null);
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        dialog.removeEventListener('click', handleClick);
+        dialog.removeEventListener('cancel', handleCancel);
+        if (dialog.open) dialog.close();
+        resolve(value);
+      };
+      const handleClick = (event) => {
+        const outcome = event.target.closest('[data-opportunity-outcome]');
+        if (outcome) finish(outcome.dataset.opportunityOutcome);
+        if (event.target.closest('[data-opportunity-outcome-cancel]')) finish(null);
+      };
+      const handleCancel = (event) => {
+        event.preventDefault();
+        finish(null);
+      };
+      dialog.addEventListener('click', handleClick);
+      dialog.addEventListener('cancel', handleCancel);
+      dialog.showModal();
+    });
+  }
+</script>

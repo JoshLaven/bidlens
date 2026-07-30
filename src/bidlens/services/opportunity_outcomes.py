@@ -105,6 +105,7 @@ def record_opportunity_outcome(
     outcome_type: str,
     recorded_by: int,
     ui_version: str = "v1",
+    allow_shortlisted_by: int | None = None,
 ) -> OpportunityOutcome:
     if outcome_type not in VALID_OUTCOMES:
         raise ValueError("Invalid outcome type")
@@ -135,12 +136,25 @@ def record_opportunity_outcome(
         outcome.recorded_by = recorded_by
         outcome.recorded_at = now
     else:
-        eligible = (
+        past_due_eligible = (
             unresolved_past_due_outcome_query(db, organization_id=organization_id)
             .filter(Opportunity.id == opportunity_id)
             .first()
         )
-        if not eligible:
+        shortlisted_eligible = False
+        if allow_shortlisted_by is not None:
+            shortlisted_eligible = (
+                db.query(Vote.id)
+                .filter(
+                    Vote.org_id == organization_id,
+                    Vote.opp_id == opportunity_id,
+                    Vote.user_id == allow_shortlisted_by,
+                    Vote.vote == "PURSUE",
+                )
+                .first()
+                is not None
+            )
+        if not past_due_eligible and not shortlisted_eligible:
             raise ValueError("Opportunity is not eligible for past-due outcome review")
         outcome = OpportunityOutcome(
             organization_id=organization_id,

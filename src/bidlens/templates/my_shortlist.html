@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_opp_card.html" import opp_card %}
 {% from "_queue_layout.html" import queue_heading, queue_search, queue_toolbar, queue_count, queue_pagination, queue_export_action %}
+{% from "_calendar_drawer.html" import calendar_drawer %}
 {% block title %}My Shortlist - BidLens{% endblock %}
 {% block content %}
 {% set org_id_param = request.query_params.get('org_id') %}
@@ -52,6 +53,7 @@
     <p>Click <strong>Interested</strong> on an opportunity to add it here right away.</p>
 </div>
 {{ queue_pagination('/my-shortlist', page, total_pages, result_count, page_size, sort, direction, q, none, org_id_param, lane_id, stages_value) }}
+{{ calendar_drawer(calendar_items, 'shortlist-calendar', 'Shortlisted Opportunities') }}
 {% endblock %}
 {% block scripts %}
 {{ super() }}
@@ -87,29 +89,10 @@
     const actionButton = document.querySelector('[data-shortlist-archive-selected]');
     if (actionButton) actionButton.disabled = true;
 
-    try {
-      const response = await fetch('/api/votes/bulk-pass', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          opp_ids: oppIds,
-          ui_version: 'v1'
-        })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        showToast(data.detail || 'Unable to archive opportunities', 'error');
-        return;
-      }
-
-      const message = `${data.archived_count} ${data.archived_count === 1 ? 'opportunity' : 'opportunities'} archived`;
-      window.sessionStorage.setItem('bidlensShortlistBulkArchiveMessage', message);
-      window.location.reload();
-    } catch (error) {
-      showToast('Unable to archive opportunities', 'error');
-    } finally {
-      updateShortlistBulkActions();
+    for (const oppId of oppIds) {
+      await voteOpp(String(oppId), 'PASS');
     }
+    updateShortlistBulkActions();
   }
 
   document.querySelectorAll('[data-shortlist-archive-checkbox]').forEach((checkbox) => {
@@ -124,11 +107,6 @@
   document.querySelector('[data-shortlist-archive-selected]')?.addEventListener('click', () => {
     archiveShortlistOpportunities();
   });
-  const shortlistBulkArchiveMessage = window.sessionStorage.getItem('bidlensShortlistBulkArchiveMessage');
-  if (shortlistBulkArchiveMessage) {
-    window.sessionStorage.removeItem('bidlensShortlistBulkArchiveMessage');
-    showToast(shortlistBulkArchiveMessage, 'success');
-  }
   updateShortlistBulkActions();
 </script>
 {% endblock %}

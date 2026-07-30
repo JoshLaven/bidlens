@@ -23,6 +23,7 @@
   data-opp-id="{{ opp.id }}"
   data-card-view="{{ view }}"
   data-shortlist-title="{{ opp.title }}"
+  data-response-deadline="{{ opp.response_deadline.isoformat() if opp.response_deadline else '' }}"
   data-shortlist-due-label="{% if opp.response_deadline and opp.days_until_due is defined %}Due {{ opp.response_deadline.strftime('%b') }} {{ opp.response_deadline.day }} ({{ opp.days_until_due }}D){% elif opp.response_deadline %}Due {{ opp.response_deadline.strftime('%b') }} {{ opp.response_deadline.day }}{% else %}No deadline{% endif %}"
 >
   {% if view in ['feed', 'triage', 'my_shortlist'] %}

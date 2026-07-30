@@ -23,8 +23,13 @@ from ..services.salesforce_promotion import (
     record_salesforce_sync_failure,
 )
 from ..services.platform import post_setup_completion_url
-from ..models import (CompanyProfile, Opportunity, OpportunityBrief, Organization,
-                      OrganizationMembership, SalesforceOAuthState)
+from ..models import (CompanyProfile, Opportunity, OpportunityBrief, OpportunityOutcome,
+                      Organization, OrganizationMembership, SalesforceOAuthState, Vote)
+from ..services.opportunity_outcomes import (
+    OUTCOME_BIDDING,
+    OUTCOME_NO_BID,
+    record_opportunity_outcome,
+)
 from ..services.integration_credentials import decrypt_credentials, encrypt_credentials
 from ..tenancy import current_org_id
 from sqlalchemy import and_, or_
@@ -640,6 +645,7 @@ class VoteIn(BaseModel):
     opp_id: int
     vote: str  # "PURSUE" or "PASS"
     ui_version: str = "v1"
+    outcome_type: Optional[str] = None
 
 
 class BulkPassIn(BaseModel):
@@ -735,9 +741,46 @@ def api_vote(payload: VoteIn, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="vote must be PURSUE or PASS")
 
     try:
+        org_id = _user_org_id(user)
+        current_vote = (
+            db.query(Vote)
+            .filter(
+                Vote.org_id == org_id,
+                Vote.user_id == user.id,
+                Vote.opp_id == payload.opp_id,
+            )
+            .first()
+        )
+        removing_from_shortlist = bool(
+            payload.vote == "PASS" and current_vote and current_vote.vote == "PURSUE"
+        )
+        if removing_from_shortlist:
+            existing_outcome = (
+                db.query(OpportunityOutcome.id)
+                .filter(
+                    OpportunityOutcome.organization_id == org_id,
+                    OpportunityOutcome.opportunity_id == payload.opp_id,
+                )
+                .first()
+            )
+            if not existing_outcome and payload.outcome_type not in {OUTCOME_BIDDING, OUTCOME_NO_BID}:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "opportunity_outcome_required"},
+                )
+            if not existing_outcome:
+                record_opportunity_outcome(
+                    db,
+                    organization_id=org_id,
+                    opportunity_id=payload.opp_id,
+                    outcome_type=payload.outcome_type,
+                    recorded_by=user.id,
+                    ui_version=payload.ui_version,
+                    allow_shortlisted_by=user.id,
+                )
         result = cast_vote(
             db,
-            org_id=_user_org_id(user),
+            org_id=org_id,
             user_id=user.id,
             opp_id=payload.opp_id,
             vote=payload.vote,
@@ -836,6 +879,34 @@ def api_bulk_pass(payload: BulkPassIn, request: Request, db: Session = Depends(g
         raise HTTPException(
             status_code=400,
             detail="One or more selected opportunities are unavailable",
+        )
+
+    outcome_required_ids = {
+        opp_id
+        for (opp_id,) in (
+            db.query(Vote.opp_id)
+            .filter(
+                Vote.org_id == org_id,
+                Vote.user_id == user.id,
+                Vote.opp_id.in_(opp_ids),
+                Vote.vote == "PURSUE",
+                ~db.query(OpportunityOutcome.id)
+                .filter(
+                    OpportunityOutcome.organization_id == org_id,
+                    OpportunityOutcome.opportunity_id == Vote.opp_id,
+                )
+                .exists(),
+            )
+            .all()
+        )
+    }
+    if outcome_required_ids:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "opportunity_outcome_required",
+                "opp_ids": sorted(outcome_required_ids),
+            },
         )
 
     try:

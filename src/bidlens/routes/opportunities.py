@@ -981,6 +981,20 @@ def _my_shortlist_query(db: Session, user, tab: str):
     )
 
 
+def _calendar_drawer_items(rows) -> list[dict[str, object]]:
+    """Serialize opportunity rows for the reusable deadline drawer."""
+    return [
+        {
+            "id": opportunity.id,
+            "title": opportunity.title,
+            "deadline": opportunity.response_deadline.isoformat(),
+            "url": f"/opportunity/{opportunity.id}?return_to=shortlist",
+        }
+        for opportunity, _watched in rows
+        if opportunity.response_deadline is not None
+    ]
+
+
 def _best_description_text(opportunity: Opportunity) -> str:
     description_text = (opportunity.description_text or "").strip()
     if description_text:
@@ -1654,7 +1668,15 @@ async def my_shortlist(
         stages if stages is not None else ([stage] if stage and stage != "All" else None)
     )
     selected_sources = _normalize_triage_source_filters(sources) if _is_admin(user) else TRIAGE_SOURCE_FILTERS
-    query = _my_shortlist_query(db, user, tab)
+    base_query = _my_shortlist_query(db, user, tab)
+    calendar_rows = (
+        base_query
+        .filter(Opportunity.response_deadline.is_not(None))
+        .order_by(Opportunity.response_deadline.asc(), Opportunity.id.asc())
+        .all()
+    )
+    calendar_items = _calendar_drawer_items(calendar_rows)
+    query = base_query
     query = _apply_feed_search(query, search_term=q)
     query = _apply_lane_filter(query, db, user, lane_id=lane_id)
     query = _apply_stage_filter(query, selected_stages)
@@ -1675,6 +1697,7 @@ async def my_shortlist(
         "request": request,
         "user": user,
         "opportunities": opps,
+        "calendar_items": calendar_items,
         "current_tab": tab,
         "active_page": "my_shortlist",
         "sidebar": get_sidebar(db, user),

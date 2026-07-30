@@ -1054,7 +1054,7 @@
       return fallback;
     }
 
-    async function voteOpp(oppId, vote) {
+    async function voteOpp(oppId, vote, outcomeType = null) {
       let optimisticPursue = null;
       let optimisticArchive = null;
       let optimisticShortlist = null;
@@ -1082,11 +1082,13 @@
           && card
           && shouldRemoveOpportunityCard(oppId, 'PASS', { in_my_shortlist: false })
         );
+        const isShortlistedPass = Boolean(vote === 'PASS' && card?.classList.contains('opp-card--pursue'));
         const isNewPass = Boolean(
           vote === 'PASS'
           && card
           && actionButton
           && passWouldRemove
+          && !isShortlistedPass
           && !actionButton.classList.contains('btn-warning')
         );
         const optimisticArchiveShouldRemove = isNewPass && passWouldRemove;
@@ -1115,11 +1117,23 @@
           body: JSON.stringify({
             opp_id: Number(oppId),
             vote: vote,
-            ui_version: "v1"
+            ui_version: "v1",
+            outcome_type: outcomeType
           })
         });
 
         const data = await res.json().catch(() => ({}));
+        if (res.status === 409 && data.detail?.code === 'opportunity_outcome_required') {
+          if (actionButton) {
+            actionButton.disabled = false;
+            actionButton.removeAttribute('aria-busy');
+          }
+          const selectedOutcome = await requestOpportunityOutcome();
+          if (selectedOutcome) {
+            return voteOpp(oppId, vote, selectedOutcome);
+          }
+          return;
+        }
         if (!res.ok) {
           throw new Error(actionErrorMessage(data));
         }
@@ -1215,6 +1229,8 @@
       }
     }
     </script>
+    {% include "_opportunity_outcome_modal.html" %}
+    <script src="/static/js/calendar_drawer.js"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>
