@@ -6,8 +6,11 @@
     data-calendar-drawer-toggle
     aria-controls="{{ drawer_id }}"
     aria-expanded="false"
+    aria-pressed="false"
+    aria-label="Open shortlist calendar"
+    title="Open shortlist calendar"
   >
-    <span aria-hidden="true">▣</span>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3m10-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z"></path></svg>
     <span>Calendar</span>
   </button>
   <aside
@@ -19,7 +22,7 @@
   >
     <header class="calendar-drawer-header">
       <div>
-        <h2 id="{{ drawer_id }}-title"><span aria-hidden="true">▣</span> Calendar</h2>
+        <h2 id="{{ drawer_id }}-title"><span aria-hidden="true">▦</span> Calendar</h2>
         <p>{{ eyebrow }}</p>
       </div>
       <button type="button" class="calendar-drawer-close" data-calendar-drawer-close aria-label="Close calendar">×</button>
@@ -36,6 +39,10 @@
       <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
     </div>
     <div class="calendar-drawer-grid" data-calendar-grid role="grid" aria-label="Opportunity deadlines"></div>
+    <section class="calendar-selected-day" data-calendar-selected-day hidden aria-live="polite">
+      <h3 data-calendar-selected-heading></h3>
+      <div data-calendar-selected-items></div>
+    </section>
   </aside>
   <script type="application/json" data-calendar-items>{{ items|tojson }}</script>
 </div>

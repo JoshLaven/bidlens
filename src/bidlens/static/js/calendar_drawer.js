@@ -21,6 +21,9 @@
     const closeButton = shell.querySelector('[data-calendar-drawer-close]');
     const grid = shell.querySelector('[data-calendar-grid]');
     const monthLabel = shell.querySelector('[data-calendar-month]');
+    const selectedDay = shell.querySelector('[data-calendar-selected-day]');
+    const selectedHeading = shell.querySelector('[data-calendar-selected-heading]');
+    const selectedItems = shell.querySelector('[data-calendar-selected-items]');
     const items = JSON.parse(shell.querySelector('[data-calendar-items]')?.textContent || '[]');
     const itemsByDate = new Map();
     items.forEach((item) => {
@@ -31,13 +34,27 @@
     const today = new Date();
     let visibleMonth = new Date(today.getFullYear(), today.getMonth(), 1);
     let selectedDate = null;
+    let tooltipHideTimer = null;
     const stateKey = `bidlensCalendarDrawer:${shell.dataset.calendarDrawerId || drawer.id}`;
+    const floatingTooltip = document.createElement('div');
+    floatingTooltip.id = `${drawer.id}-active-tooltip`;
+    floatingTooltip.className = 'calendar-day-tooltip';
+    floatingTooltip.setAttribute('role', 'tooltip');
+    floatingTooltip.hidden = true;
+    document.body.appendChild(floatingTooltip);
 
     function setOpen(open, {restoreFocus = false, focusDrawer = true} = {}) {
       shell.classList.toggle('calendar-drawer-shell--open', open);
       drawer.setAttribute('aria-hidden', String(!open));
       toggle.setAttribute('aria-expanded', String(open));
+      toggle.setAttribute('aria-pressed', String(open));
+      toggle.setAttribute('aria-label', open ? 'Close shortlist calendar' : 'Open shortlist calendar');
+      toggle.setAttribute('title', open ? 'Close shortlist calendar' : 'Open shortlist calendar');
       window.sessionStorage.setItem(stateKey, open ? 'open' : 'closed');
+      if (!open) {
+        floatingTooltip.hidden = true;
+        delete floatingTooltip.dataset.visible;
+      }
       if (open && focusDrawer) {
         closeButton.focus({preventScroll: true});
       } else if (restoreFocus) {
@@ -51,34 +68,103 @@
       });
     }
 
-    function buildTooltip(date, dateItems, tooltipId) {
-      const tooltip = document.createElement('div');
-      tooltip.id = tooltipId;
-      tooltip.className = 'calendar-day-tooltip';
-      tooltip.setAttribute('role', 'tooltip');
-
+    function populateOpportunityReference(container, date, dateItems, {includeCount = true} = {}) {
+      container.replaceChildren();
       const heading = document.createElement('strong');
       heading.textContent = tooltipDateFormatter.format(date);
-      tooltip.appendChild(heading);
+      container.appendChild(heading);
 
-      if (dateItems.length > 1) {
+      if (includeCount && dateItems.length > 1) {
         const count = document.createElement('span');
         count.textContent = `${dateItems.length} Opportunities`;
-        tooltip.appendChild(count);
+        container.appendChild(count);
       }
       dateItems.forEach((item) => {
         const link = document.createElement('a');
         link.href = item.url;
         link.textContent = item.title;
-        tooltip.appendChild(link);
+        container.appendChild(link);
+        if (item.agency) {
+          const agency = document.createElement('small');
+          agency.textContent = item.agency;
+          container.appendChild(agency);
+        }
       });
+    }
+
+    function positionTooltip(anchor) {
+      const margin = 12;
+      const gap = 8;
+      const anchorRect = anchor.getBoundingClientRect();
+      const tooltipRect = floatingTooltip.getBoundingClientRect();
+      let left = anchorRect.left + (anchorRect.width - tooltipRect.width) / 2;
+      left = Math.max(margin, Math.min(left, window.innerWidth - tooltipRect.width - margin));
+      let top = anchorRect.top - tooltipRect.height - gap;
+      if (top < margin) top = anchorRect.bottom + gap;
+      if (top + tooltipRect.height > window.innerHeight - margin) {
+        top = Math.max(margin, anchorRect.top - tooltipRect.height - gap);
+      }
+      floatingTooltip.style.left = `${Math.round(left)}px`;
+      floatingTooltip.style.top = `${Math.round(top)}px`;
+    }
+
+    function showTooltip(anchor, date, dateItems) {
+      window.clearTimeout(tooltipHideTimer);
+      populateOpportunityReference(floatingTooltip, date, dateItems);
       const due = document.createElement('small');
       due.textContent = `Due ${dueDateFormatter.format(date)}`;
-      tooltip.appendChild(due);
-      return tooltip;
+      floatingTooltip.appendChild(due);
+      floatingTooltip.hidden = false;
+      floatingTooltip.dataset.visible = 'true';
+      positionTooltip(anchor);
+      anchor.setAttribute('aria-describedby', floatingTooltip.id);
+    }
+
+    function scheduleTooltipHide(anchor) {
+      window.clearTimeout(tooltipHideTimer);
+      tooltipHideTimer = window.setTimeout(() => {
+        floatingTooltip.hidden = true;
+        delete floatingTooltip.dataset.visible;
+        anchor?.removeAttribute('aria-describedby');
+      }, 80);
+    }
+
+    function renderSelectedDay() {
+      if (!selectedDate) {
+        selectedDay.hidden = true;
+        return;
+      }
+      const date = localDate(selectedDate);
+      const dateItems = itemsByDate.get(selectedDate) || [];
+      selectedHeading.textContent = tooltipDateFormatter.format(date);
+      selectedItems.replaceChildren();
+      if (!dateItems.length) {
+        const empty = document.createElement('p');
+        empty.className = 'calendar-selected-day-empty';
+        empty.textContent = 'No shortlisted opportunities due on this date';
+        selectedItems.appendChild(empty);
+      } else {
+        dateItems.forEach((item) => {
+          const entry = document.createElement('div');
+          entry.className = 'calendar-selected-day-item';
+          const link = document.createElement('a');
+          link.href = item.url;
+          link.textContent = item.title;
+          entry.appendChild(link);
+          if (item.agency) {
+            const agency = document.createElement('small');
+            agency.textContent = item.agency;
+            entry.appendChild(agency);
+          }
+          selectedItems.appendChild(entry);
+        });
+      }
+      selectedDay.hidden = false;
     }
 
     function render() {
+      floatingTooltip.hidden = true;
+      delete floatingTooltip.dataset.visible;
       grid.replaceChildren();
       monthLabel.textContent = monthFormatter.format(visibleMonth);
       const firstCell = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1 - visibleMonth.getDay());
@@ -97,7 +183,8 @@
         button.type = 'button';
         button.dataset.calendarDate = dateKey;
         button.setAttribute('role', 'gridcell');
-        button.setAttribute('aria-pressed', String(dateKey === selectedDate));
+        button.setAttribute('aria-selected', String(dateKey === selectedDate));
+        if (dateKey === isoDate(today)) button.setAttribute('aria-current', 'date');
         button.setAttribute('aria-label', `${tooltipDateFormatter.format(date)}, ${dateItems.length} opportunities`);
         button.textContent = String(date.getDate());
         button.addEventListener('click', () => {
@@ -116,12 +203,14 @@
           for (let dot = 0; dot < visibleDots; dot += 1) dots.appendChild(document.createElement('i'));
           if (dateItems.length > visibleDots) dots.append('…');
           cell.appendChild(dots);
-          const tooltipId = `${drawer.id}-tooltip-${dateKey}`;
-          button.setAttribute('aria-describedby', tooltipId);
-          cell.appendChild(buildTooltip(date, dateItems, tooltipId));
+          button.addEventListener('mouseenter', () => showTooltip(button, date, dateItems));
+          button.addEventListener('mouseleave', () => scheduleTooltipHide(button));
+          button.addEventListener('focus', () => showTooltip(button, date, dateItems));
+          button.addEventListener('blur', () => scheduleTooltipHide(button));
         }
         grid.appendChild(cell);
       }
+      renderSelectedDay();
     }
 
     toggle.addEventListener('click', () => setOpen(!shell.classList.contains('calendar-drawer-shell--open'), {restoreFocus: true}));
@@ -153,6 +242,8 @@
       const delta = {ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7}[event.key];
       buttons[buttons.indexOf(day) + delta]?.focus({preventScroll: true});
     });
+    floatingTooltip.addEventListener('mouseenter', () => window.clearTimeout(tooltipHideTimer));
+    floatingTooltip.addEventListener('mouseleave', () => scheduleTooltipHide());
 
     render();
     if (window.sessionStorage.getItem(stateKey) === 'open') setOpen(true, {focusDrawer: false});

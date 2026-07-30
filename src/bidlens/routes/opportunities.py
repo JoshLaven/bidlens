@@ -987,6 +987,7 @@ def _calendar_drawer_items(rows) -> list[dict[str, object]]:
         {
             "id": opportunity.id,
             "title": opportunity.title,
+            "agency": opportunity.agency or "",
             "deadline": opportunity.response_deadline.isoformat(),
             "url": f"/opportunity/{opportunity.id}?return_to=shortlist",
         }
