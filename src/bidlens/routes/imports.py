@@ -1,3 +1,5 @@
+import csv
+import io
 from datetime import date, datetime, time, timedelta
 from urllib.parse import urlencode
 
@@ -23,9 +25,12 @@ from ..models import (
 )
 from ..services.ingestion_runs import record_source_activity
 from ..services.market_activity import (
+    METRIC_OPTIONS,
+    TIME_PERIODS,
+    VIEW_BY_OPTIONS,
     MarketActivityFilters,
     build_market_activity,
-    market_activity_filter_options,
+    market_period_dates,
 )
 from ..services.govwin_import import REASON_LABELS, import_govwin_xlsx
 from ..services.manual_import import (
@@ -910,42 +915,41 @@ async def market_activity_page(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse(url="/login", status_code=303)
 
     today = date.today()
-    start_date = _parse_filter_date(request.query_params.get("date_from")) or _default_market_start(today)
-    end_date = _parse_filter_date(request.query_params.get("date_to")) or today
-    if start_date > end_date:
-        start_date, end_date = end_date, start_date
-    view = (request.query_params.get("view") or "overview").strip().lower()
-    if view not in {"overview", "trends"}:
-        view = "overview"
-
-    filters = MarketActivityFilters(
-        start_date=start_date,
-        end_date=end_date,
-        source=(request.query_params.get("source") or "").strip() or None,
-        account_type=(request.query_params.get("account_type") or "").strip() or None,
-        category=(request.query_params.get("category") or "").strip() or None,
-        qualified_only=(request.query_params.get("qualified_only") or "") == "1",
-        pushed_only=(request.query_params.get("pushed_only") or "") == "1",
-    )
+    period = (request.query_params.get("period") or "90_days").strip().lower()
+    if period not in TIME_PERIODS:
+        period = "90_days"
+    view_by = (request.query_params.get("view_by") or "account").strip().lower()
+    if view_by not in VIEW_BY_OPTIONS:
+        view_by = "account"
+    metric = (request.query_params.get("metric") or "count").strip().lower()
+    if metric not in METRIC_OPTIONS:
+        metric = "count"
+    sort = (request.query_params.get("sort") or "").strip().lower() or None
+    direction = (request.query_params.get("direction") or "desc").strip().lower()
+    try:
+        page = max(1, int(request.query_params.get("page") or 1))
+    except (TypeError, ValueError):
+        page = 1
+    start_date, end_date = market_period_dates(period, today=today)
+    filters = MarketActivityFilters(start_date=start_date, end_date=end_date)
     organization_id = _user_org_id(user)
     dashboard = build_market_activity(
         db,
         organization_id=organization_id,
         filters=filters,
-        today=today,
+        view_by=view_by,
+        metric=metric,
+        sort=sort,
+        direction=direction,
+        page=page,
     )
-    options = market_activity_filter_options(db, organization_id=organization_id)
-    filter_query = urlencode({
+    control_query = urlencode({
         key: value
         for key, value in {
             "org_id": request.query_params.get("org_id"),
-            "date_from": filters.start_date.isoformat(),
-            "date_to": filters.end_date.isoformat(),
-            "source": filters.source,
-            "account_type": filters.account_type,
-            "category": filters.category,
-            "qualified_only": "1" if filters.qualified_only else None,
-            "pushed_only": "1" if filters.pushed_only else None,
+            "period": period,
+            "view_by": view_by,
+            "metric": metric,
         }.items()
         if value
     })
@@ -954,14 +958,70 @@ async def market_activity_page(request: Request, db: Session = Depends(get_db)):
         "user": user,
         "dashboard": dashboard,
         "filters": filters,
-        "options": options,
-        "source_label": _source_label,
-        "account_type_label": _account_type_label,
-        "view": view,
-        "filter_query": filter_query,
+        "period": period,
+        "time_periods": TIME_PERIODS,
+        "view_by_options": VIEW_BY_OPTIONS,
+        "metric_options": METRIC_OPTIONS,
+        "control_query": control_query,
         "active_page": "imports",
         "sidebar": get_sidebar(db, user),
     })
+
+
+@router.get("/admin/market-activity/export.csv")
+async def market_activity_export(request: Request, db: Session = Depends(get_db)):
+    user = require_admin(
+        request,
+        db,
+        forbidden_detail="Only Workspace Admins can export Analytics.",
+    )
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    today = date.today()
+    period = (request.query_params.get("period") or "90_days").strip().lower()
+    if period not in TIME_PERIODS:
+        period = "90_days"
+    view_by = (request.query_params.get("view_by") or "account").strip().lower()
+    if view_by not in VIEW_BY_OPTIONS:
+        view_by = "account"
+    metric = (request.query_params.get("metric") or "count").strip().lower()
+    if metric not in METRIC_OPTIONS:
+        metric = "count"
+    sort = (request.query_params.get("sort") or "").strip().lower() or None
+    direction = (request.query_params.get("direction") or "desc").strip().lower()
+    start_date, end_date = market_period_dates(period, today=today)
+    dashboard = build_market_activity(
+        db,
+        organization_id=_user_org_id(user),
+        filters=MarketActivityFilters(start_date=start_date, end_date=end_date),
+        view_by=view_by,
+        metric=metric,
+        sort=sort,
+        direction=direction,
+        page_size=1_000_000,
+    )
+
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow([VIEW_BY_OPTIONS[dashboard["view_by"]], "Imported", "Qualified", "Shortlisted"])
+    for row in dashboard["rows"]:
+        if dashboard["metric"] == "conversion":
+            values = [
+                "—" if row["conversion"][key] is None else f'{row["conversion"][key]:.1f}%'
+                for key in ("imported", "qualified", "shortlisted")
+            ]
+        else:
+            values = [row[key] for key in ("imported", "qualified", "shortlisted")]
+        writer.writerow([row["label"], *values])
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="bidlens-insights-{view_by}-{period}.csv"',
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 @router.get("/source-activity")

@@ -86,7 +86,7 @@ class PageHeaderSystemTests(unittest.TestCase):
             "pursuit_lanes.html": "Configure how this workspace reviews and organizes incoming opportunities.",
             "import_history.html": "Review opportunity imports and source-processing activity.",
             "integrations.html": "Connect and manage the systems BidLens works with.",
-            "market_activity.html": "Explore market activity and the organizational intelligence BidLens has captured.",
+            "market_activity.html": "Review opportunity volume and funnel conversion across your organization.",
         }
 
         for filename, description in expected.items():

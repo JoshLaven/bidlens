@@ -2,190 +2,221 @@
 {% from "_workspace_management_hero.html" import workspace_management_hero %}
 {% set hide_context_sidebar = true %}
 {% block title %}Insights - BidLens{% endblock %}
+{% macro metric_value(key) -%}
+  {% if dashboard.metric == 'conversion' %}
+    {% set value = dashboard.metric_conversion[key] %}
+    {{ '—' if value is none else '%.1f%%'|format(value) }}
+  {% else %}
+    {{ dashboard.metrics[key] }}
+  {% endif %}
+{%- endmacro %}
+{% macro row_value(row, key) -%}
+  {% if dashboard.metric == 'conversion' %}
+    {% set value = row.conversion[key] %}
+    {{ '—' if value is none else '%.1f%%'|format(value) }}
+  {% else %}
+    {{ row[key] }}
+  {% endif %}
+{%- endmacro %}
 {% block content %}
-<div class="admin-page-layout workspace-management-page">
+<div class="admin-page-layout workspace-management-page insights-page">
   <div class="admin-page-content">
-    {{ workspace_management_hero('Insights', 'Explore market activity and the organizational intelligence BidLens has captured.') }}
+    {{ workspace_management_hero('Insights', 'Review opportunity volume and funnel conversion across your organization.') }}
 
-    <nav class="market-view-tabs" aria-label="Insights views">
-      <a href="/admin/market-activity?{{ filter_query }}&view=overview" class="{{ 'active' if view == 'overview' else '' }}" aria-current="{{ 'page' if view == 'overview' else 'false' }}">Overview</a>
-      <a href="/admin/market-activity?{{ filter_query }}&view=trends" class="{{ 'active' if view == 'trends' else '' }}" aria-current="{{ 'page' if view == 'trends' else 'false' }}">Trends</a>
-    </nav>
+    <section class="card insights-controls" aria-label="Insights controls">
+      <form method="get" action="/admin/market-activity" data-insights-filter-form>
+        {% if request.query_params.get('org_id') %}<input type="hidden" name="org_id" value="{{ request.query_params.get('org_id') }}">{% endif %}
+        <input type="hidden" name="metric" value="{{ dashboard.metric }}">
+        <label>
+          <span>Time Period</span>
+          <select name="period" data-insights-filter-select>
+            {% for value, label in time_periods.items() %}
+              <option value="{{ value }}" {{ 'selected' if period == value else '' }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          <span>View By</span>
+          <select name="view_by" data-insights-filter-select>
+            {% for value, label in view_by_options.items() %}
+              <option value="{{ value }}" {{ 'selected' if dashboard.view_by == value else '' }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <fieldset class="insights-metric-control">
+          <legend>Metric</legend>
+          <div class="insights-segmented-control">
+            {% for value, label in metric_options.items() %}
+              <a href="/admin/market-activity?period={{ period }}&view_by={{ dashboard.view_by }}&metric={{ value }}{% if request.query_params.get('org_id') %}&org_id={{ request.query_params.get('org_id') }}{% endif %}"
+                 data-insights-filter-link
+                 class="{{ 'active' if dashboard.metric == value else '' }}"
+                 aria-current="{{ 'true' if dashboard.metric == value else 'false' }}">{{ label }}</a>
+            {% endfor %}
+          </div>
+        </fieldset>
+      </form>
+      <p data-insights-period-context><span aria-hidden="true">ⓘ</span> Opportunities imported from {{ filters.start_date.strftime('%b %d, %Y') }} through {{ filters.end_date.strftime('%b %d, %Y') }}.</p>
+    </section>
 
-    <form method="get" action="/admin/market-activity" class="market-activity-filters card">
-      <input type="hidden" name="view" value="{{ view }}">
-      {% if request.query_params.get("org_id") %}
-        <input type="hidden" name="org_id" value="{{ request.query_params.get('org_id') }}">
-      {% endif %}
-      <label><span>From</span><input type="date" name="date_from" value="{{ filters.start_date.isoformat() }}"></label>
-      <label><span>To</span><input type="date" name="date_to" value="{{ filters.end_date.isoformat() }}"></label>
-      <label>
-        <span>Source</span>
-        <select name="source">
-          <option value="">All sources</option>
-          {% for source in options.sources %}
-            <option value="{{ source }}" {{ "selected" if filters.source == source else "" }}>{{ source_label(source) }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>
-        <span>Account Type</span>
-        <select name="account_type">
-          <option value="">All account types</option>
-          {% for account_type in options.account_types %}
-            <option value="{{ account_type }}" {{ "selected" if filters.account_type == account_type else "" }}>{{ account_type_label(account_type) }}</option>
-          {% endfor %}
-          <option value="__other__" {{ "selected" if filters.account_type == "__other__" else "" }}>Other</option>
-        </select>
-      </label>
-      <label>
-        <span>NAICS</span>
-        <select name="category">
-          <option value="">All NAICS</option>
-          {% for category in options.categories %}
-            <option value="{{ category }}" {{ "selected" if filters.category == category else "" }}>{{ category }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label class="market-activity-check">
-        <input type="checkbox" name="qualified_only" value="1" {{ "checked" if filters.qualified_only else "" }}>
-        <span>Qualified only</span>
-      </label>
-      <label class="market-activity-check">
-        <input type="checkbox" name="pushed_only" value="1" {{ "checked" if filters.pushed_only else "" }}>
-        <span>Pushed to Salesforce only</span>
-      </label>
-      <div class="market-activity-filter-actions">
-        <button type="submit" class="btn btn-primary">Apply</button>
-        <a href="/admin/market-activity{% if request.query_params.get('org_id') %}?org_id={{ request.query_params.get('org_id') }}&view={{ view }}{% else %}?view={{ view }}{% endif %}" class="btn btn-outline-secondary">Reset</a>
-      </div>
-    </form>
-
-    <section class="market-metric-grid" aria-label="Market activity summary">
-      <article class="card market-metric">
-        <span>Total imported</span><strong>{{ dashboard.metrics.total }}</strong>
-        <small>Created in BidLens during period</small>
+    <section class="market-metric-grid insights-metric-grid" aria-label="Opportunity funnel summary">
+      <article class="card market-metric insights-metric insights-metric--imported">
+        <div class="insights-metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 17v3h14v-3"></path></svg></div>
+        <div class="insights-metric-copy"><span>Imported</span><strong>{{ metric_value('imported') }}</strong>
+        <small>{{ 'Baseline' if dashboard.metric == 'conversion' else 'Created in BidLens during period' }}</small></div>
       </article>
-      <article class="card market-metric">
-        <span>Qualified</span><strong>{{ dashboard.metrics.qualified }}</strong>
-        <small>Qualified, interested, or pursued</small>
+      <article class="card market-metric insights-metric insights-metric--qualified">
+        <div class="insights-metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"></path></svg></div>
+        <div class="insights-metric-copy"><span>Qualified</span><strong>{{ metric_value('qualified') }}</strong>
+        <small>{{ 'Of imported' if dashboard.metric == 'conversion' else 'Qualified or marked as pursued' }}</small></div>
       </article>
-      <article class="card market-metric">
-        <span>Rejected / archived</span><strong>{{ dashboard.metrics.rejected }}</strong>
-        <small>Rejected, archived, or passed</small>
-      </article>
-      <article class="card market-metric">
-        <span>Pushed to Salesforce</span><strong>{{ dashboard.metrics.pushed }}</strong>
-        <small>Linked, pushed, or created</small>
-      </article>
-      <article class="card market-metric">
-        <span>Active open</span><strong>{{ dashboard.metrics.active_open }}</strong>
-        <small>Open deadline and not rejected</small>
+      <article class="card market-metric insights-metric insights-metric--shortlisted">
+        <div class="insights-metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"></path></svg></div>
+        <div class="insights-metric-copy"><span>Shortlisted</span><strong>{{ metric_value('shortlisted') }}</strong>
+        <small>{{ 'Of qualified' if dashboard.metric == 'conversion' else 'Added to an organization shortlist' }}</small></div>
       </article>
     </section>
 
-    {% if dashboard.monthly and view == "overview" %}
-      <section class="market-dashboard-grid">
-        <article class="card market-panel">
-          <h2>Opportunities by source</h2>
-          {% with rows=dashboard.by_source, maximum=dashboard.max_source, source_rows=true %}
-            {% include "_market_ranked_rows.html" %}
-          {% endwith %}
-        </article>
-        <article class="card market-panel">
-          <h2>Upcoming due dates by month</h2>
-          {% with rows=dashboard.upcoming_due_dates, maximum=dashboard.max_due %}
-            {% include "_market_ranked_rows.html" %}
-          {% endwith %}
-        </article>
-        <article class="card market-panel">
-          <h2>Top agencies</h2>
-          {% with rows=dashboard.top_agencies, maximum=dashboard.max_agency %}
-            {% include "_market_ranked_rows.html" %}
-          {% endwith %}
-        </article>
-        <article class="card market-panel">
-          <h2>Top NAICS</h2>
-          {% with rows=dashboard.top_categories, maximum=dashboard.max_category %}
-            {% include "_market_ranked_rows.html" %}
-          {% endwith %}
-        </article>
-      </section>
-    {% elif dashboard.monthly and view == "trends" %}
-      <section class="market-trends-grid">
-        <article class="card market-trend-panel market-trend-panel--wide">
-          <div class="market-trend-heading">
-            <div><h2>Opportunities Imported by Month</h2><p>BidLens intake volume during the selected period.</p></div>
+    <section class="card insights-table-card">
+      <header>
+        <div>
+          <h2 data-insights-table-title>Breakdown by {{ view_by_options[dashboard.view_by] }}</h2>
+          <p>Funnel activity for the selected time period.</p>
+        </div>
+        <a class="btn btn-outline-secondary insights-export" href="/admin/market-activity/export.csv?{{ control_query }}&sort={{ dashboard.sort }}&direction={{ dashboard.direction }}">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m0 0 3-3m-3 3L7 9M4 14v3h12v-3"></path></svg>
+          Export CSV
+        </a>
+      </header>
+      <div data-insights-table-content>
+      {% if dashboard.total_rows %}
+        <div class="insights-table-scroll">
+          <table class="insights-table">
+            <thead>
+              <tr>
+                {% for key, label in [('dimension', view_by_options[dashboard.view_by]), ('imported', 'Imported'), ('qualified', 'Qualified'), ('shortlisted', 'Shortlisted')] %}
+                  {% set next_direction = 'asc' if dashboard.sort == key and dashboard.direction == 'desc' else 'desc' %}
+                  <th scope="col" class="{{ 'insights-table-number' if key != 'dimension' else '' }}">
+                    <a href="/admin/market-activity?{{ control_query }}&sort={{ key }}&direction={{ next_direction }}" data-insights-sort-link aria-label="Sort by {{ label }} {{ 'ascending' if next_direction == 'asc' else 'descending' }}">
+                      {{ label }}
+                      {% if dashboard.sort == key %}<span class="insights-sort-indicator" aria-hidden="true">{{ '↑' if dashboard.direction == 'asc' else '↓' }}</span>{% endif %}
+                    </a>
+                  </th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in dashboard.rows %}
+                <tr>
+                  <th scope="row">{{ row.label }}</th>
+                  <td class="insights-table-number">{{ row_value(row, 'imported') }}</td>
+                  <td class="insights-table-number">{{ row_value(row, 'qualified') }}</td>
+                  <td class="insights-table-number">{{ row_value(row, 'shortlisted') }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% set first_item = ((dashboard.page - 1) * dashboard.page_size) + 1 %}
+        {% set last_item = [dashboard.page * dashboard.page_size, dashboard.total_rows]|min %}
+        <footer class="queue-pagination insights-pagination" aria-label="Insights table pagination">
+          <span>Showing {{ first_item }}–{{ last_item }} of {{ dashboard.total_rows }}</span>
+          <div class="queue-pagination-actions">
+            {% if dashboard.page > 1 %}<a class="btn btn-sm btn-outline-secondary" href="/admin/market-activity?{{ control_query }}&sort={{ dashboard.sort }}&direction={{ dashboard.direction }}&page={{ dashboard.page - 1 }}">Previous</a>{% else %}<span class="btn btn-sm btn-outline-secondary disabled" aria-disabled="true">Previous</span>{% endif %}
+            <span class="queue-pagination-position">Page {{ dashboard.page }} of {{ dashboard.total_pages }}</span>
+            {% if dashboard.page < dashboard.total_pages %}<a class="btn btn-sm btn-outline-secondary" href="/admin/market-activity?{{ control_query }}&sort={{ dashboard.sort }}&direction={{ dashboard.direction }}&page={{ dashboard.page + 1 }}">Next</a>{% else %}<span class="btn btn-sm btn-outline-secondary disabled" aria-disabled="true">Next</span>{% endif %}
           </div>
-          <div class="market-column-chart" role="img" aria-label="Opportunities imported by month">
-            {% for row in dashboard.monthly %}
-              <div class="market-column">
-                <strong>{{ row.imported }}</strong>
-                <div class="market-column-bars"><i class="market-column-bar--imported" style="height:{{ (row.imported * 100 / dashboard.max_imported)|round if dashboard.max_imported else 0 }}%"></i></div>
-                <span>{{ row.label }}</span>
-              </div>
-            {% endfor %}
-          </div>
-        </article>
-
-        <article class="card market-trend-panel market-trend-panel--wide">
-          <div class="market-trend-heading">
-            <div><h2>Qualified Opportunities by Month</h2><p>Current qualified or pursued opportunities by import month.</p></div>
-          </div>
-          <div class="market-column-chart" role="img" aria-label="Qualified opportunities by month">
-            {% for row in dashboard.monthly %}
-              <div class="market-column">
-                <strong>{{ row.qualified }}</strong>
-                <div class="market-column-bars"><i class="market-column-bar--qualified" style="height:{{ (row.qualified * 100 / dashboard.max_qualified)|round if dashboard.max_qualified else 0 }}%"></i></div>
-                <span>{{ row.label }}</span>
-              </div>
-            {% endfor %}
-          </div>
-        </article>
-
-        <article class="card market-trend-panel market-trend-panel--wide">
-          <div class="market-trend-heading">
-            <div><h2>Imported vs Qualified</h2><p>How much of the incoming opportunity stream currently becomes qualified.</p></div>
-            <div class="market-chart-legend"><span><i class="legend-imported"></i>Imported</span><span><i class="legend-qualified"></i>Qualified</span></div>
-          </div>
-          <div class="market-column-chart market-column-chart--grouped" role="img" aria-label="Imported versus qualified opportunities by month">
-            {% for row in dashboard.monthly %}
-              <div class="market-column">
-                <strong>{{ ((row.qualified * 100 / row.imported)|round(1)) if row.imported else 0 }}%</strong>
-                <div class="market-column-bars">
-                  <i class="market-column-bar--imported" style="height:{{ (row.imported * 100 / dashboard.max_imported)|round if dashboard.max_imported else 0 }}%"></i>
-                  <i class="market-column-bar--qualified" style="height:{{ (row.qualified * 100 / dashboard.max_imported)|round if dashboard.max_imported else 0 }}%"></i>
-                </div>
-                <span>{{ row.label }}</span>
-              </div>
-            {% endfor %}
-          </div>
-        </article>
-
-        <article class="card market-trend-panel">
-          <div class="market-trend-heading"><div><h2>Opportunities by Source</h2><p>Contribution from each monitored opportunity source.</p></div></div>
-          {% with rows=dashboard.by_source, maximum=dashboard.max_source, source_rows=true %}
-            {% include "_market_ranked_rows.html" %}
-          {% endwith %}
-        </article>
-
-        <article class="card market-trend-panel">
-          <div class="market-trend-heading"><div><h2>Opportunities by Account Type</h2><p>Market activity across the organization’s primary segments.</p></div></div>
-          {% with rows=dashboard.by_account_type, maximum=dashboard.max_account_type, account_type_rows=true %}
-            {% include "_market_ranked_rows.html" %}
-          {% endwith %}
-        </article>
-      </section>
-    {% else %}
-      <div class="empty-state market-activity-empty">
-        <h2>No opportunities match these filters</h2>
-        <p>Adjust the date range or clear one of the analytics filters.</p>
+        </footer>
+      {% else %}
+        <div class="empty-state insights-empty-state">
+          <h3>No opportunities in this period</h3>
+          <p>Choose a longer time period to review organizational activity.</p>
+        </div>
+      {% endif %}
       </div>
-    {% endif %}
-
-    <p class="market-activity-definition">
-      Monthly activity is grouped by BidLens import month and reflects each opportunity’s current workflow state.
-    </p>
+    </section>
   </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function initializeInsightsUpdates() {
+  const tableCard = document.querySelector('.insights-table-card');
+  const filterForm = document.querySelector('[data-insights-filter-form]');
+  if (!tableCard) return;
+  let activeRequest = null;
+
+  async function refreshInsights(url) {
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    activeRequest?.abort();
+    const requestController = new AbortController();
+    activeRequest = requestController;
+    tableCard.setAttribute('aria-busy', 'true');
+
+    try {
+      const response = await fetch(url, {
+        headers: { 'X-Requested-With': 'fetch' },
+        signal: requestController.signal,
+      });
+      if (!response.ok) throw new Error('Insights update failed');
+      const nextDocument = new DOMParser().parseFromString(await response.text(), 'text/html');
+      const nextCard = nextDocument.querySelector('.insights-table-card');
+      const nextTableContent = nextCard?.querySelector('[data-insights-table-content]');
+      if (!nextCard || !nextTableContent) throw new Error('Insights table was not returned');
+
+      document.querySelectorAll('.insights-metric-copy').forEach((copy, index) => {
+        const nextCopy = nextDocument.querySelectorAll('.insights-metric-copy')[index];
+        if (nextCopy) copy.replaceChildren(...nextCopy.cloneNode(true).childNodes);
+      });
+      const periodContext = document.querySelector('[data-insights-period-context]');
+      const nextPeriodContext = nextDocument.querySelector('[data-insights-period-context]');
+      if (periodContext && nextPeriodContext) periodContext.innerHTML = nextPeriodContext.innerHTML;
+      const tableTitle = tableCard.querySelector('[data-insights-table-title]');
+      const nextTableTitle = nextCard.querySelector('[data-insights-table-title]');
+      if (tableTitle && nextTableTitle) tableTitle.textContent = nextTableTitle.textContent;
+      tableCard.querySelector('[data-insights-table-content]').replaceChildren(...nextTableContent.cloneNode(true).childNodes);
+      const exportLink = tableCard.querySelector('.insights-export');
+      const nextExportLink = nextCard.querySelector('.insights-export');
+      if (exportLink && nextExportLink) exportLink.setAttribute('href', nextExportLink.getAttribute('href'));
+      const nextForm = nextDocument.querySelector('[data-insights-filter-form]');
+      if (filterForm && nextForm) {
+        filterForm.querySelector('[name="metric"]').value = nextForm.querySelector('[name="metric"]').value;
+        for (const name of ['period', 'view_by']) {
+          filterForm.querySelector(`[name="${name}"]`).value = nextForm.querySelector(`[name="${name}"]`).value;
+        }
+      }
+      document.querySelectorAll('[data-insights-filter-link]').forEach((control, index) => {
+        const nextControl = nextDocument.querySelectorAll('[data-insights-filter-link]')[index];
+        if (!nextControl) return;
+        control.className = nextControl.className;
+        control.setAttribute('aria-current', nextControl.getAttribute('aria-current'));
+        control.setAttribute('href', nextControl.getAttribute('href'));
+      });
+      const nextUrl = new URL(url, document.baseURI);
+      window.history.replaceState({}, '', nextUrl.pathname + nextUrl.search);
+      window.scrollTo(scrollX, scrollY);
+      window.requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        tableCard.dataset.sortError = 'true';
+      }
+    } finally {
+      if (activeRequest === requestController) tableCard.removeAttribute('aria-busy');
+    }
+  }
+
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest('[data-insights-sort-link], [data-insights-filter-link]');
+    if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    refreshInsights(link.href);
+  });
+
+  filterForm?.addEventListener('change', (event) => {
+    if (!event.target.matches('[data-insights-filter-select]')) return;
+    const query = new URLSearchParams(new FormData(filterForm));
+    refreshInsights(`${filterForm.action}?${query.toString()}`);
+  });
+})();
+</script>
 {% endblock %}
