@@ -38,6 +38,22 @@ def _failure(
     return 1
 
 
+def _render_validation_debug(output: TextIO, details: dict) -> None:
+    """Render one rejected statement to this CLI stream only; never log or persist it."""
+    _line(output, "Validation debug (development CLI only):")
+    _line(output, f"  Rule: {details.get('validator_rule', 'unknown')}")
+    _line(output, f"  Reason: {details.get('validator_reason', 'Unavailable')}")
+    _line(output, f"  Statement key: {details.get('statement_key', 'unknown')}")
+    _line(output, f"  Placement: {details.get('placement', 'unknown')}")
+    _line(output, f"  Section type: {details.get('section_type') or 'None'}")
+    _line(output, f"  Confidence: {details.get('confidence', 'unknown')}")
+    source_ids = details.get("cited_source_ids") or ()
+    source_kinds = details.get("cited_source_kinds") or ()
+    _line(output, f"  Cited source IDs: {', '.join(source_ids) if source_ids else 'None'}")
+    _line(output, f"  Cited source classes/types: {', '.join(source_kinds) if source_kinds else 'None'}")
+    _line(output, f"  Rejected statement: {details.get('statement_text', 'Unavailable')}")
+
+
 def _resolve_membership(db, *, user: User, organization_id: int | None):
     query = db.query(OrganizationMembership).filter(OrganizationMembership.user_id == user.id)
     if organization_id is not None:
@@ -156,10 +172,13 @@ def _generate_guts(
                 active_organization_id=membership.organization_id,
             )
         except GUTSServiceError as exc:
-            return _failure(
+            status = _failure(
                 output, category=exc.safe_category, message=exc.safe_message,
                 stage=exc.stage, generation_id=exc.generation_id,
             )
+            if args.debug_validation and exc.validation_debug:
+                _render_validation_debug(output, exc.validation_debug)
+            return status
         render_generation(generation, output=output)
         return 0
     except Exception:
@@ -185,6 +204,10 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--opportunity-id", type=int, required=True)
     generate.add_argument("--user-id", type=int, required=True)
     generate.add_argument("--organization-id", type=int)
+    generate.add_argument(
+        "--debug-validation", action="store_true",
+        help="Development CLI only: print the single rejected validation statement to this terminal.",
+    )
     return parser
 
 

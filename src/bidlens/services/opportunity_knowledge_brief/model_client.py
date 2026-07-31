@@ -58,6 +58,7 @@ class GUTSModelError(RuntimeError):
         self, safe_category: str, safe_message: str, *, retryable: bool,
         usage: dict[str, int | None] | None = None, model_ms: float = 0.0,
         stage: str = "model_call",
+        validation_debug: dict[str, Any] | None = None,
     ):
         super().__init__(safe_message)
         self.safe_category = safe_category
@@ -66,6 +67,26 @@ class GUTSModelError(RuntimeError):
         self.usage = usage or {}
         self.model_ms = model_ms
         self.stage = stage
+        self.validation_debug = validation_debug
+
+
+def _validation_debug(exc: GUTSValidationError) -> dict[str, Any] | None:
+    if not exc.rejected_statement_text or not exc.statement_key or not exc.validator_rule:
+        return None
+    placement = exc.statement_placement or "unknown"
+    section_type = placement.removeprefix("section:") if placement.startswith("section:") else None
+    controlled_placement = "section" if section_type else placement
+    return {
+        "statement_key": exc.statement_key,
+        "placement": controlled_placement,
+        "section_type": section_type,
+        "confidence": exc.statement_confidence or "unknown",
+        "cited_source_ids": tuple(exc.cited_source_ids),
+        "cited_source_kinds": tuple(exc.cited_source_kinds),
+        "statement_text": exc.rejected_statement_text,
+        "validator_rule": exc.validator_rule,
+        "validator_reason": exc.safe_message,
+    }
 
 
 @dataclass(frozen=True)
@@ -327,12 +348,16 @@ def generate_validated_briefing(
         second_call = model_client.retry_with_validation_feedback(manifest, feedback)
         validated = output_validator.validate(second_call.output, manifest)
     except GUTSValidationError as exc:
-        raise GUTSModelError(exc.safe_category, exc.safe_message, retryable=False, stage=exc.stage) from exc
+        raise GUTSModelError(
+            exc.safe_category, exc.safe_message, retryable=False, stage=exc.stage,
+            validation_debug=_validation_debug(exc),
+        ) from exc
     except GUTSModelError as exc:
         if exc.safe_category in {"model_schema_invalid", "model_citation_invalid", "model_output_unsafe"}:
             raise GUTSModelError(
                 exc.safe_category, exc.safe_message, retryable=False, usage=exc.usage,
                 model_ms=exc.model_ms, stage=exc.stage,
+                validation_debug=exc.validation_debug,
             ) from exc
         raise
     first_usage = first_call

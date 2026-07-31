@@ -36,12 +36,16 @@ logger = logging.getLogger(__name__)
 
 
 class GUTSCompilerError(RuntimeError):
-    def __init__(self, safe_category: str, safe_message: str, *, stage: str, retryable: bool = False):
+    def __init__(
+        self, safe_category: str, safe_message: str, *, stage: str,
+        retryable: bool = False, validation_debug: dict[str, Any] | None = None,
+    ):
         super().__init__(safe_message)
         self.safe_category = safe_category
         self.safe_message = safe_message
         self.stage = stage
         self.retryable = retryable
+        self.validation_debug = validation_debug
 
 
 def _utcnow() -> datetime:
@@ -357,7 +361,10 @@ class OpportunityKnowledgeBriefCompiler:
         if isinstance(exc, GUTSCompilerError):
             return exc
         if isinstance(exc, GUTSModelError):
-            return GUTSCompilerError(exc.safe_category, exc.safe_message, stage=exc.stage, retryable=exc.retryable)
+            return GUTSCompilerError(
+                exc.safe_category, exc.safe_message, stage=exc.stage,
+                retryable=exc.retryable, validation_debug=exc.validation_debug,
+            )
         if isinstance(exc, ManifestValidationError):
             return GUTSCompilerError("manifest_validation_failed", "The briefing evidence manifest was invalid.", stage="manifest")
         if isinstance(exc, KnowledgeBriefPersistenceError) or stage == "persistence":

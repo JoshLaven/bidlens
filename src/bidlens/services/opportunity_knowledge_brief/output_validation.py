@@ -61,6 +61,7 @@ class GUTSValidationError(RuntimeError):
         grounded_field: str | None = None, required_source_id: str | None = None,
         cited_source_ids: tuple[str, ...] = (),
         statement_confidence: str | None = None, cited_source_kinds: tuple[str, ...] = (),
+        rejected_statement_text: str | None = None, validator_rule: str | None = None,
     ):
         super().__init__(safe_message)
         self.safe_category = safe_category
@@ -75,6 +76,8 @@ class GUTSValidationError(RuntimeError):
         self.cited_source_ids = cited_source_ids
         self.statement_confidence = statement_confidence
         self.cited_source_kinds = cited_source_kinds
+        self.rejected_statement_text = rejected_statement_text
+        self.validator_rule = validator_rule
 
 
 @dataclass(frozen=True)
@@ -253,7 +256,9 @@ class GUTSOutputValidator:
                     "Use explicit attribution such as reported, proposed, plans, raised a concern, or an internal note indicates.",
                     statement_key=statement.statement_key, statement_placement=placement,
                     statement_confidence=statement.confidence,
+                    cited_source_ids=tuple(statement.source_ids),
                     cited_source_kinds=tuple(sorted(f"{source.source_class}:{source.source_type}" for source in cited)),
+                    rejected_statement_text=text, validator_rule="attribution_preservation",
                 )
         if statement.confidence == "uncertain":
             evidence_uncertain = any(
@@ -362,6 +367,7 @@ class GUTSOutputValidator:
         grounded_field: str | None = None, required_source_id: str | None = None,
         cited_source_ids: tuple[str, ...] = (),
         statement_confidence: str | None = None, cited_source_kinds: tuple[str, ...] = (),
+        rejected_statement_text: str | None = None, validator_rule: str | None = None,
     ):
         raise GUTSValidationError(
             category, message, feedback, invalid_source_ids=invalid_source_ids,
@@ -369,4 +375,5 @@ class GUTSOutputValidator:
             statement_placement=statement_placement, grounded_field=grounded_field,
             required_source_id=required_source_id, cited_source_ids=cited_source_ids,
             statement_confidence=statement_confidence, cited_source_kinds=cited_source_kinds,
+            rejected_statement_text=rejected_statement_text, validator_rule=validator_rule,
         )

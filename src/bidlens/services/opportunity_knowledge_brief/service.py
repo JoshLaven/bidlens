@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from time import perf_counter
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -21,13 +22,18 @@ logger = logging.getLogger(__name__)
 
 
 class GUTSServiceError(RuntimeError):
-    def __init__(self, safe_category: str, safe_message: str, *, stage: str, retryable: bool = False, generation_id: int | None = None):
+    def __init__(
+        self, safe_category: str, safe_message: str, *, stage: str,
+        retryable: bool = False, generation_id: int | None = None,
+        validation_debug: dict[str, Any] | None = None,
+    ):
         super().__init__(safe_message)
         self.safe_category = safe_category
         self.safe_message = safe_message
         self.stage = stage
         self.retryable = retryable
         self.generation_id = generation_id
+        self.validation_debug = validation_debug
 
 
 class OpportunityKnowledgeBriefService:
@@ -84,4 +90,5 @@ class OpportunityKnowledgeBriefService:
             raise GUTSServiceError(
                 exc.safe_category, exc.safe_message, stage=exc.stage,
                 retryable=exc.retryable, generation_id=generation.id,
+                validation_debug=exc.validation_debug,
             ) from None
