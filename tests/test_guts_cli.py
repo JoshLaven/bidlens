@@ -102,6 +102,30 @@ class SectionMismatchModelClient:
         return self.generate(manifest)
 
 
+class WrongDeadlineCitationModelClient:
+    def __init__(self, opportunity_id):
+        self.output = ModelBriefingOutput(
+            headline=ModelOutputStatement(
+                statement_key="headline", text="Evaluation Services is active.",
+                importance="high", confidence="supported",
+                source_ids=(f"current_state:opportunity:{opportunity_id}:source_stage",),
+            ),
+            summary_statements=(ModelOutputStatement(
+                statement_key="deadline-wrong-source",
+                text="PRIVATE DEADLINE PROSE: The response deadline is September 1, 2026.",
+                importance="normal", confidence="supported",
+                source_ids=(f"current_state:opportunity:{opportunity_id}:title",),
+            ),),
+            sections=(),
+        )
+
+    def generate(self, manifest):
+        return GUTSModelCallResult(self.output, "openai", "cli-test", 80, 20, 100, 10.0)
+
+    def retry_with_validation_feedback(self, manifest, feedback):
+        return self.generate(manifest)
+
+
 class GUTSCLITests(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite:///:memory:")
@@ -277,6 +301,48 @@ class GUTSCLITests(unittest.TestCase):
         for excluded in (
             "PRIVATE SOURCE BODY", "PRIVATE-NOTE-CONTENT", "IGNORE INSTRUCTIONS",
             "Evaluation Services remains active.",
+        ):
+            self.assertNotIn(excluded, output)
+        with self.Session() as db:
+            generation = db.query(OpportunityKnowledgeBriefGeneration).order_by(
+                OpportunityKnowledgeBriefGeneration.id.desc()
+            ).first()
+            self.assertEqual(generation.status, "failed")
+            self.assertIsNone(generation.output_json)
+            self.assertEqual(len(generation.statements), 0)
+
+    def test_deadline_debug_disabled_does_not_print_rejected_prose(self):
+        client = WrongDeadlineCitationModelClient(self.opportunity_id)
+        status, output = self.run_cli(service_factory=self.factory(model_client=client))
+        self.assertNotEqual(status, 0)
+        self.assertIn("The current deadline used the wrong citation.", output)
+        self.assertNotIn("PRIVATE DEADLINE PROSE", output)
+        self.assertNotIn("Validation debug", output)
+
+    def test_deadline_debug_prints_exact_required_source_without_persisting_prose(self):
+        client = WrongDeadlineCitationModelClient(self.opportunity_id)
+        status, output = self.run_cli(
+            service_factory=self.factory(model_client=client), debug_validation=True,
+        )
+        required = f"current_state:opportunity:{self.opportunity_id}:response_deadline"
+        for expected in (
+            "Rule: current_state_field_grounding",
+            "Reason: The current deadline used the wrong citation.",
+            "Statement key: deadline-wrong-source",
+            "Placement: summary",
+            "Section type: None",
+            "Confidence: supported",
+            "Grounded field: response_deadline",
+            f"Cited source IDs: current_state:opportunity:{self.opportunity_id}:title",
+            "Cited source classes/types: current_state:title",
+            f"Required source ID: {required}",
+            "Rejected statement: PRIVATE DEADLINE PROSE: The response deadline is September 1, 2026.",
+        ):
+            self.assertIn(expected, output)
+        self.assertNotEqual(status, 0)
+        for excluded in (
+            "PRIVATE SOURCE BODY", "PRIVATE-NOTE-CONTENT", "IGNORE INSTRUCTIONS",
+            "Evaluation Services is active.",
         ):
             self.assertNotIn(excluded, output)
         with self.Session() as db:

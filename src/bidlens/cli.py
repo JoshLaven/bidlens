@@ -47,12 +47,23 @@ def _render_validation_debug(output: TextIO, details: dict) -> None:
     _line(output, f"  Placement: {details.get('placement', 'unknown')}")
     _line(output, f"  Section type: {details.get('section_type') or 'None'}")
     _line(output, f"  Confidence: {details.get('confidence', 'unknown')}")
+    if details.get("grounded_field"):
+        _line(output, f"  Grounded field: {details['grounded_field']}")
     source_ids = details.get("cited_source_ids") or ()
     source_kinds = details.get("cited_source_kinds") or ()
     allowed_classes = details.get("allowed_source_classes") or ()
     _line(output, f"  Cited source IDs: {', '.join(source_ids) if source_ids else 'None'}")
     _line(output, f"  Cited source classes/types: {', '.join(source_kinds) if source_kinds else 'None'}")
-    _line(output, f"  Allowed source classes: {', '.join(allowed_classes) if allowed_classes else 'None'}")
+    if allowed_classes:
+        _line(output, f"  Allowed source classes: {', '.join(allowed_classes)}")
+    if details.get("required_source_id"):
+        _line(output, f"  Required source ID: {details['required_source_id']}")
+    required_ids = details.get("required_source_ids") or ()
+    other_required_ids = tuple(
+        source_id for source_id in required_ids if source_id != details.get("required_source_id")
+    )
+    if other_required_ids:
+        _line(output, f"  Other required source IDs: {', '.join(other_required_ids)}")
     _line(output, f"  Rejected statement: {details.get('statement_text', 'Unavailable')}")
 
 

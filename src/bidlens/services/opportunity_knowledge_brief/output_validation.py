@@ -107,6 +107,7 @@ class GUTSValidationError(RuntimeError):
         invalid_source_ids: tuple[str, ...] = (), allowed_source_ids: tuple[str, ...] = (),
         statement_key: str | None = None, statement_placement: str | None = None,
         grounded_field: str | None = None, required_source_id: str | None = None,
+        required_source_ids: tuple[str, ...] = (),
         cited_source_ids: tuple[str, ...] = (),
         statement_confidence: str | None = None, cited_source_kinds: tuple[str, ...] = (),
         rejected_statement_text: str | None = None, validator_rule: str | None = None,
@@ -122,6 +123,7 @@ class GUTSValidationError(RuntimeError):
         self.statement_placement = statement_placement
         self.grounded_field = grounded_field
         self.required_source_id = required_source_id
+        self.required_source_ids = required_source_ids
         self.cited_source_ids = cited_source_ids
         self.statement_confidence = statement_confidence
         self.cited_source_kinds = cited_source_kinds
@@ -346,6 +348,7 @@ class GUTSOutputValidator:
         self._validate_dates_and_identifiers(
             text, statement.source_ids, sources, manifest,
             statement_key=statement.statement_key, placement=placement,
+            confidence=statement.confidence,
         )
         return ModelStatement(
             statement_key=statement.statement_key, placement_type="summary", section_type=None,
@@ -384,7 +387,7 @@ class GUTSOutputValidator:
 
     def _validate_dates_and_identifiers(
         self, text: str, source_ids: tuple[str, ...], sources: dict[str, SourceMetadata],
-        manifest: GUTSManifest, *, statement_key: str, placement: str,
+        manifest: GUTSManifest, *, statement_key: str, placement: str, confidence: str,
     ) -> None:
         grounded_fields: list[tuple[str, str]] = []
         deadline = manifest.current_state.response_deadline.value
@@ -396,7 +399,7 @@ class GUTSOutputValidator:
                     self._fail_grounded_field(
                         "The current deadline used the wrong citation.", statement_key=statement_key,
                         placement=placement, field_name="response_deadline", required_source_id=required,
-                        cited_source_ids=source_ids,
+                        cited_source_ids=source_ids, text=text, confidence=confidence, sources=sources,
                     )
                 grounded_fields.append(("response_deadline", required))
         solicitation = manifest.current_state.solicitation_number.value
@@ -406,7 +409,7 @@ class GUTSOutputValidator:
                 self._fail_grounded_field(
                     "The solicitation number used the wrong citation.", statement_key=statement_key,
                     placement=placement, field_name="solicitation_number", required_source_id=required,
-                    cited_source_ids=source_ids,
+                    cited_source_ids=source_ids, text=text, confidence=confidence, sources=sources,
                 )
             grounded_fields.append(("solicitation_number", required))
         stage = manifest.current_state.source_stage.value
@@ -416,7 +419,7 @@ class GUTSOutputValidator:
                 self._fail_grounded_field(
                     "The current source stage used the wrong citation.", statement_key=statement_key,
                     placement=placement, field_name="source_stage", required_source_id=required,
-                    cited_source_ids=source_ids,
+                    cited_source_ids=source_ids, text=text, confidence=confidence, sources=sources,
                 )
             grounded_fields.append(("source_stage", required))
         if grounded_fields and any(sources[source_id].source_class == "organizational_knowledge" for source_id in source_ids):
@@ -430,18 +433,36 @@ class GUTSOutputValidator:
         cited_searchable = " ".join(sources[source_id].searchable for source_id in source_ids).casefold()
         for match in DATE_PATTERN.findall(text):
             if not any(variant in cited_searchable for variant in _date_variants(match)):
-                self._fail("model_citation_invalid", "A date was not grounded by its citations.", "Cite the source containing each exact date.")
+                self._fail(
+                    "model_citation_invalid", "A date was not grounded by its citations.",
+                    "Cite the source containing each exact date.",
+                    statement_key=statement_key, statement_placement=placement,
+                    grounded_field="exact_date", cited_source_ids=source_ids,
+                    statement_confidence=confidence,
+                    cited_source_kinds=tuple(sorted(
+                        f"{sources[source_id].source_class}:{sources[source_id].source_type}"
+                        for source_id in source_ids
+                    )),
+                    rejected_statement_text=text, validator_rule="exact_date_grounding",
+                )
 
     def _fail_grounded_field(
         self, message: str, *, statement_key: str, placement: str, field_name: str,
-        required_source_id: str, cited_source_ids: tuple[str, ...],
+        required_source_id: str, cited_source_ids: tuple[str, ...], text: str,
+        confidence: str, sources: dict[str, SourceMetadata],
     ) -> None:
         self._fail(
             "model_citation_invalid", message,
             "Use the exact required current-state field citation and split unrelated claims.",
             statement_key=statement_key, statement_placement=placement,
             grounded_field=field_name, required_source_id=required_source_id,
-            cited_source_ids=cited_source_ids,
+            required_source_ids=(required_source_id,), cited_source_ids=cited_source_ids,
+            statement_confidence=confidence,
+            cited_source_kinds=tuple(sorted(
+                f"{sources[source_id].source_class}:{sources[source_id].source_type}"
+                for source_id in cited_source_ids
+            )),
+            rejected_statement_text=text, validator_rule="current_state_field_grounding",
         )
 
     @staticmethod
@@ -450,6 +471,7 @@ class GUTSOutputValidator:
         invalid_source_ids: tuple[str, ...] = (), allowed_source_ids: tuple[str, ...] = (),
         statement_key: str | None = None, statement_placement: str | None = None,
         grounded_field: str | None = None, required_source_id: str | None = None,
+        required_source_ids: tuple[str, ...] = (),
         cited_source_ids: tuple[str, ...] = (),
         statement_confidence: str | None = None, cited_source_kinds: tuple[str, ...] = (),
         rejected_statement_text: str | None = None, validator_rule: str | None = None,
@@ -459,7 +481,8 @@ class GUTSOutputValidator:
             category, message, feedback, invalid_source_ids=invalid_source_ids,
             allowed_source_ids=allowed_source_ids, statement_key=statement_key,
             statement_placement=statement_placement, grounded_field=grounded_field,
-            required_source_id=required_source_id, cited_source_ids=cited_source_ids,
+            required_source_id=required_source_id, required_source_ids=required_source_ids,
+            cited_source_ids=cited_source_ids,
             statement_confidence=statement_confidence, cited_source_kinds=cited_source_kinds,
             rejected_statement_text=rejected_statement_text, validator_rule=validator_rule,
             allowed_source_classes=allowed_source_classes,

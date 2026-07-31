@@ -517,6 +517,12 @@ class ValidatorTests(unittest.TestCase):
         self.assertEqual(error.statement_placement, "summary")
         self.assertEqual(error.cited_source_ids, ("official:1",))
         self.assertEqual(error.required_source_id, field("response_deadline").source_id)
+        self.assertEqual(error.required_source_ids, (field("response_deadline").source_id,))
+        self.assertEqual(error.validator_rule, "current_state_field_grounding")
+        self.assertEqual(error.grounded_field, "response_deadline")
+        self.assertEqual(error.statement_confidence, "supported")
+        self.assertEqual(error.cited_source_kinds, ("official_evidence:solicitation_document",))
+        self.assertEqual(error.rejected_statement_text, "The response deadline is September 1, 2026.")
 
     def test_current_deadline_title_and_official_substitutes_both_fail(self):
         for wrong_id in (field("title").source_id, "official:1"):
@@ -529,6 +535,7 @@ class ValidatorTests(unittest.TestCase):
                 self.validator.validate(bad, self.manifest)
             self.assertEqual(captured.exception.safe_message, "The current deadline used the wrong citation.")
             self.assertEqual(captured.exception.required_source_id, field("response_deadline").source_id)
+            self.assertEqual(captured.exception.validator_rule, "current_state_field_grounding")
 
     def test_deadline_plus_organizational_claim_is_rejected_as_non_atomic(self):
         combined = valid_output().model_copy(update={
@@ -579,6 +586,31 @@ class ValidatorTests(unittest.TestCase):
                 self.validator.validate(bad, self.manifest)
             self.assertEqual(captured.exception.grounded_field, field_name)
             self.assertEqual(captured.exception.required_source_id, field(field_name).source_id)
+            self.assertEqual(captured.exception.validator_rule, "current_state_field_grounding")
+            self.assertEqual(captured.exception.rejected_statement_text, text)
+
+    def test_exact_date_grounding_failure_has_transient_statement_debug_metadata(self):
+        bad = valid_output().model_copy(update={
+            "summary_statements": (
+                statement(
+                    "ungrounded-date", "A meeting occurred August 5, 2025.",
+                    "supported", [field("title").source_id],
+                ),
+            ),
+            "sections": (),
+        })
+        with self.assertRaises(GUTSValidationError) as captured:
+            self.validator.validate(bad, self.manifest)
+        error = captured.exception
+        self.assertEqual(error.safe_message, "A date was not grounded by its citations.")
+        self.assertEqual(error.validator_rule, "exact_date_grounding")
+        self.assertEqual(error.grounded_field, "exact_date")
+        self.assertEqual(error.statement_key, "ungrounded-date")
+        self.assertEqual(error.statement_placement, "summary")
+        self.assertEqual(error.statement_confidence, "supported")
+        self.assertEqual(error.cited_source_ids, (field("title").source_id,))
+        self.assertEqual(error.cited_source_kinds, ("current_state:title",))
+        self.assertEqual(error.rejected_statement_text, "A meeting occurred August 5, 2025.")
 
     def test_rejects_total_output_length_limit(self):
         validator = GUTSOutputValidator(max_total_characters=20)
