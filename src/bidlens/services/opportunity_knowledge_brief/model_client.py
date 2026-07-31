@@ -20,6 +20,7 @@ from .prompt import PROMPT_VERSION, SYSTEM_INSTRUCTIONS, manifest_input
 logger = logging.getLogger(__name__)
 _CITATION_FEEDBACK_PREFIX = "citation_inventory_v1:"
 _GROUNDED_FIELD_FEEDBACK_PREFIX = "grounded_field_v1:"
+_ATTRIBUTION_FEEDBACK_PREFIX = "attribution_v1:"
 _MAX_CITATION_FEEDBACK_CHARACTERS = 16_000
 SAFE_RETRY_FEEDBACK = frozenset({
     "Use statement_key 'headline' for the headline.",
@@ -142,6 +143,26 @@ def _safe_feedback(value: str) -> str:
             and all(isinstance(item, str) and 0 < len(item) <= 256 for item in payload["cited_source_ids"])
         ):
             return value
+    if value.startswith(_ATTRIBUTION_FEEDBACK_PREFIX) and len(value) <= _MAX_CITATION_FEEDBACK_CHARACTERS:
+        try:
+            payload = json.loads(value.removeprefix(_ATTRIBUTION_FEEDBACK_PREFIX))
+        except (json.JSONDecodeError, TypeError):
+            payload = None
+        if (
+            isinstance(payload, dict)
+            and set(payload) == {
+                "instruction", "statement_key", "placement", "confidence",
+                "cited_source_kinds", "safe_example",
+            }
+            and payload.get("instruction") == "Rewrite the statement with explicit attribution; do not convert proposals, plans, concerns, observations, or internal research into objective facts."
+            and payload.get("safe_example") == "An internal note indicates the organization is evaluating the issue."
+            and all(isinstance(payload.get(key), str) and 0 < len(payload[key]) <= 256 for key in (
+                "statement_key", "placement", "confidence",
+            ))
+            and isinstance(payload.get("cited_source_kinds"), list)
+            and all(isinstance(item, str) and 0 < len(item) <= 128 for item in payload["cited_source_kinds"])
+        ):
+            return value
     return "Correct the response to match the strict schema, citation, and safety rules."
 
 
@@ -160,6 +181,15 @@ def _validation_feedback(exc: GUTSValidationError) -> str:
             "field_name": exc.grounded_field,
             "required_source_id": exc.required_source_id,
             "cited_source_ids": list(exc.cited_source_ids),
+        }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    if exc.statement_key and exc.statement_confidence and exc.cited_source_kinds:
+        return _ATTRIBUTION_FEEDBACK_PREFIX + json.dumps({
+            "instruction": "Rewrite the statement with explicit attribution; do not convert proposals, plans, concerns, observations, or internal research into objective facts.",
+            "statement_key": exc.statement_key,
+            "placement": exc.statement_placement or "unknown",
+            "confidence": exc.statement_confidence,
+            "cited_source_kinds": list(exc.cited_source_kinds),
+            "safe_example": "An internal note indicates the organization is evaluating the issue.",
         }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return exc.feedback
 

@@ -245,6 +245,66 @@ class ValidatorTests(unittest.TestCase):
         validated = self.validator.validate(valid_output(), self.manifest)
         self.assertEqual(validated.briefing.sections[0].statements[0].source_ids, ("official:1", field("response_deadline").source_id))
 
+    def test_attribution_lexicon_accepts_preserved_claim_modes(self):
+        valid_phrases = (
+            "ABC Services has been proposed as a potential subcontractor.",
+            "John plans to contact ABC Services.",
+            "Sarah raised a staffing concern.",
+            "Staffing availability remains an internal concern.",
+            "An internal note indicates prior experience with this client.",
+        )
+        for index, text in enumerate(valid_phrases):
+            output = valid_output().model_copy(update={
+                "summary_statements": (
+                    statement(f"attributed-{index}", text, "attributed", ["note:1"]),
+                ),
+                "sections": (),
+            })
+            with self.subTest(text=text):
+                self.validator.validate(output, self.manifest)
+
+    def test_organizational_objective_confirmed_action_and_confirmed_risk_fail(self):
+        invalid_phrases = (
+            "ABC Services is the subcontractor.",
+            "John contacted ABC Services.",
+            "Staffing is a confirmed risk.",
+            "The organization completed similar work in 2022.",
+        )
+        for index, text in enumerate(invalid_phrases):
+            output = valid_output().model_copy(update={
+                "summary_statements": (
+                    statement(f"objective-{index}", text, "attributed", ["note:1"]),
+                ),
+                "sections": (),
+            })
+            with self.subTest(text=text), self.assertRaises(GUTSValidationError) as captured:
+                self.validator.validate(output, self.manifest)
+            error = captured.exception
+            self.assertEqual(error.safe_category, "model_output_unsafe")
+            self.assertEqual(error.safe_message, "An attributed claim did not preserve attribution.")
+            self.assertEqual(error.statement_key, f"objective-{index}")
+            self.assertEqual(error.statement_placement, "summary")
+            self.assertEqual(error.statement_confidence, "attributed")
+            self.assertEqual(error.cited_source_kinds, ("organizational_knowledge:note",))
+
+    def test_headline_objective_organizational_claim_fails_and_attributed_summary_succeeds(self):
+        objective_headline = valid_output().model_copy(update={
+            "headline": statement(
+                "headline", "ABC Services is the subcontractor.", "attributed", ["note:1"], "high",
+            ),
+            "sections": (),
+        })
+        with self.assertRaises(GUTSValidationError) as captured:
+            self.validator.validate(objective_headline, self.manifest)
+        self.assertEqual(captured.exception.statement_placement, "headline")
+        attributed_summary = valid_output().model_copy(update={
+            "summary_statements": (
+                statement("summary-attributed", "John plans to contact ABC Services.", "attributed", ["note:1"]),
+            ),
+            "sections": (),
+        })
+        self.validator.validate(attributed_summary, self.manifest)
+
     def test_rejects_citation_and_key_failures(self):
         base = valid_output()
         cases = (
@@ -507,6 +567,49 @@ class RetryAndProviderTests(unittest.TestCase):
         self.assertIn('"field_name":"response_deadline"', feedback)
         self.assertIn('"required_source_id":"current_state:opportunity:1:response_deadline"', feedback)
         self.assertIn('"cited_source_ids":["official:1"]', feedback)
+
+    def test_objective_organizational_first_attempt_gets_safe_feedback_and_corrects(self):
+        objective = valid_output().model_copy(update={
+            "summary_statements": (
+                statement("summary-objective", "ABC Services is the subcontractor.", "attributed", ["note:1"]),
+            ),
+            "sections": (),
+        })
+        corrected = valid_output().model_copy(update={
+            "summary_statements": (
+                statement(
+                    "summary-objective", "ABC Services has been proposed as a potential subcontractor.",
+                    "attributed", ["note:1"],
+                ),
+            ),
+            "sections": (),
+        })
+        client = FakeModelClient(call_result(objective), call_result(corrected))
+        result = generate_validated_briefing(manifest(), client=client)
+        self.assertEqual(result.validation_retry_count, 1)
+        feedback = client.calls[1][1]
+        self.assertLess(len(feedback), 2000)
+        self.assertIn('"statement_key":"summary-objective"', feedback)
+        self.assertIn('"placement":"summary"', feedback)
+        self.assertIn('"confidence":"attributed"', feedback)
+        self.assertIn('"cited_source_kinds":["organizational_knowledge:note"]', feedback)
+        self.assertNotIn("ABC Services is the subcontractor", feedback)
+        self.assertNotIn("Alex plans to contact ABC Services", feedback)
+
+    def test_second_objective_organizational_attempt_fails_strictly(self):
+        objective = valid_output().model_copy(update={
+            "summary_statements": (
+                statement("summary-objective", "ABC Services is the subcontractor.", "attributed", ["note:1"]),
+            ),
+            "sections": (),
+        })
+        client = FakeModelClient(call_result(objective), call_result(objective))
+        with self.assertRaises(GUTSModelError) as captured:
+            generate_validated_briefing(manifest(), client=client)
+        self.assertEqual(captured.exception.safe_category, "model_output_unsafe")
+        self.assertEqual(captured.exception.safe_message, "An attributed claim did not preserve attribution.")
+        self.assertFalse(captured.exception.retryable)
+        self.assertEqual(len(client.calls), 2)
 
     def test_schema_error_and_prohibited_first_output_each_retry_to_valid(self):
         schema_error = GUTSModelError(

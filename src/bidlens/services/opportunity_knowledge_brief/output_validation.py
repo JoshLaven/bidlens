@@ -39,7 +39,8 @@ PROHIBITED_PATTERNS = (
 )
 ATTRIBUTION_CUES = re.compile(
     r"\b(?:said|noted|reported|plans?|planned|proposed|intends?|expects?|believes?|"
-    r"identified|raised|asked|confirmed|according to|observed|described|expressed)\b", re.I,
+    r"identified|raised|asked|according to|observed|described|expressed|"
+    r"indicat(?:e|es|ed)|concerns?|concerned)\b|\bconfirmed\s+(?:that|whether)\b", re.I,
 )
 UNCERTAINTY_CUES = re.compile(r"\b(?:uncertain|unknown|unresolved|unclear|not provided|not identified|question)\b|\?", re.I)
 DATE_PATTERN = re.compile(
@@ -59,6 +60,7 @@ class GUTSValidationError(RuntimeError):
         statement_key: str | None = None, statement_placement: str | None = None,
         grounded_field: str | None = None, required_source_id: str | None = None,
         cited_source_ids: tuple[str, ...] = (),
+        statement_confidence: str | None = None, cited_source_kinds: tuple[str, ...] = (),
     ):
         super().__init__(safe_message)
         self.safe_category = safe_category
@@ -71,6 +73,8 @@ class GUTSValidationError(RuntimeError):
         self.grounded_field = grounded_field
         self.required_source_id = required_source_id
         self.cited_source_ids = cited_source_ids
+        self.statement_confidence = statement_confidence
+        self.cited_source_kinds = cited_source_kinds
 
 
 @dataclass(frozen=True)
@@ -244,7 +248,13 @@ class GUTSOutputValidator:
             if "organizational_knowledge" not in classes:
                 self._fail("model_citation_invalid", "An attributed statement lacked organizational evidence.", "Attributed statements must cite organizational knowledge.")
             if not ATTRIBUTION_CUES.search(text):
-                self._fail("model_output_unsafe", "An attributed claim did not preserve attribution.", "Use wording such as reported, proposed, plans, or noted.")
+                self._fail(
+                    "model_output_unsafe", "An attributed claim did not preserve attribution.",
+                    "Use explicit attribution such as reported, proposed, plans, raised a concern, or an internal note indicates.",
+                    statement_key=statement.statement_key, statement_placement=placement,
+                    statement_confidence=statement.confidence,
+                    cited_source_kinds=tuple(sorted(f"{source.source_class}:{source.source_type}" for source in cited)),
+                )
         if statement.confidence == "uncertain":
             evidence_uncertain = any(
                 UNCERTAINTY_CUES.search(source.searchable)
@@ -351,10 +361,12 @@ class GUTSOutputValidator:
         statement_key: str | None = None, statement_placement: str | None = None,
         grounded_field: str | None = None, required_source_id: str | None = None,
         cited_source_ids: tuple[str, ...] = (),
+        statement_confidence: str | None = None, cited_source_kinds: tuple[str, ...] = (),
     ):
         raise GUTSValidationError(
             category, message, feedback, invalid_source_ids=invalid_source_ids,
             allowed_source_ids=allowed_source_ids, statement_key=statement_key,
             statement_placement=statement_placement, grounded_field=grounded_field,
             required_source_id=required_source_id, cited_source_ids=cited_source_ids,
+            statement_confidence=statement_confidence, cited_source_kinds=cited_source_kinds,
         )
