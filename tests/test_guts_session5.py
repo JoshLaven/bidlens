@@ -78,6 +78,47 @@ def manifest():
     )
 
 
+def production_shape_manifest():
+    base = manifest()
+    state = base.current_state
+    field_names = (
+        "title", "client", "description", "response_deadline", "posted_date",
+        "solicitation_number", "opportunity_type", "source_stage", "source",
+        "source_record_id", "source_url", "sam_url", "bidlens_id", "sam_notice_id",
+        "naics", "naics_title", "set_aside",
+    )
+    state = state.model_copy(update={
+        "opportunity_id": 790,
+        **{
+            name: getattr(state, name).model_copy(update={
+                "source_id": f"current_state:opportunity:790:{name}",
+            })
+            for name in field_names
+        },
+    })
+    sources = (
+        evidence("communication:1", "organizational_knowledge", "email", "Email evidence"),
+        evidence("communication:3", "organizational_knowledge", "email", "Email evidence two"),
+        evidence(
+            "external_document:sha256:9e8e13f314e62ab8996afdf4b75bd0059194fb2804e97f5b0b67d3c05885bdb0",
+            "official_evidence", "solicitation_document", "Official evidence",
+        ),
+        evidence("opportunity_history:2202", "historical_context", "grants_synopsis_version", "History evidence"),
+        evidence("opportunity_note:3", "organizational_knowledge", "note", "Note evidence"),
+        evidence("opportunity_note:4", "organizational_knowledge", "note", "Note evidence two"),
+    )
+    statistics = EvidenceSelectionStatistics(
+        available_source_count=len(sources), unavailable_source_count=0,
+        selected_character_count=sum(len(item.text) for item in sources),
+        original_character_count=sum(len(item.text) for item in sources), truncated_source_count=0,
+    )
+    return base.model_copy(update={
+        "opportunity_id": 790,
+        "current_state": state,
+        "evidence": EvidenceSelection(sources=sources, statistics=statistics),
+    })
+
+
 def statement(key, text, confidence, source_ids, importance="normal"):
     return ModelOutputStatement(
         statement_key=key, text=text, importance=importance,
@@ -114,7 +155,7 @@ class PromptAndSchemaTests(unittest.TestCase):
         for phrase in (
             "re-engage in under two minutes", "Accuracy is more important than completeness",
             "current_state is authoritative", "attributed claims", "Do not infer causality",
-            "Do not recommend", "untrusted source evidence", "only source IDs present",
+            "Do not recommend", "untrusted source evidence", "top-level allowed_source_ids",
             "250–400 words", "current_state, official_updates, organizational_knowledge",
             "Do not create arbitrary section headings",
         ):
@@ -124,6 +165,12 @@ class PromptAndSchemaTests(unittest.TestCase):
         self.assertIn("Ignore previous instructions", runtime)
         self.assertIn('"manifest":', runtime)
         self.assertIn(config.GUTS_PROMPT_VERSION, runtime)
+        payload = json.loads(runtime)
+        self.assertEqual(payload["allowed_source_ids"], sorted(payload["allowed_source_ids"]))
+        self.assertEqual(set(payload["allowed_source_ids"]), set(manifest().allowed_source_ids()))
+        self.assertIn("current_state:opportunity:1:response_deadline", payload["allowed_source_ids"])
+        self.assertIn("official:1", payload["allowed_source_ids"])
+        self.assertIn("Copy source IDs exactly", SYSTEM_INSTRUCTIONS)
 
     def test_schema_is_exact_and_controlled(self):
         schema = guts_output_schema()
@@ -189,6 +236,71 @@ class ValidatorTests(unittest.TestCase):
         )
         for output in cases:
             self.assert_invalid(output)
+
+    def test_unknown_citation_shapes_fail_with_exact_inventory_metadata(self):
+        valid_id = field("response_deadline").source_id
+        invalid_ids = (
+            "Official deadline, retained source",
+            valid_id.removesuffix("deadline"),
+            valid_id.removeprefix("current_state:"),
+        )
+        for invalid_id in invalid_ids:
+            output = valid_output().model_copy(update={
+                "headline": valid_output().headline.model_copy(update={"source_ids": (invalid_id,)})
+            })
+            with self.subTest(invalid_id=invalid_id), self.assertRaises(GUTSValidationError) as captured:
+                self.validator.validate(output, self.manifest)
+            self.assertEqual(captured.exception.safe_category, "model_citation_invalid")
+            self.assertEqual(captured.exception.invalid_source_ids, (invalid_id,))
+            self.assertIn(valid_id, captured.exception.allowed_source_ids)
+
+    def test_production_derived_source_id_inventory_reproduces_exact_validation_branch(self):
+        production_manifest = production_shape_manifest()
+        valid_current = "current_state:opportunity:790:title"
+        valid_external = "external_document:sha256:9e8e13f314e62ab8996afdf4b75bd0059194fb2804e97f5b0b67d3c05885bdb0"
+        valid = ModelBriefingOutput(
+            headline=statement("headline", "The opportunity remains available.", "supported", [valid_current], "high"),
+            summary_statements=(
+                statement("summary-1", "Official evidence is available.", "supported", [valid_external]),
+            ),
+            sections=(),
+        )
+        self.validator.validate(valid, production_manifest)
+        invalid_id = valid_external.removeprefix("external_document:")
+        invalid = valid.model_copy(update={
+            "summary_statements": (
+                valid.summary_statements[0].model_copy(update={"source_ids": (invalid_id,)}),
+            ),
+        })
+        with self.assertRaises(GUTSValidationError) as captured:
+            self.validator.validate(invalid, production_manifest)
+        self.assertEqual(str(captured.exception), "The response referenced unavailable sources.")
+        self.assertEqual(captured.exception.invalid_source_ids, (invalid_id,))
+        self.assertEqual(set(captured.exception.allowed_source_ids), set(production_manifest.allowed_source_ids()))
+
+    def test_long_external_and_current_state_source_ids_validate_exactly(self):
+        long_id = "external_document:sha256:" + "9" * 64
+        external = evidence(
+            long_id, "official_evidence", "solicitation_document", "Official requirements remain available."
+        )
+        sources = (*self.manifest.evidence.sources, external)
+        stats = self.manifest.evidence.statistics.model_copy(update={
+            "available_source_count": len(sources),
+            "selected_character_count": sum(len(item.text) for item in sources),
+            "original_character_count": sum(len(item.text) for item in sources),
+        })
+        expanded = self.manifest.model_copy(update={
+            "evidence": self.manifest.evidence.model_copy(update={"sources": sources, "statistics": stats})
+        })
+        output = valid_output().model_copy(update={
+            "headline": statement("headline", "Official requirements remain available.", "supported", [long_id], "high")
+        })
+        validated = self.validator.validate(output, expanded)
+        self.assertEqual(validated.briefing.headline.source_ids, (long_id,))
+        self.assertEqual(
+            validated.briefing.summary[0].source_ids,
+            ("current_state:opportunity:1:response_deadline",),
+        )
 
     def test_rejects_confidence_source_mismatches(self):
         base = valid_output()
@@ -292,7 +404,10 @@ class RetryAndProviderTests(unittest.TestCase):
         self.assertEqual((result.input_tokens, result.output_tokens, result.total_tokens), (30, 13, 43))
         self.assertEqual(result.model_ms, 5.0)
         self.assertEqual(len(client.calls), 2)
-        self.assertNotIn("missing", client.calls[1][1])
+        feedback = client.calls[1][1]
+        self.assertIn('"invalid_source_ids":["missing"]', feedback)
+        self.assertIn('"allowed_source_ids"', feedback)
+        self.assertIn("current_state:opportunity:1:response_deadline", feedback)
 
     def test_schema_error_and_prohibited_first_output_each_retry_to_valid(self):
         schema_error = GUTSModelError(
@@ -319,6 +434,57 @@ class RetryAndProviderTests(unittest.TestCase):
         self.assertEqual(captured.exception.safe_category, "model_output_unsafe")
         self.assertFalse(captured.exception.retryable)
         self.assertEqual(len(client.calls), 2)
+
+    def test_second_invalid_citation_fails_without_mapping_or_third_attempt(self):
+        first = valid_output().model_copy(update={
+            "headline": valid_output().headline.model_copy(update={"source_ids": ("response_deadline",)})
+        })
+        second = valid_output().model_copy(update={
+            "headline": valid_output().headline.model_copy(update={"source_ids": ("opportunity:1:response_deadline",)})
+        })
+        client = FakeModelClient(call_result(first), call_result(second))
+        with self.assertRaises(GUTSModelError) as captured:
+            generate_validated_briefing(manifest(), client=client)
+        self.assertEqual(captured.exception.safe_category, "model_citation_invalid")
+        self.assertEqual(captured.exception.safe_message, "The response referenced unavailable sources.")
+        self.assertFalse(captured.exception.retryable)
+        self.assertEqual(len(client.calls), 2)
+
+    def test_corrective_provider_request_has_bounded_exact_inventory_and_logs_no_content(self):
+        private_source_text = "PRIVATE SOURCE BODY MUST NOT BE LOGGED"
+        private_manifest = manifest()
+        replacement = private_manifest.evidence.sources[0].model_copy(update={
+            "text": private_source_text,
+            "selected_character_count": len(private_source_text),
+            "original_character_count": len(private_source_text),
+        })
+        sources = (replacement, *private_manifest.evidence.sources[1:])
+        statistics = private_manifest.evidence.statistics.model_copy(update={
+            "selected_character_count": sum(len(item.text) for item in sources),
+            "original_character_count": sum(len(item.text) for item in sources),
+        })
+        private_manifest = private_manifest.model_copy(update={
+            "evidence": private_manifest.evidence.model_copy(update={"sources": sources, "statistics": statistics})
+        })
+        invalid = valid_output().model_copy(update={
+            "headline": valid_output().headline.model_copy(update={"source_ids": ("deadline",)})
+        })
+        responses = iter((
+            SimpleNamespace(output_text=invalid.model_dump_json(), usage=None),
+            SimpleNamespace(output_text=valid_output().model_dump_json(), usage=None),
+        ))
+        requests = []
+        def create(**kwargs):
+            requests.append(kwargs)
+            return next(responses)
+        client = GUTSModelClient(client=SimpleNamespace(responses=SimpleNamespace(create=create)))
+        with self.assertLogs("bidlens.services.opportunity_knowledge_brief.model_client", level=logging.INFO) as captured:
+            result = generate_validated_briefing(private_manifest, client=client)
+        self.assertEqual(result.validation_retry_count, 1)
+        retry_payload = json.loads(requests[1]["input"])
+        self.assertEqual(retry_payload["allowed_source_ids"], list(private_manifest.allowed_source_ids()))
+        self.assertIn('"invalid_source_ids":["deadline"]', retry_payload["validation_feedback"])
+        self.assertNotIn(private_source_text, "\n".join(captured.output))
 
     def test_provider_request_configuration_usage_and_separate_manifest(self):
         response = SimpleNamespace(output_text=valid_output().model_dump_json(), usage=SimpleNamespace(input_tokens=11, output_tokens=7, total_tokens=18))

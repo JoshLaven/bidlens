@@ -53,11 +53,16 @@ class GUTSValidationError(RuntimeError):
     stage = "output_validation"
     retryable = True
 
-    def __init__(self, safe_category: str, safe_message: str, feedback: str):
+    def __init__(
+        self, safe_category: str, safe_message: str, feedback: str, *,
+        invalid_source_ids: tuple[str, ...] = (), allowed_source_ids: tuple[str, ...] = (),
+    ):
         super().__init__(safe_message)
         self.safe_category = safe_category
         self.safe_message = safe_message
         self.feedback = feedback
+        self.invalid_source_ids = invalid_source_ids
+        self.allowed_source_ids = allowed_source_ids
 
 
 @dataclass(frozen=True)
@@ -205,7 +210,11 @@ class GUTSOutputValidator:
             self._fail("model_citation_invalid", "A citation was duplicated.", "Use each source ID at most once per statement.")
         unknown = [source_id for source_id in statement.source_ids if source_id not in sources]
         if unknown:
-            self._fail("model_citation_invalid", "The response referenced unavailable sources.", "Use only source IDs present in the manifest.")
+            self._fail(
+                "model_citation_invalid", "The response referenced unavailable sources.",
+                "Use only source IDs present in the manifest.",
+                invalid_source_ids=tuple(unknown), allowed_source_ids=tuple(sorted(sources)),
+            )
         for source_id in statement.source_ids:
             if source_id.casefold() in text.casefold():
                 self._fail("model_output_unsafe", "A raw source ID appeared in prose.", "Keep source IDs only in source_ids arrays.")
@@ -272,5 +281,11 @@ class GUTSOutputValidator:
             self._fail("model_citation_invalid", "The solicitation number used the wrong citation.", "Cite the current solicitation_number source for the identifier.")
 
     @staticmethod
-    def _fail(category: str, message: str, feedback: str):
-        raise GUTSValidationError(category, message, feedback)
+    def _fail(
+        category: str, message: str, feedback: str, *,
+        invalid_source_ids: tuple[str, ...] = (), allowed_source_ids: tuple[str, ...] = (),
+    ):
+        raise GUTSValidationError(
+            category, message, feedback, invalid_source_ids=invalid_source_ids,
+            allowed_source_ids=allowed_source_ids,
+        )

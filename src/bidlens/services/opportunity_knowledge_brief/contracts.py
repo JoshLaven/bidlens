@@ -263,6 +263,17 @@ class GUTSManifest(GUTSContract):
     reproducibility_status: ReproducibilityValue
     briefing_goal: str = "Provide an accurate, concise, citation-backed opportunity briefing."
 
+    def allowed_source_ids(self) -> tuple[str, ...]:
+        current_ids = tuple(
+            getattr(self.current_state, name).source_id
+            for name in sorted(KNOWN_CURRENT_STATE_FIELDS - {"agency"})
+        )
+        outcome_ids = (
+            (f"current_state:opportunity:{self.opportunity_id}:organization_outcome",)
+            if self.current_state.outcome else ()
+        )
+        return tuple(sorted((*current_ids, *outcome_ids, *(source.source_id for source in self.evidence.sources))))
+
 
 class ModelStatement(GUTSContract):
     statement_key: str

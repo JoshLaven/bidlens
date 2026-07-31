@@ -18,6 +18,8 @@ from .prompt import PROMPT_VERSION, SYSTEM_INSTRUCTIONS, manifest_input
 
 
 logger = logging.getLogger(__name__)
+_CITATION_FEEDBACK_PREFIX = "citation_inventory_v1:"
+_MAX_CITATION_FEEDBACK_CHARACTERS = 16_000
 SAFE_RETRY_FEEDBACK = frozenset({
     "Use statement_key 'headline' for the headline.",
     "Use high importance for the headline.",
@@ -102,7 +104,35 @@ def _usage(response: Any) -> dict[str, int | None]:
 
 
 def _safe_feedback(value: str) -> str:
-    return value if value in SAFE_RETRY_FEEDBACK else "Correct the response to match the strict schema, citation, and safety rules."
+    if value in SAFE_RETRY_FEEDBACK:
+        return value
+    if value.startswith(_CITATION_FEEDBACK_PREFIX) and len(value) <= _MAX_CITATION_FEEDBACK_CHARACTERS:
+        try:
+            payload = json.loads(value.removeprefix(_CITATION_FEEDBACK_PREFIX))
+        except (json.JSONDecodeError, TypeError):
+            payload = None
+        if (
+            isinstance(payload, dict)
+            and set(payload) == {"instruction", "invalid_source_ids", "allowed_source_ids"}
+            and payload.get("instruction") == "Use only exact IDs from allowed_source_ids; do not shorten IDs, omit prefixes, or use citation labels."
+            and all(isinstance(items, list) for items in (payload.get("invalid_source_ids"), payload.get("allowed_source_ids")))
+            and all(
+                isinstance(item, str) and 0 < len(item) <= 256 and not any(ord(char) < 32 for char in item)
+                for key in ("invalid_source_ids", "allowed_source_ids") for item in payload[key]
+            )
+        ):
+            return value
+    return "Correct the response to match the strict schema, citation, and safety rules."
+
+
+def _validation_feedback(exc: GUTSValidationError) -> str:
+    if exc.invalid_source_ids and exc.allowed_source_ids:
+        return _CITATION_FEEDBACK_PREFIX + json.dumps({
+            "instruction": "Use only exact IDs from allowed_source_ids; do not shorten IDs, omit prefixes, or use citation labels.",
+            "invalid_source_ids": list(exc.invalid_source_ids),
+            "allowed_source_ids": list(exc.allowed_source_ids),
+        }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return exc.feedback
 
 
 class GUTSModelClient:
@@ -224,7 +254,7 @@ def generate_validated_briefing(
         )
     except GUTSValidationError as exc:
         first_error = exc
-        feedback = exc.feedback
+        feedback = _validation_feedback(exc)
     except GUTSModelError as exc:
         if not exc.retryable or exc.safe_category not in {
             "model_schema_invalid", "model_citation_invalid", "model_output_unsafe",

@@ -26,7 +26,7 @@ Use professional, factual, concise, natural language. Do not use AI-assistant la
 
 Return a headline, at least one summary statement, and only meaningful supported sections. Allowed section types are current_state, official_updates, organizational_knowledge, important_history, and uncertainties. Do not create arbitrary section headings or titles; BidLens owns display labels.
 
-Each statement must express one independently supportable idea. Split unrelated claims, especially when they require different citations. Every headline, summary statement, and section statement requires a non-empty source_ids list using only source IDs present in the manifest. Do not put source IDs, citation labels, Markdown links, footnotes, or citation brackets in prose.
+Each statement must express one independently supportable idea. Split unrelated claims, especially when they require different citations. Every headline, summary statement, and section statement requires a non-empty source_ids list. Copy source IDs exactly from the top-level allowed_source_ids array. Never shorten an ID, omit a prefix, substitute a citation label, or construct an ID. Do not put source IDs, citation labels, Markdown links, footnotes, or citation brackets in prose.
 
 Use supported confidence only with current_state or official_evidence. Use attributed confidence for organizational claims and preserve proposed, planned, reported, or observed status. Use uncertain only for evidence-backed unresolved information. Follow the section/source compatibility encoded by the manifest classifications.
 
@@ -38,6 +38,7 @@ def manifest_input(manifest: GUTSManifest, *, validation_feedback: str | None = 
     payload = {
         "prompt_version": PROMPT_VERSION,
         "validation_feedback": validation_feedback,
+        "allowed_source_ids": manifest.allowed_source_ids(),
         "manifest": manifest.serializable_dict(),
     }
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)

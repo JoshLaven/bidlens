@@ -1,6 +1,6 @@
 # Output Contract
 
-Canonical output is validated structured JSON. Rendering is application-controlled. Session 5 uses the configured `GUTS_PROMPT_VERSION` (`guts-v1` by default) and `GUTS_OUTPUT_SCHEMA_VERSION`.
+Canonical output is validated structured JSON. Rendering is application-controlled. The configured `GUTS_PROMPT_VERSION` defaults to `guts-v2`; this version supplies a dedicated `allowed_source_ids` inventory for exact citation selection. Output continues to use `GUTS_OUTPUT_SCHEMA_VERSION`.
 
 ## Provider output
 
