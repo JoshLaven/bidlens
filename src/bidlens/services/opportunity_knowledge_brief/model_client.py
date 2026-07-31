@@ -35,7 +35,7 @@ SAFE_RETRY_FEEDBACK = frozenset({
     "Return non-blank statement text.",
     "Shorten each statement and keep it atomic.",
     "Use each source ID at most once per statement.",
-    "Use only source IDs present in the manifest.",
+    "Use only source IDs present in the citation contract.",
     "Keep source IDs only in source_ids arrays.",
     "Remove recommendations, speculation, markup, and raw citation syntax.",
     "Return atomic statements containing one independently supportable idea.",
@@ -115,7 +115,7 @@ def _safe_feedback(value: str) -> str:
         if (
             isinstance(payload, dict)
             and set(payload) == {"instruction", "invalid_source_ids", "allowed_source_ids"}
-            and payload.get("instruction") == "Use only exact IDs from allowed_source_ids; do not shorten IDs, omit prefixes, or use citation labels."
+            and payload.get("instruction") == "Copy only exact allowed_source_ids values. Field-name keys, citation labels, conflict IDs, hashes, record IDs, and metadata values are not citations."
             and all(isinstance(items, list) for items in (payload.get("invalid_source_ids"), payload.get("allowed_source_ids")))
             and all(
                 isinstance(item, str) and 0 < len(item) <= 256 and not any(ord(char) < 32 for char in item)
@@ -148,7 +148,7 @@ def _safe_feedback(value: str) -> str:
 def _validation_feedback(exc: GUTSValidationError) -> str:
     if exc.invalid_source_ids and exc.allowed_source_ids:
         return _CITATION_FEEDBACK_PREFIX + json.dumps({
-            "instruction": "Use only exact IDs from allowed_source_ids; do not shorten IDs, omit prefixes, or use citation labels.",
+            "instruction": "Copy only exact allowed_source_ids values. Field-name keys, citation labels, conflict IDs, hashes, record IDs, and metadata values are not citations.",
             "invalid_source_ids": list(exc.invalid_source_ids),
             "allowed_source_ids": list(exc.allowed_source_ids),
         }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -197,7 +197,9 @@ class GUTSModelClient:
                 input=manifest_input(manifest, validation_feedback=validation_feedback),
                 text={"format": {
                     "type": "json_schema", "name": "guts_briefing",
-                    "strict": True, "schema": guts_output_schema(),
+                    "strict": True, "schema": guts_output_schema(
+                        allowed_source_ids=manifest.allowed_source_ids(),
+                    ),
                 }},
                 max_output_tokens=config.GUTS_MAX_OUTPUT_TOKENS,
                 temperature=0,

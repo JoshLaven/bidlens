@@ -14,7 +14,10 @@ SECTION_TYPES = [
 ]
 
 
-def _statement_schema() -> dict[str, Any]:
+def _statement_schema(*, allowed_source_ids: tuple[str, ...] | None = None) -> dict[str, Any]:
+    source_id_schema: dict[str, Any] = {"type": "string"}
+    if allowed_source_ids is not None:
+        source_id_schema["enum"] = list(allowed_source_ids)
     return {
         "type": "object",
         "additionalProperties": False,
@@ -27,7 +30,7 @@ def _statement_schema() -> dict[str, Any]:
             "importance": {"type": "string", "enum": ["high", "normal"]},
             "confidence": {"type": "string", "enum": ["supported", "attributed", "uncertain"]},
             "source_ids": {
-                "type": "array", "items": {"type": "string"},
+                "type": "array", "items": source_id_schema,
                 "minItems": 1, "maxItems": 20,
             },
         },
@@ -35,8 +38,8 @@ def _statement_schema() -> dict[str, Any]:
     }
 
 
-def guts_output_schema() -> dict[str, Any]:
-    statement = _statement_schema()
+def guts_output_schema(*, allowed_source_ids: tuple[str, ...] | None = None) -> dict[str, Any]:
+    statement = _statement_schema(allowed_source_ids=allowed_source_ids)
     headline = deepcopy(statement)
     headline["properties"]["importance"] = {"type": "string", "enum": ["high"]}
     return {

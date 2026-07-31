@@ -225,7 +225,7 @@ class GUTSOutputValidator:
         if unknown:
             self._fail(
                 "model_citation_invalid", "The response referenced unavailable sources.",
-                "Use only source IDs present in the manifest.",
+                "Use only source IDs present in the citation contract.",
                 invalid_source_ids=tuple(unknown), allowed_source_ids=tuple(sorted(sources)),
             )
         for source_id in statement.source_ids:

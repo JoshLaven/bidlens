@@ -1,6 +1,6 @@
 # Output Contract
 
-Canonical output is validated structured JSON. Rendering is application-controlled. The configured `GUTS_PROMPT_VERSION` defaults to `guts-v3`; this version supplies dedicated `allowed_source_ids` and `required_current_state_citations` inventories for exact citation selection and field grounding. Output continues to use `GUTS_OUTPUT_SCHEMA_VERSION`.
+Canonical output is validated structured JSON. Rendering is application-controlled. The configured `GUTS_PROMPT_VERSION` defaults to `guts-v4`; this version structurally separates a citation contract from sanitized model-visible evidence and constrains provider output to the manifest-specific source-ID enum. Output continues to use `GUTS_OUTPUT_SCHEMA_VERSION`.
 
 ## Provider output
 
