@@ -180,8 +180,8 @@ def _safe_feedback(value: str) -> str:
                 "instruction", "statement_key", "placement", "confidence",
                 "cited_source_kinds", "safe_example",
             }
-            and payload.get("instruction") == "Rewrite the statement with explicit attribution; do not convert proposals, plans, concerns, observations, or internal research into objective facts."
-            and payload.get("safe_example") == "An internal note indicates the organization is evaluating the issue."
+            and payload.get("instruction") == "Name the person who made the recommendation, plan, concern, or observation; do not generalize one person's statement into organizational consensus; use concise actor-attributed wording."
+            and payload.get("safe_example") == "A named person recommended the approach."
             and all(isinstance(payload.get(key), str) and 0 < len(payload[key]) <= 256 for key in (
                 "statement_key", "placement", "confidence",
             ))
@@ -210,12 +210,12 @@ def _validation_feedback(exc: GUTSValidationError) -> str:
         }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     if exc.statement_key and exc.statement_confidence and exc.cited_source_kinds:
         return _ATTRIBUTION_FEEDBACK_PREFIX + json.dumps({
-            "instruction": "Rewrite the statement with explicit attribution; do not convert proposals, plans, concerns, observations, or internal research into objective facts.",
+            "instruction": "Name the person who made the recommendation, plan, concern, or observation; do not generalize one person's statement into organizational consensus; use concise actor-attributed wording.",
             "statement_key": exc.statement_key,
             "placement": exc.statement_placement or "unknown",
             "confidence": exc.statement_confidence,
             "cited_source_kinds": list(exc.cited_source_kinds),
-            "safe_example": "An internal note indicates the organization is evaluating the issue.",
+            "safe_example": "A named person recommended the approach.",
         }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return exc.feedback
 

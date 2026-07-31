@@ -54,19 +54,13 @@ ATTRIBUTION_VERBS = (
     r"express(?:es|ed)?|ask(?:s|ed)?|plan(?:s|ned)?|intend(?:s|ed)?"
 )
 ACTOR_ATTRIBUTION = re.compile(
-    rf"\b(?:[A-Z][\w'’-]*(?:\s+[A-Z][\w'’-]*){{0,4}}|the\s+(?:team|organization|staff))\s+"
+    rf"\b[A-Z][\w'’-]*(?:\s+[A-Z][\w'’-]*){{0,4}}\s+"
     rf"(?:has\s+|had\s+)?(?:{ATTRIBUTION_VERBS})\b",
-    re.I,
 )
-PASSIVE_ATTRIBUTION = re.compile(
-    r"\b(?:has|have|had|was|were|is|are)\s+(?:been\s+)?"
-    r"(?:proposed|discussed|raised|identified|recommended|considered|reported|noted)\b",
-    re.I,
-)
+TEAM_ATTRIBUTION = re.compile(rf"\bthe\s+team\s+(?:has\s+|had\s+)?(?:{ATTRIBUTION_VERBS})\b", re.I)
 INTERNAL_ATTRIBUTION = re.compile(
     r"\b(?:an?\s+)?internal\s+(?:note|discussion|record|communication)\s+"
     r"(?:indicates?|records?|notes?|identified|raised|discussed|reported)\b|"
-    r"\bremains?\s+an?\s+internal\s+(?:concern|question|proposal|plan)\b|"
     r"\bthe\s+available\s+(?:communication|internal)\s+records?\b|"
     r"\baccording\s+to\b",
     re.I,
@@ -151,7 +145,7 @@ def preserves_attribution(text: str) -> bool:
     """Recognize explicit grammatical attribution without judging source content."""
     return bool(
         ACTOR_ATTRIBUTION.search(text)
-        or PASSIVE_ATTRIBUTION.search(text)
+        or TEAM_ATTRIBUTION.search(text)
         or INTERNAL_ATTRIBUTION.search(text)
     )
 
@@ -335,10 +329,19 @@ class GUTSOutputValidator:
                     feedback="Attributed statements must cite organizational knowledge.",
                     required_source_classes=("organizational_knowledge",),
                 )
-            if contains_objective_upgrade(text) or not preserves_attribution(text):
+            team_attribution = bool(TEAM_ATTRIBUTION.search(text))
+            team_consensus_unsupported = team_attribution and (
+                len(statement.source_ids) < 2
+                or bool(set(statement.source_ids).intersection(conflict_source_ids))
+            )
+            if (
+                contains_objective_upgrade(text)
+                or not preserves_attribution(text)
+                or team_consensus_unsupported
+            ):
                 self._fail(
                     "model_output_unsafe", "An attributed claim did not preserve attribution.",
-                    "Use explicit attribution such as reported, proposed, plans, raised a concern, or an internal note indicates.",
+                    "Name the person who made the recommendation, plan, concern, or observation; do not generalize one person's statement into organizational consensus; use concise actor-attributed wording.",
                     statement_key=statement.statement_key, statement_placement=placement,
                     statement_confidence=statement.confidence,
                     cited_source_ids=tuple(statement.source_ids),

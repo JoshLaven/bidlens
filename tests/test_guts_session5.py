@@ -10,7 +10,7 @@ from bidlens import config
 from bidlens.services.opportunity_knowledge_brief.contracts import (
     CurrentOpportunityState, CurrentStateField, EvidenceAuthor, EvidenceSelection,
     EvidenceSelectionStatistics, EvidenceSource, GUTSManifest, GenerationConstraints,
-    ModelBriefingOutput, ModelOutputSection, ModelOutputStatement, SalesforceLinkState,
+    KnownConflict, ModelBriefingOutput, ModelOutputSection, ModelOutputStatement, SalesforceLinkState,
 )
 from bidlens.services.opportunity_knowledge_brief.model_client import (
     GUTSModelCallResult, GUTSModelClient, GUTSModelError,
@@ -202,6 +202,18 @@ class PromptAndSchemaTests(unittest.TestCase):
     def test_prompt_allows_complementary_note_and_communication_knowledge(self):
         self.assertIn("distinct complementary facts, both may appear", SYSTEM_INSTRUCTIONS)
 
+    def test_prompt_requires_explicit_actor_or_source_framing_without_false_consensus(self):
+        for phrase in (
+            "prefer information fidelity over smoother generalized synthesis",
+            "name the actor who expressed them",
+            "An internal note indicates",
+            "Use “the team” only when multiple consistent cited sources",
+            "Do not turn one person's message into “plans are in place,” “the organization intends,” or “the team decided.”",
+            "Prefer one concise actor-attributed statement",
+            "Keep current-state and official-evidence prose unchanged",
+        ):
+            self.assertIn(phrase, SYSTEM_INSTRUCTIONS)
+
     def test_schema_is_exact_and_controlled(self):
         schema = guts_output_schema()
         self.assertFalse(schema["additionalProperties"])
@@ -264,15 +276,15 @@ class ValidatorTests(unittest.TestCase):
 
     def test_attribution_lexicon_accepts_preserved_claim_modes(self):
         valid_phrases = (
-            "ABC Services has been proposed as a potential subcontractor.",
             "John plans to contact ABC Services.",
             "Sarah raised a staffing concern.",
-            "Staffing availability remains an internal concern.",
             "An internal note indicates prior experience with this client.",
             "Jane suggested ABC Services as a subcontractor.",
-            "The team discussed involving the AI department.",
             "An internal note records prior work with Arizona.",
             "Kendall recommended involving the AI Intelligence department.",
+            "Tom recommended engaging subcontractors early and identified Westat as the first partner to approach.",
+            "Josh planned to begin partner outreach.",
+            "Maria raised concerns about participant-retention costs.",
         )
         for index, text in enumerate(valid_phrases):
             output = valid_output().model_copy(update={
@@ -283,6 +295,65 @@ class ValidatorTests(unittest.TestCase):
             })
             with self.subTest(text=text):
                 self.validator.validate(output, self.manifest)
+
+    def test_generation_15_generalized_plan_language_remains_rejected(self):
+        invalid_phrases = (
+            "Plans are in place to engage potential subcontractors early in the process, with Westat being a primary candidate for collaboration.",
+            "Plans are in place to involve Westat.",
+            "The organization intends to partner with Westat.",
+            "The team decided to involve Westat.",
+        )
+        for index, text in enumerate(invalid_phrases):
+            output = valid_output().model_copy(update={
+                "summary_statements": (
+                    statement(f"generalized-{index}", text, "attributed", ["email:1"]),
+                ),
+                "sections": (),
+            })
+            with self.subTest(text=text), self.assertRaises(GUTSValidationError) as captured:
+                self.validator.validate(output, self.manifest)
+            self.assertEqual(captured.exception.validator_rule, "attribution_preservation")
+
+    def test_team_discussion_requires_multiple_consistent_sources(self):
+        team_statement = statement(
+            "team-discussion", "The team discussed involving the AI department.",
+            "attributed", ["note:1", "email:1"],
+        )
+        output = valid_output().model_copy(update={
+            "summary_statements": (team_statement,), "sections": (),
+        })
+        self.validator.validate(output, self.manifest)
+
+        single_source = output.model_copy(update={
+            "summary_statements": (
+                team_statement.model_copy(update={"source_ids": ("note:1",)}),
+            ),
+        })
+        with self.assertRaises(GUTSValidationError):
+            self.validator.validate(single_source, self.manifest)
+
+    def test_conflicting_sources_cannot_be_compressed_into_team_consensus(self):
+        conflict = KnownConflict(
+            conflict_id="conflict:test", field_name="organizational_position",
+            authoritative_value="involve AI", authoritative_source_id="note:1",
+            conflicting_value="do not involve AI", conflicting_source_id="email:1",
+            resolution="unresolved_internal_disagreement", material=True, include_in_briefing=True,
+        )
+        conflicted_manifest = self.manifest.model_copy(update={
+            "evidence": self.manifest.evidence.model_copy(update={"known_conflicts": (conflict,)}),
+        })
+        output = valid_output().model_copy(update={
+            "summary_statements": (
+                statement(
+                    "team-consensus", "The team discussed involving the AI department.",
+                    "attributed", ["note:1", "email:1"],
+                ),
+            ),
+            "sections": (),
+        })
+        with self.assertRaises(GUTSValidationError) as captured:
+            self.validator.validate(output, conflicted_manifest)
+        self.assertEqual(captured.exception.validator_rule, "attribution_preservation")
 
     def test_generation_8_actor_attribution_passes_in_organizational_section(self):
         exact_statement = statement(
@@ -779,7 +850,7 @@ class RetryAndProviderTests(unittest.TestCase):
         corrected = valid_output().model_copy(update={
             "summary_statements": (
                 statement(
-                    "summary-objective", "ABC Services has been proposed as a potential subcontractor.",
+                    "summary-objective", "Alex proposed ABC Services as a potential subcontractor.",
                     "attributed", ["note:1"],
                 ),
             ),
@@ -794,6 +865,8 @@ class RetryAndProviderTests(unittest.TestCase):
         self.assertIn('"placement":"summary"', feedback)
         self.assertIn('"confidence":"attributed"', feedback)
         self.assertIn('"cited_source_kinds":["organizational_knowledge:note"]', feedback)
+        self.assertIn("Name the person who made the recommendation", feedback)
+        self.assertIn("do not generalize one person's statement into organizational consensus", feedback)
         self.assertNotIn("ABC Services is the subcontractor", feedback)
         self.assertNotIn("Alex plans to contact ABC Services", feedback)
 
