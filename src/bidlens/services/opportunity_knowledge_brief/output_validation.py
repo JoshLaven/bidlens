@@ -56,6 +56,9 @@ class GUTSValidationError(RuntimeError):
     def __init__(
         self, safe_category: str, safe_message: str, feedback: str, *,
         invalid_source_ids: tuple[str, ...] = (), allowed_source_ids: tuple[str, ...] = (),
+        statement_key: str | None = None, statement_placement: str | None = None,
+        grounded_field: str | None = None, required_source_id: str | None = None,
+        cited_source_ids: tuple[str, ...] = (),
     ):
         super().__init__(safe_message)
         self.safe_category = safe_category
@@ -63,6 +66,11 @@ class GUTSValidationError(RuntimeError):
         self.feedback = feedback
         self.invalid_source_ids = invalid_source_ids
         self.allowed_source_ids = allowed_source_ids
+        self.statement_key = statement_key
+        self.statement_placement = statement_placement
+        self.grounded_field = grounded_field
+        self.required_source_id = required_source_id
+        self.cited_source_ids = cited_source_ids
 
 
 @dataclass(frozen=True)
@@ -158,7 +166,12 @@ class GUTSOutputValidator:
         section_types = [section.section_type for section in output.sections]
         if len(section_types) != len(set(section_types)):
             self._fail("model_schema_invalid", "A section type was duplicated.", "Return each section type at most once.")
-        statements = [output.headline, *output.summary_statements, *(statement for section in output.sections for statement in section.statements)]
+        statement_contexts = [
+            (output.headline, "headline"),
+            *((statement, "summary") for statement in output.summary_statements),
+            *((statement, f"section:{section.section_type}") for section in output.sections for statement in section.statements),
+        ]
+        statements = [statement for statement, _placement in statement_contexts]
         keys = [statement.statement_key for statement in statements]
         if any(not key.strip() for key in keys):
             self._fail("model_schema_invalid", "A statement key was blank.", "Return a non-blank statement_key for every statement.")
@@ -173,10 +186,10 @@ class GUTSOutputValidator:
             for source_id in (conflict.authoritative_source_id, conflict.conflicting_source_id)
         }
         normalized: dict[str, ModelStatement] = {}
-        for position, statement in enumerate(statements):
+        for position, (statement, placement) in enumerate(statement_contexts):
             normalized[statement.statement_key] = self._validate_statement(
                 statement, sources=sources, conflict_source_ids=conflict_source_ids,
-                manifest=manifest, position=position,
+                manifest=manifest, position=position, placement=placement,
             )
         for section in output.sections:
             self._validate_section(section.section_type, section.statements, sources)
@@ -199,7 +212,7 @@ class GUTSOutputValidator:
 
     def _validate_statement(
         self, statement: ModelOutputStatement, *, sources: dict[str, SourceMetadata],
-        conflict_source_ids: set[str], manifest: GUTSManifest, position: int,
+        conflict_source_ids: set[str], manifest: GUTSManifest, position: int, placement: str,
     ) -> ModelStatement:
         text = _normalize_text(statement.text)
         if not text:
@@ -244,7 +257,10 @@ class GUTSOutputValidator:
             source.source and source.source.structured_facts.get("causal_statement") is True for source in cited
         ):
             self._fail("model_output_unsafe", "Unsupported causal language was used.", "State supported facts separately without inferring causality.")
-        self._validate_dates_and_identifiers(text, statement.source_ids, sources, manifest)
+        self._validate_dates_and_identifiers(
+            text, statement.source_ids, sources, manifest,
+            statement_key=statement.statement_key, placement=placement,
+        )
         return ModelStatement(
             statement_key=statement.statement_key, placement_type="summary", section_type=None,
             position=position, text=text, importance=statement.importance,
@@ -266,26 +282,79 @@ class GUTSOutputValidator:
             if section_type == "uncertainties" and statement.confidence != "uncertain":
                 self._fail("model_citation_invalid", "An uncertainty section used the wrong confidence.", "Use uncertain confidence for every uncertainties statement.")
 
-    def _validate_dates_and_identifiers(self, text: str, source_ids: tuple[str, ...], sources: dict[str, SourceMetadata], manifest: GUTSManifest) -> None:
+    def _validate_dates_and_identifiers(
+        self, text: str, source_ids: tuple[str, ...], sources: dict[str, SourceMetadata],
+        manifest: GUTSManifest, *, statement_key: str, placement: str,
+    ) -> None:
+        grounded_fields: list[tuple[str, str]] = []
+        deadline = manifest.current_state.response_deadline.value
+        if deadline:
+            deadline_variants = _date_variants(str(deadline))
+            if any(variant in text.casefold() for variant in deadline_variants):
+                required = manifest.current_state.response_deadline.source_id
+                if required not in source_ids:
+                    self._fail_grounded_field(
+                        "The current deadline used the wrong citation.", statement_key=statement_key,
+                        placement=placement, field_name="response_deadline", required_source_id=required,
+                        cited_source_ids=source_ids,
+                    )
+                grounded_fields.append(("response_deadline", required))
+        solicitation = manifest.current_state.solicitation_number.value
+        if solicitation and str(solicitation).casefold() in text.casefold():
+            required = manifest.current_state.solicitation_number.source_id
+            if required not in source_ids:
+                self._fail_grounded_field(
+                    "The solicitation number used the wrong citation.", statement_key=statement_key,
+                    placement=placement, field_name="solicitation_number", required_source_id=required,
+                    cited_source_ids=source_ids,
+                )
+            grounded_fields.append(("solicitation_number", required))
+        stage = manifest.current_state.source_stage.value
+        if stage and re.search(rf"(?<!\w){re.escape(str(stage))}(?!\w)", text, re.I):
+            required = manifest.current_state.source_stage.source_id
+            if required not in source_ids:
+                self._fail_grounded_field(
+                    "The current source stage used the wrong citation.", statement_key=statement_key,
+                    placement=placement, field_name="source_stage", required_source_id=required,
+                    cited_source_ids=source_ids,
+                )
+            grounded_fields.append(("source_stage", required))
+        if grounded_fields and any(sources[source_id].source_class == "organizational_knowledge" for source_id in source_ids):
+            field_name, required = grounded_fields[0]
+            self._fail(
+                "model_output_unsafe", "A current-state field was combined with organizational knowledge.",
+                "Split current-state fields and organizational claims into separate atomic statements.",
+                statement_key=statement_key, statement_placement=placement,
+                grounded_field=field_name, required_source_id=required, cited_source_ids=source_ids,
+            )
         cited_searchable = " ".join(sources[source_id].searchable for source_id in source_ids).casefold()
         for match in DATE_PATTERN.findall(text):
             if not any(variant in cited_searchable for variant in _date_variants(match)):
                 self._fail("model_citation_invalid", "A date was not grounded by its citations.", "Cite the source containing each exact date.")
-        deadline = manifest.current_state.response_deadline.value
-        if deadline:
-            deadline_variants = _date_variants(str(deadline))
-            if any(variant in text.casefold() for variant in deadline_variants) and manifest.current_state.response_deadline.source_id not in source_ids:
-                self._fail("model_citation_invalid", "The current deadline used the wrong citation.", "Cite the current response_deadline source for the operative deadline.")
-        solicitation = manifest.current_state.solicitation_number.value
-        if solicitation and str(solicitation).casefold() in text.casefold() and manifest.current_state.solicitation_number.source_id not in source_ids:
-            self._fail("model_citation_invalid", "The solicitation number used the wrong citation.", "Cite the current solicitation_number source for the identifier.")
+
+    def _fail_grounded_field(
+        self, message: str, *, statement_key: str, placement: str, field_name: str,
+        required_source_id: str, cited_source_ids: tuple[str, ...],
+    ) -> None:
+        self._fail(
+            "model_citation_invalid", message,
+            "Use the exact required current-state field citation and split unrelated claims.",
+            statement_key=statement_key, statement_placement=placement,
+            grounded_field=field_name, required_source_id=required_source_id,
+            cited_source_ids=cited_source_ids,
+        )
 
     @staticmethod
     def _fail(
         category: str, message: str, feedback: str, *,
         invalid_source_ids: tuple[str, ...] = (), allowed_source_ids: tuple[str, ...] = (),
+        statement_key: str | None = None, statement_placement: str | None = None,
+        grounded_field: str | None = None, required_source_id: str | None = None,
+        cited_source_ids: tuple[str, ...] = (),
     ):
         raise GUTSValidationError(
             category, message, feedback, invalid_source_ids=invalid_source_ids,
-            allowed_source_ids=allowed_source_ids,
+            allowed_source_ids=allowed_source_ids, statement_key=statement_key,
+            statement_placement=statement_placement, grounded_field=grounded_field,
+            required_source_id=required_source_id, cited_source_ids=cited_source_ids,
         )

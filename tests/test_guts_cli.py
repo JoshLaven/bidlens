@@ -27,7 +27,7 @@ class FakeModelClient:
             headline=ModelOutputStatement(
                 statement_key="headline", text="Evaluation Services is active.",
                 importance="high", confidence="supported",
-                source_ids=(f"current_state:opportunity:{opportunity_id}:title",),
+                source_ids=(f"current_state:opportunity:{opportunity_id}:source_stage",),
             ),
             summary_statements=(ModelOutputStatement(
                 statement_key="summary-1", text="The response deadline is September 1, 2026.",
@@ -111,7 +111,7 @@ class GUTSCLITests(unittest.TestCase):
             f"Opportunity ID: {self.opportunity_id}", "Manifest hash:",
             "Provider/model: openai / cli-test", "Source counts:", "Warnings:",
             "Headline:", "Evaluation Services is active.", "Summary:",
-            "Citations: Current opportunity: title",
+            "Citations: Current opportunity: source stage",
         ):
             self.assertIn(expected, output)
         for secret in (

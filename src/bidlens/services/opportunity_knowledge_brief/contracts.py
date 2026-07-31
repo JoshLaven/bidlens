@@ -274,6 +274,12 @@ class GUTSManifest(GUTSContract):
         )
         return tuple(sorted((*current_ids, *outcome_ids, *(source.source_id for source in self.evidence.sources))))
 
+    def required_current_state_citations(self) -> dict[str, str]:
+        return {
+            name: getattr(self.current_state, name).source_id
+            for name in ("response_deadline", "solicitation_number", "source_stage")
+        }
+
 
 class ModelStatement(GUTSContract):
     statement_key: str

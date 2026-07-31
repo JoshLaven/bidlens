@@ -170,7 +170,13 @@ class PromptAndSchemaTests(unittest.TestCase):
         self.assertEqual(set(payload["allowed_source_ids"]), set(manifest().allowed_source_ids()))
         self.assertIn("current_state:opportunity:1:response_deadline", payload["allowed_source_ids"])
         self.assertIn("official:1", payload["allowed_source_ids"])
+        self.assertEqual(payload["required_current_state_citations"], {
+            "response_deadline": "current_state:opportunity:1:response_deadline",
+            "solicitation_number": "current_state:opportunity:1:solicitation_number",
+            "source_stage": "current_state:opportunity:1:source_stage",
+        })
         self.assertIn("Copy source IDs exactly", SYSTEM_INSTRUCTIONS)
+        self.assertIn("exact field ID supplied in required_current_state_citations", SYSTEM_INSTRUCTIONS)
 
     def test_schema_is_exact_and_controlled(self):
         schema = guts_output_schema()
@@ -345,7 +351,42 @@ class ValidatorTests(unittest.TestCase):
                 statement("summary-1", "The response deadline is September 1, 2026.", "supported", ["official:1"]),
             )
         })
-        self.assert_invalid(bad, "model_citation_invalid")
+        with self.assertRaises(GUTSValidationError) as captured:
+            self.validator.validate(bad, self.manifest)
+        error = captured.exception
+        self.assertEqual(error.safe_category, "model_citation_invalid")
+        self.assertEqual(error.safe_message, "The current deadline used the wrong citation.")
+        self.assertEqual(error.statement_key, "summary-1")
+        self.assertEqual(error.statement_placement, "summary")
+        self.assertEqual(error.cited_source_ids, ("official:1",))
+        self.assertEqual(error.required_source_id, field("response_deadline").source_id)
+
+    def test_current_deadline_title_and_official_substitutes_both_fail(self):
+        for wrong_id in (field("title").source_id, "official:1"):
+            bad = valid_output().model_copy(update={
+                "summary_statements": (
+                    statement("summary-1", "The response deadline is September 1, 2026.", "supported", [wrong_id]),
+                )
+            })
+            with self.subTest(wrong_id=wrong_id), self.assertRaises(GUTSValidationError) as captured:
+                self.validator.validate(bad, self.manifest)
+            self.assertEqual(captured.exception.safe_message, "The current deadline used the wrong citation.")
+            self.assertEqual(captured.exception.required_source_id, field("response_deadline").source_id)
+
+    def test_deadline_plus_organizational_claim_is_rejected_as_non_atomic(self):
+        combined = valid_output().model_copy(update={
+            "summary_statements": (
+                statement(
+                    "summary-1", "The response deadline is September 1, 2026, and Alex plans to contact ABC Services.",
+                    "attributed", [field("response_deadline").source_id, "note:1"],
+                ),
+            )
+        })
+        with self.assertRaises(GUTSValidationError) as captured:
+            self.validator.validate(combined, self.manifest)
+        self.assertEqual(captured.exception.safe_category, "model_output_unsafe")
+        self.assertEqual(captured.exception.statement_key, "summary-1")
+        self.assertEqual(captured.exception.grounded_field, "response_deadline")
 
     def test_solicitation_identifier_requires_exact_current_state_citation(self):
         base = valid_output()
@@ -355,6 +396,32 @@ class ValidatorTests(unittest.TestCase):
             )
         })
         self.assert_invalid(bad, "model_citation_invalid")
+
+    def test_solicitation_number_and_source_stage_use_exact_field_sources(self):
+        exact = valid_output().model_copy(update={
+            "headline": statement(
+                "headline", "The opportunity is active.", "supported", [field("source_stage").source_id], "high",
+            ),
+            "summary_statements": (
+                statement(
+                    "summary-1", "The solicitation number is RFP-100.", "supported",
+                    [field("solicitation_number").source_id],
+                ),
+            ),
+            "sections": (),
+        })
+        self.validator.validate(exact, self.manifest)
+        for field_name, text in (
+            ("solicitation_number", "The solicitation number is RFP-100."),
+            ("source_stage", "The opportunity is active."),
+        ):
+            bad = exact.model_copy(update={
+                "headline": statement("headline", text, "supported", [field("title").source_id], "high"),
+            })
+            with self.subTest(field_name=field_name), self.assertRaises(GUTSValidationError) as captured:
+                self.validator.validate(bad, self.manifest)
+            self.assertEqual(captured.exception.grounded_field, field_name)
+            self.assertEqual(captured.exception.required_source_id, field(field_name).source_id)
 
     def test_rejects_total_output_length_limit(self):
         validator = GUTSOutputValidator(max_total_characters=20)
@@ -409,6 +476,22 @@ class RetryAndProviderTests(unittest.TestCase):
         self.assertIn('"allowed_source_ids"', feedback)
         self.assertIn("current_state:opportunity:1:response_deadline", feedback)
 
+    def test_wrong_deadline_first_attempt_gets_exact_feedback_and_corrects(self):
+        wrong = valid_output().model_copy(update={
+            "summary_statements": (
+                statement("summary-1", "The response deadline is September 1, 2026.", "supported", ["official:1"]),
+            )
+        })
+        client = FakeModelClient(call_result(wrong), call_result(valid_output()))
+        result = generate_validated_briefing(manifest(), client=client)
+        self.assertEqual(result.validation_retry_count, 1)
+        feedback = client.calls[1][1]
+        self.assertIn('"statement_key":"summary-1"', feedback)
+        self.assertIn('"placement":"summary"', feedback)
+        self.assertIn('"field_name":"response_deadline"', feedback)
+        self.assertIn('"required_source_id":"current_state:opportunity:1:response_deadline"', feedback)
+        self.assertIn('"cited_source_ids":["official:1"]', feedback)
+
     def test_schema_error_and_prohibited_first_output_each_retry_to_valid(self):
         schema_error = GUTSModelError(
             "model_schema_invalid", "The model returned an invalid structured briefing.",
@@ -447,6 +530,20 @@ class RetryAndProviderTests(unittest.TestCase):
             generate_validated_briefing(manifest(), client=client)
         self.assertEqual(captured.exception.safe_category, "model_citation_invalid")
         self.assertEqual(captured.exception.safe_message, "The response referenced unavailable sources.")
+        self.assertFalse(captured.exception.retryable)
+        self.assertEqual(len(client.calls), 2)
+
+    def test_second_wrong_deadline_citation_fails(self):
+        wrong = valid_output().model_copy(update={
+            "summary_statements": (
+                statement("summary-1", "The response deadline is September 1, 2026.", "supported", ["official:1"]),
+            )
+        })
+        client = FakeModelClient(call_result(wrong), call_result(wrong))
+        with self.assertRaises(GUTSModelError) as captured:
+            generate_validated_briefing(manifest(), client=client)
+        self.assertEqual(captured.exception.safe_category, "model_citation_invalid")
+        self.assertEqual(captured.exception.safe_message, "The current deadline used the wrong citation.")
         self.assertFalse(captured.exception.retryable)
         self.assertEqual(len(client.calls), 2)
 

@@ -70,7 +70,7 @@ def model_output(opportunity_id):
     return ModelBriefingOutput(
         headline=ModelOutputStatement(
             statement_key="headline", text="Evaluation Services is active.", importance="high",
-            confidence="supported", source_ids=(f"current_state:opportunity:{opportunity_id}:title",),
+            confidence="supported", source_ids=(f"current_state:opportunity:{opportunity_id}:source_stage",),
         ),
         summary_statements=(ModelOutputStatement(
             statement_key="summary-1", text="The response deadline is September 1, 2026.",
