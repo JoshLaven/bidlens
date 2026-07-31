@@ -1,6 +1,6 @@
 # Output Contract
 
-Canonical output is validated structured JSON. Rendering is application-controlled. The configured `GUTS_PROMPT_VERSION` defaults to `guts-v7`; this version retains the structured citation contract and prioritizes concise, explicit actor or source attribution for organizational knowledge instead of generalized organizational consensus. Output continues to use `GUTS_OUTPUT_SCHEMA_VERSION`.
+Canonical output is validated structured JSON. Rendering is application-controlled. The configured `GUTS_PROMPT_VERSION` defaults to `guts-v8`; this version retains the structured citation contract and preserves distinct actor provenance when multiple communications contribute different organizational ideas. Output continues to use `GUTS_OUTPUT_SCHEMA_VERSION`.
 
 ## Provider output
 

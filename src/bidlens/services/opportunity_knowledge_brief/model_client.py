@@ -178,10 +178,14 @@ def _safe_feedback(value: str) -> str:
             isinstance(payload, dict)
             and set(payload) == {
                 "instruction", "statement_key", "placement", "confidence",
-                "cited_source_kinds", "safe_example",
+                "cited_source_kinds", "safe_example", "multiple_actors",
             }
-            and payload.get("instruction") == "Name the person who made the recommendation, plan, concern, or observation; do not generalize one person's statement into organizational consensus; use concise actor-attributed wording."
+            and payload.get("instruction") in {
+                "Name the person who made the recommendation, plan, concern, or observation; do not generalize one person's statement into organizational consensus; use concise actor-attributed wording.",
+                "Multiple communication actors contributed to this statement; split distinct ideas into separate statements, preserve each actor's attribution, and avoid anonymous passive constructions.",
+            }
             and payload.get("safe_example") == "A named person recommended the approach."
+            and isinstance(payload.get("multiple_actors"), bool)
             and all(isinstance(payload.get(key), str) and 0 < len(payload[key]) <= 256 for key in (
                 "statement_key", "placement", "confidence",
             ))
@@ -209,13 +213,19 @@ def _validation_feedback(exc: GUTSValidationError) -> str:
             "cited_source_ids": list(exc.cited_source_ids),
         }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     if exc.statement_key and exc.statement_confidence and exc.cited_source_kinds:
+        instruction = (
+            "Multiple communication actors contributed to this statement; split distinct ideas into separate statements, preserve each actor's attribution, and avoid anonymous passive constructions."
+            if exc.multiple_cited_actors else
+            "Name the person who made the recommendation, plan, concern, or observation; do not generalize one person's statement into organizational consensus; use concise actor-attributed wording."
+        )
         return _ATTRIBUTION_FEEDBACK_PREFIX + json.dumps({
-            "instruction": "Name the person who made the recommendation, plan, concern, or observation; do not generalize one person's statement into organizational consensus; use concise actor-attributed wording.",
+            "instruction": instruction,
             "statement_key": exc.statement_key,
             "placement": exc.statement_placement or "unknown",
             "confidence": exc.statement_confidence,
             "cited_source_kinds": list(exc.cited_source_kinds),
             "safe_example": "A named person recommended the approach.",
+            "multiple_actors": exc.multiple_cited_actors,
         }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return exc.feedback
 

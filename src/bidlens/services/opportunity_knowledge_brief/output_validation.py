@@ -58,6 +58,10 @@ ACTOR_ATTRIBUTION = re.compile(
     rf"(?:has\s+|had\s+)?(?:{ATTRIBUTION_VERBS})\b",
 )
 TEAM_ATTRIBUTION = re.compile(rf"\bthe\s+team\s+(?:has\s+|had\s+)?(?:{ATTRIBUTION_VERBS})\b", re.I)
+COORDINATED_ACTOR_ATTRIBUTION = re.compile(
+    rf"\b[A-Z][\w'’-]*(?:\s+[A-Z][\w'’-]*){{0,3}}\s+and\s+"
+    rf"[A-Z][\w'’-]*(?:\s+[A-Z][\w'’-]*){{0,3}}\s+(?:both\s+)?(?:{ATTRIBUTION_VERBS})\b"
+)
 INTERNAL_ATTRIBUTION = re.compile(
     r"\b(?:an?\s+)?internal\s+(?:note|discussion|record|communication)\s+"
     r"(?:indicates?|records?|notes?|identified|raised|discussed|reported)\b|"
@@ -107,6 +111,7 @@ class GUTSValidationError(RuntimeError):
         rejected_statement_text: str | None = None, validator_rule: str | None = None,
         allowed_source_classes: tuple[str, ...] = (),
         required_source_classes: tuple[str, ...] = (),
+        multiple_cited_actors: bool = False,
     ):
         super().__init__(safe_message)
         self.safe_category = safe_category
@@ -126,6 +131,7 @@ class GUTSValidationError(RuntimeError):
         self.validator_rule = validator_rule
         self.allowed_source_classes = allowed_source_classes
         self.required_source_classes = required_source_classes
+        self.multiple_cited_actors = multiple_cited_actors
 
 
 @dataclass(frozen=True)
@@ -153,6 +159,22 @@ def preserves_attribution(text: str) -> bool:
 def contains_objective_upgrade(text: str) -> bool:
     """Reject a small set of clearly objective organizational-only upgrades."""
     return any(pattern.search(text) for pattern in OBJECTIVE_UPGRADE_PATTERNS)
+
+
+def _multiple_communication_actors(cited: list[SourceMetadata]) -> bool:
+    actors: set[tuple[str, str]] = set()
+    for metadata in cited:
+        source = metadata.source
+        if source is None or source.source_type != "email" or source.author is None:
+            continue
+        author = source.author
+        if author.user_id is not None:
+            actors.add(("user", str(author.user_id)))
+        elif author.address:
+            actors.add(("address", author.address.casefold()))
+        elif author.display_name:
+            actors.add(("name", author.display_name.casefold()))
+    return len(actors) > 1
 
 
 def _date_variants(value: str) -> set[str]:
@@ -330,14 +352,15 @@ class GUTSOutputValidator:
                     required_source_classes=("organizational_knowledge",),
                 )
             team_attribution = bool(TEAM_ATTRIBUTION.search(text))
-            team_consensus_unsupported = team_attribution and (
+            coordinated_attribution = bool(COORDINATED_ACTOR_ATTRIBUTION.search(text))
+            consensus_unsupported = (team_attribution or coordinated_attribution) and (
                 len(statement.source_ids) < 2
                 or bool(set(statement.source_ids).intersection(conflict_source_ids))
             )
             if (
                 contains_objective_upgrade(text)
                 or not preserves_attribution(text)
-                or team_consensus_unsupported
+                or consensus_unsupported
             ):
                 self._fail(
                     "model_output_unsafe", "An attributed claim did not preserve attribution.",
@@ -347,6 +370,7 @@ class GUTSOutputValidator:
                     cited_source_ids=tuple(statement.source_ids),
                     cited_source_kinds=tuple(sorted(f"{source.source_class}:{source.source_type}" for source in cited)),
                     rejected_statement_text=text, validator_rule="attribution_preservation",
+                    multiple_cited_actors=_multiple_communication_actors(cited),
                 )
         if statement.confidence == "uncertain":
             evidence_uncertain = any(
@@ -514,6 +538,7 @@ class GUTSOutputValidator:
         rejected_statement_text: str | None = None, validator_rule: str | None = None,
         allowed_source_classes: tuple[str, ...] = (),
         required_source_classes: tuple[str, ...] = (),
+        multiple_cited_actors: bool = False,
     ):
         raise GUTSValidationError(
             category, message, feedback, invalid_source_ids=invalid_source_ids,
@@ -525,4 +550,5 @@ class GUTSOutputValidator:
             rejected_statement_text=rejected_statement_text, validator_rule=validator_rule,
             allowed_source_classes=allowed_source_classes,
             required_source_classes=required_source_classes,
+            multiple_cited_actors=multiple_cited_actors,
         )

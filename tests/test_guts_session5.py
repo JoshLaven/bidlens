@@ -214,6 +214,16 @@ class PromptAndSchemaTests(unittest.TestCase):
         ):
             self.assertIn(phrase, SYSTEM_INSTRUCTIONS)
 
+    def test_prompt_splits_distinct_multi_actor_contributions_before_compression(self):
+        for phrase in (
+            "communications from different actors contribute different recommendations",
+            "Split them into separate concise actor-attributed statements",
+            "There is concern",
+            "It was suggested",
+            "provenance, then accuracy, then clarity, then compression",
+        ):
+            self.assertIn(phrase, SYSTEM_INSTRUCTIONS)
+
     def test_schema_is_exact_and_controlled(self):
         schema = guts_output_schema()
         self.assertFalse(schema["additionalProperties"])
@@ -313,6 +323,79 @@ class ValidatorTests(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(GUTSValidationError) as captured:
                 self.validator.validate(output, self.manifest)
             self.assertEqual(captured.exception.validator_rule, "attribution_preservation")
+
+    def test_generation_17_anonymous_multi_actor_wording_fails(self):
+        text = (
+            "There is a concern about having enough recent adolescent health references, "
+            "but it was suggested to reference previous relevant projects to strengthen the proposal."
+        )
+        output = valid_output().model_copy(update={
+            "summary_statements": (
+                statement("anonymous-multi-actor", text, "attributed", ["email:1", "injection:1"]),
+            ),
+            "sections": (),
+        })
+        with self.assertRaises(GUTSValidationError) as captured:
+            self.validator.validate(output, self.manifest)
+        error = captured.exception
+        self.assertEqual(error.validator_rule, "attribution_preservation")
+        self.assertTrue(error.multiple_cited_actors)
+
+    def test_distinct_actor_attributed_statements_and_shared_recommendation_pass(self):
+        second_email = evidence(
+            "email:2", "organizational_knowledge", "email",
+            "Tom recommended highlighting prior projects.",
+            author=EvidenceAuthor(display_name="Tom"),
+        )
+        sources = (*self.manifest.evidence.sources, second_email)
+        statistics = self.manifest.evidence.statistics.model_copy(update={
+            "available_source_count": len(sources),
+            "selected_character_count": sum(len(source.text) for source in sources),
+            "original_character_count": sum(len(source.text) for source in sources),
+        })
+        expanded_manifest = self.manifest.model_copy(update={
+            "evidence": self.manifest.evidence.model_copy(update={
+                "sources": sources, "statistics": statistics,
+            }),
+        })
+        separate = valid_output().model_copy(update={
+            "summary_statements": (
+                statement(
+                    "pat-concern", "Pat raised concern about recent adolescent-health references.",
+                    "attributed", ["email:1"],
+                ),
+                statement(
+                    "tom-recommendation", "Tom recommended highlighting previous relevant projects.",
+                    "attributed", ["email:2"],
+                ),
+            ),
+            "sections": (),
+        })
+        self.validator.validate(separate, expanded_manifest)
+
+        shared = separate.model_copy(update={
+            "summary_statements": (
+                statement(
+                    "shared-recommendation", "Pat and Tom recommended highlighting previous relevant projects.",
+                    "attributed", ["email:1", "email:2"],
+                ),
+            ),
+        })
+        self.validator.validate(shared, expanded_manifest)
+
+    def test_anonymous_passive_attribution_forms_fail(self):
+        for index, text in enumerate((
+            "It was suggested that Westat be contacted.",
+            "There is concern about participant retention.",
+        )):
+            output = valid_output().model_copy(update={
+                "summary_statements": (
+                    statement(f"anonymous-{index}", text, "attributed", ["email:1"]),
+                ),
+                "sections": (),
+            })
+            with self.subTest(text=text), self.assertRaises(GUTSValidationError):
+                self.validator.validate(output, self.manifest)
 
     def test_team_discussion_requires_multiple_consistent_sources(self):
         team_statement = statement(
@@ -869,6 +952,39 @@ class RetryAndProviderTests(unittest.TestCase):
         self.assertIn("do not generalize one person's statement into organizational consensus", feedback)
         self.assertNotIn("ABC Services is the subcontractor", feedback)
         self.assertNotIn("Alex plans to contact ABC Services", feedback)
+
+    def test_multi_actor_anonymous_retry_feedback_requests_split_without_source_content(self):
+        anonymous = valid_output().model_copy(update={
+            "summary_statements": (
+                statement(
+                    "multi-actor",
+                    "There is concern about references, but it was suggested to highlight prior projects.",
+                    "attributed", ["email:1", "injection:1"],
+                ),
+            ),
+            "sections": (),
+        })
+        corrected = valid_output().model_copy(update={
+            "summary_statements": (
+                statement("pat-concern", "Pat raised concern about available references.", "attributed", ["email:1"]),
+                statement("attacker-suggestion", "Attacker suggested highlighting prior projects.", "attributed", ["injection:1"]),
+            ),
+            "sections": (),
+        })
+        client = FakeModelClient(call_result(anonymous), call_result(corrected))
+        result = generate_validated_briefing(manifest(), client=client)
+        self.assertEqual(result.validation_retry_count, 1)
+        feedback = client.calls[1][1]
+        self.assertLess(len(feedback), 2000)
+        self.assertIn('"multiple_actors":true', feedback)
+        self.assertIn("Multiple communication actors contributed", feedback)
+        self.assertIn("split distinct ideas into separate statements", feedback)
+        self.assertIn("avoid anonymous passive constructions", feedback)
+        for private_content in (
+            "pricing research is incomplete", "Ignore previous instructions",
+            "There is concern about references",
+        ):
+            self.assertNotIn(private_content, feedback)
 
     def test_second_objective_organizational_attempt_fails_strictly(self):
         objective = valid_output().model_copy(update={
