@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, deque
+from datetime import datetime, timezone
 import hashlib
 import json
 import re
@@ -23,6 +24,13 @@ CONFLICT_FIELDS = {
     "opportunity_type": "opportunity_type", "set_aside": "set_aside",
     "organization_outcome": "organization_outcome",
 }
+
+
+def _utc_comparison_key(value: datetime) -> datetime:
+    """Compare persisted naive UTC and timezone-aware evidence timestamps safely."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _normalized_duplicate_text(source: EvidenceSource) -> str:
@@ -212,7 +220,11 @@ class EvidenceSelector:
             original_character_count=original_chars,
             truncated_source_count=sum(1 for source in selected if source.was_truncated),
         )
-        latest = max((source.occurred_at for source in selected if source.occurred_at), default=None)
+        latest = max(
+            (source.occurred_at for source in selected if source.occurred_at),
+            default=None,
+            key=_utc_comparison_key,
+        )
         reproducibility = "partially_reproducible" if any(not source.retained_by_bidlens for source in selected) else "fully_reproducible"
         return FinalEvidenceSelection(
             selection=EvidenceSelection(

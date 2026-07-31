@@ -170,6 +170,29 @@ class GutsSession4DatabaseTests(unittest.TestCase):
 
 
 class GutsSession4DomainTests(unittest.TestCase):
+    def test_selection_accepts_mixed_naive_and_aware_evidence_timestamps(self):
+        naive_note_time = dt.datetime(2026, 7, 30, 12, 0)
+        aware_message_time = dt.datetime(2026, 7, 30, 13, 0, tzinfo=dt.timezone.utc)
+        note = source(
+            "note", "organizational_knowledge", "note", "A relevant internal note",
+            author=EvidenceAuthor(user_id=2, display_name="Alex"), occurred=naive_note_time,
+        )
+        message = source(
+            "message", "organizational_knowledge", "email", "A relevant email message",
+            author=EvidenceAuthor(display_name="Sender"), occurred=aware_message_time,
+        )
+        empty = collection([])
+        official = OfficialEvidenceCollectionResult(
+            **empty.model_dump(), unavailable_sources=(), contains_unretained_external=False,
+        )
+
+        selection = EvidenceSelector(maximum_total_characters=5000).select(
+            current_state=current_state(), official=official, notes=collection([note]),
+            communications=collection([message]), historical=empty,
+        )
+
+        self.assertEqual(selection.latest_source_at, aware_message_time)
+
     def test_cross_class_deduplication_preserves_independent_attribution(self):
         official = source("official", "official_evidence", "solicitation_document", "Same fact")
         history = source("history", "historical_context", "field_change", "Same fact")
