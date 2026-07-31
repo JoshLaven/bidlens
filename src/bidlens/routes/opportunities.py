@@ -95,6 +95,11 @@ from ..services.salesforce_promotion import (
     ensure_opportunity_in_salesforce,
     record_salesforce_sync_failure,
 )
+from ..services.opportunity_access import authorized_opportunity_for_user
+from ..services.opportunity_descriptions import (
+    clean_solicitation_description,
+    select_opportunity_description,
+)
 from sqlalchemy import and_, or_, select
 from dataclasses import dataclass
 from typing import Optional
@@ -283,15 +288,7 @@ def _current_user_role(db: Session, user) -> str:
 
 
 def _authorized_opportunity_for_user(db: Session, user, opp_id: int) -> Opportunity | None:
-    opportunity = db.query(Opportunity).filter(
-        Opportunity.id == opp_id,
-        Opportunity.organization_id == _user_org_id(user),
-    ).first()
-    if not opportunity:
-        return None
-    if opportunity.qualification_status != QUALIFICATION_QUALIFIED and not _is_admin(user):
-        return None
-    return opportunity
+    return authorized_opportunity_for_user(db, user=user, opportunity_id=opp_id)
 
 
 def _workspace_for_user(db: Session, user) -> Workspace | None:
@@ -997,28 +994,12 @@ def _calendar_drawer_items(rows) -> list[dict[str, object]]:
 
 
 def _best_description_text(opportunity: Opportunity) -> str:
-    description_text = (opportunity.description_text or "").strip()
-    if description_text:
-        return _clean_solicitation_description(description_text)
-
-    description = (opportunity.description or "").strip()
-    if description and not _is_url_like(description):
-        return _clean_solicitation_description(description)
-
-    return ""
+    return select_opportunity_description(opportunity)
 
 
 def _clean_solicitation_description(value: str | None) -> str:
     """Convert stored source HTML into readable text while preserving paragraphs."""
-    if not value:
-        return ""
-    text = str(value).replace("\r\n", "\n").replace("\r", "\n")
-    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
-    text = re.sub(r"(?i)</(?:p|div|li|tr|h[1-6])\s*>", "\n\n", text)
-    text = re.sub(r"<[^>]+>", "", text)
-    text = html.unescape(text).replace("\xa0", " ")
-    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n")]
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    return clean_solicitation_description(value)
 
 
 def _raw_path(payload: dict, *path: str):
@@ -2041,13 +2022,8 @@ async def opportunity_detail(
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    opportunity = db.query(Opportunity).filter(
-        Opportunity.id == opp_id,
-        Opportunity.organization_id == _user_org_id(user),
-    ).first()
+    opportunity = _authorized_opportunity_for_user(db, user, opp_id)
     if not opportunity:
-        return RedirectResponse(url="/", status_code=303)
-    if opportunity.qualification_status != QUALIFICATION_QUALIFIED and not _is_admin(user):
         return RedirectResponse(url="/", status_code=303)
 
     resolved_description = _best_description_text(opportunity)

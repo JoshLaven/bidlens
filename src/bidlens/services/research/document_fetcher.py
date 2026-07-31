@@ -565,6 +565,8 @@ def fetch_opportunity_documents(opportunity) -> dict:
                 "source_url": resource["source_url"],
                 "content_type": resource.get("content_type"),
                 "file_kind": file_kind,
+                "resource_id": resource.get("resource_id"),
+                "byte_size": resource.get("size"),
                 "extracted_text": parsed["extracted_text"],
                 "pages_extracted": parsed["pages_extracted"],
                 "total_characters": parsed["total_characters"],

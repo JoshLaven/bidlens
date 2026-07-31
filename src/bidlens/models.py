@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Text, ForeignKey, Enum, Index
+from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Text, ForeignKey, Enum, Index, text
 from sqlalchemy.orm import relationship
 import enum
 from .database import Base
@@ -152,6 +152,206 @@ class Opportunity(Base):
         back_populates="opportunity",
         cascade="all, delete-orphan",
     )
+    knowledge_brief_generations = relationship(
+        "OpportunityKnowledgeBriefGeneration",
+        back_populates="opportunity",
+        cascade="all, delete-orphan",
+    )
+
+
+class OpportunityKnowledgeBriefGeneration(Base):
+    __tablename__ = "opportunity_knowledge_brief_generations"
+    __table_args__ = (
+        Index(
+            "ix_guts_generation_org_opp_status_completed",
+            "organization_id", "opportunity_id", "status", "completed_at",
+        ),
+        Index(
+            "ix_guts_generation_opp_status_requested",
+            "opportunity_id", "status", "requested_at",
+        ),
+        Index("ix_guts_generation_manifest_hash", "manifest_hash"),
+        Index("ix_guts_generation_user_requested", "generated_by_user_id", "requested_at"),
+        Index(
+            "uq_guts_generation_active_org_opp",
+            "organization_id", "opportunity_id",
+            unique=True,
+            postgresql_where=text("status IN ('pending', 'running')"),
+            sqlite_where=text("status IN ('pending', 'running')"),
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    opportunity_id = Column(Integer, ForeignKey("opportunities.id", ondelete="CASCADE"), nullable=False, index=True)
+    generated_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    status = Column(String, nullable=False, default="pending", server_default="pending", index=True)
+    requested_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    prompt_version = Column(String, nullable=False)
+    manifest_version = Column(String, nullable=False)
+    output_schema_version = Column(String, nullable=False)
+    provider = Column(String, nullable=True)
+    model = Column(String, nullable=True)
+
+    manifest_hash = Column(String(64), nullable=True)
+    source_snapshot_started_at = Column(DateTime(timezone=True), nullable=True)
+    source_snapshot_completed_at = Column(DateTime(timezone=True), nullable=True)
+    latest_source_at = Column(DateTime(timezone=True), nullable=True)
+    current_state_snapshot_json = Column(JSON, nullable=True)
+    source_summary_json = Column(JSON, nullable=True)
+    warning_metadata_json = Column(JSON, nullable=True)
+    statistics_json = Column(JSON, nullable=True)
+    output_json = Column(JSON, nullable=True)
+
+    input_character_count = Column(Integer, nullable=True)
+    estimated_input_tokens = Column(Integer, nullable=True)
+    input_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+    total_tokens = Column(Integer, nullable=True)
+    validation_retry_count = Column(Integer, nullable=False, default=0, server_default="0")
+
+    authorization_ms = Column(Integer, nullable=True)
+    current_state_ms = Column(Integer, nullable=True)
+    official_evidence_ms = Column(Integer, nullable=True)
+    communication_ms = Column(Integer, nullable=True)
+    notes_ms = Column(Integer, nullable=True)
+    history_ms = Column(Integer, nullable=True)
+    manifest_ms = Column(Integer, nullable=True)
+    model_ms = Column(Integer, nullable=True)
+    validation_ms = Column(Integer, nullable=True)
+    persistence_ms = Column(Integer, nullable=True)
+    total_ms = Column(Integer, nullable=True)
+
+    reproducibility_status = Column(String, nullable=False, default="not_reproducible", server_default="not_reproducible")
+    degraded_source_count = Column(Integer, nullable=False, default=0, server_default="0")
+    input_truncated = Column(Boolean, nullable=False, default=False, server_default=false())
+
+    failure_category = Column(String, nullable=True)
+    failure_stage = Column(String, nullable=True)
+    safe_error_message = Column(String(500), nullable=True)
+
+    organization = relationship("Organization")
+    workspace = relationship("Workspace")
+    opportunity = relationship("Opportunity", back_populates="knowledge_brief_generations")
+    generated_by_user = relationship("User", foreign_keys=[generated_by_user_id])
+    statements = relationship(
+        "OpportunityKnowledgeBriefStatement",
+        back_populates="generation",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="OpportunityKnowledgeBriefStatement.position",
+    )
+    sources = relationship(
+        "OpportunityKnowledgeBriefSource",
+        back_populates="generation",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="OpportunityKnowledgeBriefSource.id",
+    )
+
+
+class OpportunityKnowledgeBriefStatement(Base):
+    __tablename__ = "opportunity_knowledge_brief_statements"
+    __table_args__ = (
+        UniqueConstraint("generation_id", "statement_key", name="uq_guts_statement_generation_key"),
+        Index(
+            "ix_guts_statement_generation_placement_section_position",
+            "generation_id", "placement_type", "section_type", "position",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    generation_id = Column(Integer, ForeignKey("opportunity_knowledge_brief_generations.id", ondelete="CASCADE"), nullable=False, index=True)
+    statement_key = Column(String, nullable=False)
+    placement_type = Column(String, nullable=False)
+    section_type = Column(String, nullable=True)
+    section_title = Column(String, nullable=True)
+    position = Column(Integer, nullable=False)
+    text = Column(Text, nullable=False)
+    importance = Column(String, nullable=False)
+    confidence = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    generation = relationship("OpportunityKnowledgeBriefGeneration", back_populates="statements")
+    source_links = relationship(
+        "OpportunityKnowledgeBriefStatementSource",
+        back_populates="statement",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="OpportunityKnowledgeBriefStatementSource.position",
+    )
+
+
+class OpportunityKnowledgeBriefSource(Base):
+    __tablename__ = "opportunity_knowledge_brief_sources"
+    __table_args__ = (
+        UniqueConstraint("generation_id", "source_id", name="uq_guts_source_generation_source_id"),
+        Index("ix_guts_source_generation_class", "generation_id", "source_class"),
+        Index("ix_guts_source_internal_record", "internal_model_name", "internal_record_id"),
+        Index("ix_guts_source_content_hash", "content_hash"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    generation_id = Column(Integer, ForeignKey("opportunity_knowledge_brief_generations.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_id = Column(String, nullable=False)
+    source_class = Column(String, nullable=False)
+    source_type = Column(String, nullable=False)
+    authority = Column(String, nullable=False)
+    verification = Column(String, nullable=True)
+    title = Column(String, nullable=True)
+    citation_label = Column(String, nullable=False)
+    author_display_name = Column(String, nullable=True)
+    author_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    author_address = Column(String, nullable=True)
+    provider = Column(String, nullable=True)
+    occurred_at = Column(DateTime(timezone=True), nullable=True)
+    effective_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at_source = Column(DateTime(timezone=True), nullable=True)
+    internal_model_name = Column(String, nullable=True)
+    internal_record_id = Column(String, nullable=True)
+    source_url = Column(Text, nullable=True)
+    filename = Column(String, nullable=True)
+    content_hash = Column(String(64), nullable=True)
+    parser_name = Column(String, nullable=True)
+    parser_version = Column(String, nullable=True)
+    retained_by_bidlens = Column(Boolean, nullable=False, default=False, server_default=false())
+    selected_character_count = Column(Integer, nullable=True)
+    original_character_count = Column(Integer, nullable=True)
+    was_truncated = Column(Boolean, nullable=False, default=False, server_default=false())
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    generation = relationship("OpportunityKnowledgeBriefGeneration", back_populates="sources")
+    author_user = relationship("User", foreign_keys=[author_user_id])
+    statement_links = relationship(
+        "OpportunityKnowledgeBriefStatementSource",
+        back_populates="brief_source",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class OpportunityKnowledgeBriefStatementSource(Base):
+    __tablename__ = "opportunity_knowledge_brief_statement_sources"
+    __table_args__ = (
+        UniqueConstraint("statement_id", "brief_source_id", name="uq_guts_statement_source_link"),
+        Index("ix_guts_statement_source_brief_source", "brief_source_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    statement_id = Column(Integer, ForeignKey("opportunity_knowledge_brief_statements.id", ondelete="CASCADE"), nullable=False, index=True)
+    brief_source_id = Column(Integer, ForeignKey("opportunity_knowledge_brief_sources.id", ondelete="CASCADE"), nullable=False)
+    position = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    statement = relationship("OpportunityKnowledgeBriefStatement", back_populates="source_links")
+    brief_source = relationship("OpportunityKnowledgeBriefSource", back_populates="statement_links")
 
 
 class OpportunityIntakeDraft(Base):
@@ -229,6 +429,48 @@ class OpportunitySourceMaterial(Base):
     opportunity = relationship("Opportunity", foreign_keys=[opportunity_id])
     parent_material = relationship("OpportunitySourceMaterial", remote_side=[id], back_populates="child_materials")
     child_materials = relationship("OpportunitySourceMaterial", back_populates="parent_material", passive_deletes=True)
+    extractions = relationship(
+        "OpportunitySourceMaterialExtraction",
+        back_populates="source_material",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class OpportunitySourceMaterialExtraction(Base):
+    __tablename__ = "opportunity_source_material_extractions"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_material_id", "content_hash", "parser_name", "parser_version",
+            name="uq_source_material_extraction_cache_key",
+        ),
+        Index("ix_source_material_extraction_material_status", "source_material_id", "status"),
+        Index("ix_source_material_extraction_content_hash", "content_hash"),
+        Index("ix_source_material_extraction_parser", "parser_name", "parser_version"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    source_material_id = Column(
+        Integer,
+        ForeignKey("opportunity_source_materials.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    content_hash = Column(String(64), nullable=False)
+    parser_name = Column(String, nullable=False)
+    parser_version = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="pending", server_default="pending", index=True)
+    extracted_text = Column(Text, nullable=True)
+    character_count = Column(Integer, nullable=True)
+    page_count = Column(Integer, nullable=True)
+    warnings_json = Column(JSON, nullable=True)
+    failure_category = Column(String, nullable=True)
+    safe_error_message = Column(String(500), nullable=True)
+    extracted_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    source_material = relationship("OpportunitySourceMaterial", back_populates="extractions")
 
 
 class OpportunityOutcome(Base):

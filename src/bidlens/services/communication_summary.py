@@ -29,15 +29,21 @@ class CommunicationSummaryError(RuntimeError):
 
 class _TextExtractor(HTMLParser):
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
+        self.hidden_depth = 0
     def handle_data(self, data: str) -> None:
-        self.parts.append(data)
+        if not self.hidden_depth:
+            self.parts.append(data)
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag.lower() in {"br", "p", "div", "li", "blockquote", "hr"}:
+        if tag.lower() in {"script", "style"}:
+            self.hidden_depth += 1
+        elif not self.hidden_depth and tag.lower() in {"br", "p", "div", "li", "blockquote", "hr"}:
             self.parts.append("\n")
     def handle_endtag(self, tag: str) -> None:
-        if tag.lower() in {"p", "div", "li", "blockquote"}:
+        if tag.lower() in {"script", "style"} and self.hidden_depth:
+            self.hidden_depth -= 1
+        elif not self.hidden_depth and tag.lower() in {"p", "div", "li", "blockquote"}:
             self.parts.append("\n")
 
 
@@ -94,6 +100,8 @@ def clean_message_body(body: str | None, content_type: str | None = None) -> str
         if re.match(r"^(Get Outlook for|Sent from my (iPhone|iPad|Android))", stripped, re.I):
             continue
         if stripped == "--" or stripped == "-- ":
+            break
+        if kept and re.match(r"^(Best|Best regards|Kind regards|Regards|Sincerely),?$", stripped, re.I):
             break
         kept.append(stripped)
     return re.sub(r"\s+", " ", " ".join(kept)).strip()
