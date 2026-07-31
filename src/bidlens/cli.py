@@ -49,8 +49,10 @@ def _render_validation_debug(output: TextIO, details: dict) -> None:
     _line(output, f"  Confidence: {details.get('confidence', 'unknown')}")
     source_ids = details.get("cited_source_ids") or ()
     source_kinds = details.get("cited_source_kinds") or ()
+    allowed_classes = details.get("allowed_source_classes") or ()
     _line(output, f"  Cited source IDs: {', '.join(source_ids) if source_ids else 'None'}")
     _line(output, f"  Cited source classes/types: {', '.join(source_kinds) if source_kinds else 'None'}")
+    _line(output, f"  Allowed source classes: {', '.join(allowed_classes) if allowed_classes else 'None'}")
     _line(output, f"  Rejected statement: {details.get('statement_text', 'Unavailable')}")
 
 

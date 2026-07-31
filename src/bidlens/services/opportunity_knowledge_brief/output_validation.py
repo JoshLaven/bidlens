@@ -24,6 +24,15 @@ SECTION_TITLES = {
     "organizational_knowledge": "Organizational Knowledge",
     "important_history": "Important History", "uncertainties": "Uncertainties",
 }
+SECTION_ALLOWED_SOURCE_CLASSES = {
+    "current_state": ("current_state", "official_evidence"),
+    "official_updates": ("official_evidence", "historical_context"),
+    "organizational_knowledge": ("organizational_knowledge",),
+    "important_history": ("historical_context",),
+    "uncertainties": (
+        "current_state", "official_evidence", "organizational_knowledge", "historical_context",
+    ),
+}
 PROHIBITED_PATTERNS = (
     (re.compile(r"\b(?:you|the team|we) should\b", re.I), "recommendation"),
     (re.compile(r"\b(?:recommend|recommended|next steps?)\b", re.I), "recommendation"),
@@ -101,6 +110,7 @@ class GUTSValidationError(RuntimeError):
         cited_source_ids: tuple[str, ...] = (),
         statement_confidence: str | None = None, cited_source_kinds: tuple[str, ...] = (),
         rejected_statement_text: str | None = None, validator_rule: str | None = None,
+        allowed_source_classes: tuple[str, ...] = (),
     ):
         super().__init__(safe_message)
         self.safe_category = safe_category
@@ -117,6 +127,7 @@ class GUTSValidationError(RuntimeError):
         self.cited_source_kinds = cited_source_kinds
         self.rejected_statement_text = rejected_statement_text
         self.validator_rule = validator_rule
+        self.allowed_source_classes = allowed_source_classes
 
 
 @dataclass(frozen=True)
@@ -344,7 +355,8 @@ class GUTSOutputValidator:
 
     def _validate_section(self, section_type: str, statements: Iterable[ModelOutputStatement], sources: dict[str, SourceMetadata]) -> None:
         for statement in statements:
-            classes = {sources[source_id].source_class for source_id in statement.source_ids if source_id in sources}
+            cited = [sources[source_id] for source_id in statement.source_ids if source_id in sources]
+            classes = {source.source_class for source in cited}
             valid = {
                 "current_state": bool(classes.intersection({"current_state", "official_evidence"})),
                 "official_updates": bool(classes.intersection({"official_evidence", "historical_context"})),
@@ -353,7 +365,20 @@ class GUTSOutputValidator:
                 "uncertainties": statement.confidence == "uncertain",
             }[section_type]
             if not valid:
-                self._fail("model_citation_invalid", "A section did not match its cited evidence.", "Place statements only in sections compatible with their source classes.")
+                self._fail(
+                    "model_citation_invalid", "A section did not match its cited evidence.",
+                    "Place statements only in sections compatible with their source classes.",
+                    statement_key=statement.statement_key,
+                    statement_placement=f"section:{section_type}",
+                    statement_confidence=statement.confidence,
+                    cited_source_ids=tuple(statement.source_ids),
+                    cited_source_kinds=tuple(sorted(
+                        f"{source.source_class}:{source.source_type}" for source in cited
+                    )),
+                    rejected_statement_text=_normalize_text(statement.text),
+                    validator_rule="section_source_compatibility",
+                    allowed_source_classes=SECTION_ALLOWED_SOURCE_CLASSES[section_type],
+                )
             if section_type == "uncertainties" and statement.confidence != "uncertain":
                 self._fail("model_citation_invalid", "An uncertainty section used the wrong confidence.", "Use uncertain confidence for every uncertainties statement.")
 
@@ -428,6 +453,7 @@ class GUTSOutputValidator:
         cited_source_ids: tuple[str, ...] = (),
         statement_confidence: str | None = None, cited_source_kinds: tuple[str, ...] = (),
         rejected_statement_text: str | None = None, validator_rule: str | None = None,
+        allowed_source_classes: tuple[str, ...] = (),
     ):
         raise GUTSValidationError(
             category, message, feedback, invalid_source_ids=invalid_source_ids,
@@ -436,4 +462,5 @@ class GUTSOutputValidator:
             required_source_id=required_source_id, cited_source_ids=cited_source_ids,
             statement_confidence=statement_confidence, cited_source_kinds=cited_source_kinds,
             rejected_statement_text=rejected_statement_text, validator_rule=validator_rule,
+            allowed_source_classes=allowed_source_classes,
         )

@@ -333,6 +333,59 @@ class ValidatorTests(unittest.TestCase):
         })
         self.validator.validate(attributed_summary, self.manifest)
 
+    def test_section_source_compatibility_mismatches_include_statement_debug_metadata(self):
+        mismatches = (
+            (
+                "current_state",
+                statement("note-in-current", "Alex plans to contact ABC Services.", "attributed", ["note:1"]),
+                ("current_state", "official_evidence"),
+            ),
+            (
+                "organizational_knowledge",
+                statement("current-in-org", "Evaluation services remain active.", "supported", [field("source_stage").source_id]),
+                ("organizational_knowledge",),
+            ),
+            (
+                "official_updates",
+                statement("note-in-official", "Alex plans to contact ABC Services.", "attributed", ["note:1"]),
+                ("official_evidence", "historical_context"),
+            ),
+            (
+                "important_history",
+                statement("official-in-history", "The solicitation document includes evaluation services.", "supported", ["official:1"]),
+                ("historical_context",),
+            ),
+        )
+        for section_type, mismatched, allowed in mismatches:
+            output = valid_output().model_copy(update={
+                "sections": (ModelOutputSection(section_type=section_type, statements=(mismatched,)),),
+            })
+            with self.subTest(section_type=section_type), self.assertRaises(GUTSValidationError) as captured:
+                self.validator.validate(output, self.manifest)
+            error = captured.exception
+            self.assertEqual(error.safe_category, "model_citation_invalid")
+            self.assertEqual(error.safe_message, "A section did not match its cited evidence.")
+            self.assertEqual(error.validator_rule, "section_source_compatibility")
+            self.assertEqual(error.statement_key, mismatched.statement_key)
+            self.assertEqual(error.statement_placement, f"section:{section_type}")
+            self.assertEqual(error.statement_confidence, mismatched.confidence)
+            self.assertEqual(error.cited_source_ids, mismatched.source_ids)
+            self.assertEqual(error.allowed_source_classes, allowed)
+            self.assertEqual(error.rejected_statement_text, mismatched.text)
+
+    def test_historical_statement_inside_current_state_fails_section_compatibility(self):
+        historical = statement(
+            "history-in-current", "The response deadline previously changed.",
+            "supported", ["history:1"],
+        )
+        with self.assertRaises(GUTSValidationError) as captured:
+            self.validator._validate_section("current_state", (historical,), _source_map(self.manifest))
+        self.assertEqual(captured.exception.validator_rule, "section_source_compatibility")
+        self.assertEqual(captured.exception.cited_source_kinds, ("historical_context:field_change",))
+
+    def test_valid_section_source_combinations_remain_accepted(self):
+        self.validator.validate(valid_output(), self.manifest)
+
     def test_rejects_citation_and_key_failures(self):
         base = valid_output()
         cases = (

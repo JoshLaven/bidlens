@@ -83,6 +83,7 @@ def _validation_debug(exc: GUTSValidationError) -> dict[str, Any] | None:
         "confidence": exc.statement_confidence or "unknown",
         "cited_source_ids": tuple(exc.cited_source_ids),
         "cited_source_kinds": tuple(exc.cited_source_kinds),
+        "allowed_source_classes": tuple(exc.allowed_source_classes),
         "statement_text": exc.rejected_statement_text,
         "validator_rule": exc.validator_rule,
         "validator_reason": exc.safe_message,

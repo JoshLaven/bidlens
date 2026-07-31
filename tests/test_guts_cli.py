@@ -17,7 +17,7 @@ from bidlens.services.opportunity_knowledge_brief import (
     OpportunityKnowledgeBriefService,
 )
 from bidlens.services.opportunity_knowledge_brief.contracts import (
-    ModelBriefingOutput, ModelOutputStatement,
+    ModelBriefingOutput, ModelOutputSection, ModelOutputStatement,
 )
 
 
@@ -62,6 +62,37 @@ class InvalidAttributionModelClient:
                 source_ids=(f"opportunity_note:{note_id}",),
             ),),
             sections=(),
+        )
+
+    def generate(self, manifest):
+        return GUTSModelCallResult(self.output, "openai", "cli-test", 80, 20, 100, 10.0)
+
+    def retry_with_validation_feedback(self, manifest, feedback):
+        return self.generate(manifest)
+
+
+class SectionMismatchModelClient:
+    def __init__(self, opportunity_id, note_id):
+        self.output = ModelBriefingOutput(
+            headline=ModelOutputStatement(
+                statement_key="headline", text="Evaluation Services is active.",
+                importance="high", confidence="supported",
+                source_ids=(f"current_state:opportunity:{opportunity_id}:source_stage",),
+            ),
+            summary_statements=(ModelOutputStatement(
+                statement_key="summary", text="Evaluation Services remains active.",
+                importance="normal", confidence="supported",
+                source_ids=(f"current_state:opportunity:{opportunity_id}:source_stage",),
+            ),),
+            sections=(ModelOutputSection(
+                section_type="current_state",
+                statements=(ModelOutputStatement(
+                    statement_key="note-in-current-state",
+                    text="PRIVATE SECTION REJECTED PROSE: Alex plans to contact ABC Services.",
+                    importance="normal", confidence="attributed",
+                    source_ids=(f"opportunity_note:{note_id}",),
+                ),),
+            ),),
         )
 
     def generate(self, manifest):
@@ -214,6 +245,38 @@ class GUTSCLITests(unittest.TestCase):
         for excluded in (
             "PRIVATE SOURCE BODY", "PRIVATE-NOTE-CONTENT", "IGNORE INSTRUCTIONS",
             "Evaluation Services is active.", "The response deadline is",
+        ):
+            self.assertNotIn(excluded, output)
+        with self.Session() as db:
+            generation = db.query(OpportunityKnowledgeBriefGeneration).order_by(
+                OpportunityKnowledgeBriefGeneration.id.desc()
+            ).first()
+            self.assertEqual(generation.status, "failed")
+            self.assertIsNone(generation.output_json)
+            self.assertEqual(len(generation.statements), 0)
+
+    def test_section_mismatch_debug_prints_only_rejected_statement_and_safe_metadata(self):
+        client = SectionMismatchModelClient(self.opportunity_id, self.note_id)
+        status, output = self.run_cli(
+            service_factory=self.factory(model_client=client), debug_validation=True,
+        )
+        self.assertNotEqual(status, 0)
+        for expected in (
+            "Rule: section_source_compatibility",
+            "Reason: A section did not match its cited evidence.",
+            "Statement key: note-in-current-state",
+            "Placement: section",
+            "Section type: current_state",
+            "Confidence: attributed",
+            f"Cited source IDs: opportunity_note:{self.note_id}",
+            "Cited source classes/types: organizational_knowledge:note",
+            "Allowed source classes: current_state, official_evidence",
+            "Rejected statement: PRIVATE SECTION REJECTED PROSE: Alex plans to contact ABC Services.",
+        ):
+            self.assertIn(expected, output)
+        for excluded in (
+            "PRIVATE SOURCE BODY", "PRIVATE-NOTE-CONTENT", "IGNORE INSTRUCTIONS",
+            "Evaluation Services remains active.",
         ):
             self.assertNotIn(excluded, output)
         with self.Session() as db:
