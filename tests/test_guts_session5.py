@@ -492,6 +492,77 @@ class ValidatorTests(unittest.TestCase):
         for output in cases:
             self.assert_invalid(output, "model_citation_invalid")
 
+    def test_supported_organizational_sources_report_exact_confidence_diagnostic(self):
+        for source_id, source_kind in (
+            ("email:1", "organizational_knowledge:email"),
+            ("note:1", "organizational_knowledge:note"),
+        ):
+            rejected = statement(
+                "supported-org", "The organization has established internal capability.",
+                "supported", [source_id],
+            )
+            output = valid_output().model_copy(update={
+                "summary_statements": (rejected,), "sections": (),
+            })
+            with self.subTest(source_id=source_id), self.assertRaises(GUTSValidationError) as captured:
+                self.validator.validate(output, self.manifest)
+            error = captured.exception
+            self.assertEqual(error.safe_message, "A supported statement lacked authoritative evidence.")
+            self.assertEqual(error.validator_rule, "confidence_source_compatibility")
+            self.assertEqual(error.statement_key, "supported-org")
+            self.assertEqual(error.statement_placement, "summary")
+            self.assertEqual(error.statement_confidence, "supported")
+            self.assertEqual(error.cited_source_ids, (source_id,))
+            self.assertEqual(error.cited_source_kinds, (source_kind,))
+            self.assertEqual(error.required_source_classes, ("current_state", "official_evidence"))
+            self.assertEqual(error.rejected_statement_text, rejected.text)
+
+    def test_supported_authoritative_and_mixed_citations_remain_valid(self):
+        cases = (
+            statement("current", "Evaluation services remain available.", "supported", [field("title").source_id]),
+            statement("official", "Official requirements remain available.", "supported", ["official:1"]),
+            statement(
+                "mixed", "Official requirements remain available.", "supported",
+                ["official:1", "note:1"],
+            ),
+        )
+        for supported in cases:
+            output = valid_output().model_copy(update={
+                "summary_statements": (supported,), "sections": (),
+            })
+            with self.subTest(statement_key=supported.statement_key):
+                self.validator.validate(output, self.manifest)
+
+    def test_attributed_without_organizational_source_reports_confidence_diagnostic(self):
+        rejected = statement(
+            "attributed-official", "The document reported evaluation requirements.",
+            "attributed", ["official:1"],
+        )
+        output = valid_output().model_copy(update={"summary_statements": (rejected,), "sections": ()})
+        with self.assertRaises(GUTSValidationError) as captured:
+            self.validator.validate(output, self.manifest)
+        error = captured.exception
+        self.assertEqual(error.safe_message, "An attributed statement lacked organizational evidence.")
+        self.assertEqual(error.validator_rule, "confidence_source_compatibility")
+        self.assertEqual(error.required_source_classes, ("organizational_knowledge",))
+        self.assertEqual(error.cited_source_kinds, ("official_evidence:solicitation_document",))
+        self.assertEqual(error.rejected_statement_text, rejected.text)
+
+    def test_uncertain_without_uncertainty_evidence_reports_confidence_diagnostic(self):
+        rejected = statement(
+            "unsupported-uncertainty", "The evaluation approach remains uncertain.",
+            "uncertain", ["official:1"],
+        )
+        output = valid_output().model_copy(update={"summary_statements": (rejected,), "sections": ()})
+        with self.assertRaises(GUTSValidationError) as captured:
+            self.validator.validate(output, self.manifest)
+        error = captured.exception
+        self.assertEqual(error.safe_message, "An uncertainty lacked supporting evidence.")
+        self.assertEqual(error.validator_rule, "confidence_source_compatibility")
+        self.assertEqual(error.required_source_classes, ())
+        self.assertEqual(error.cited_source_kinds, ("official_evidence:solicitation_document",))
+        self.assertEqual(error.rejected_statement_text, rejected.text)
+
     def test_rejects_section_mismatches_duplicates_and_empty_sections(self):
         base = valid_output()
         note_only_official = ModelOutputSection(section_type="official_updates", statements=(

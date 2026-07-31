@@ -84,6 +84,7 @@ def _validation_debug(exc: GUTSValidationError) -> dict[str, Any] | None:
         "cited_source_ids": tuple(exc.cited_source_ids),
         "cited_source_kinds": tuple(exc.cited_source_kinds),
         "allowed_source_classes": tuple(exc.allowed_source_classes),
+        "required_source_classes": tuple(exc.required_source_classes),
         "grounded_field": exc.grounded_field,
         "required_source_id": exc.required_source_id,
         "required_source_ids": tuple(exc.required_source_ids),

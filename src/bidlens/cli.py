@@ -52,10 +52,13 @@ def _render_validation_debug(output: TextIO, details: dict) -> None:
     source_ids = details.get("cited_source_ids") or ()
     source_kinds = details.get("cited_source_kinds") or ()
     allowed_classes = details.get("allowed_source_classes") or ()
+    required_classes = details.get("required_source_classes") or ()
     _line(output, f"  Cited source IDs: {', '.join(source_ids) if source_ids else 'None'}")
     _line(output, f"  Cited source classes/types: {', '.join(source_kinds) if source_kinds else 'None'}")
     if allowed_classes:
         _line(output, f"  Allowed source classes: {', '.join(allowed_classes)}")
+    if required_classes:
+        _line(output, f"  Required source classes: {', '.join(required_classes)}")
     if details.get("required_source_id"):
         _line(output, f"  Required source ID: {details['required_source_id']}")
     required_ids = details.get("required_source_ids") or ()

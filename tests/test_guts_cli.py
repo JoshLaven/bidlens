@@ -126,6 +126,30 @@ class WrongDeadlineCitationModelClient:
         return self.generate(manifest)
 
 
+class SupportedNoteModelClient:
+    def __init__(self, opportunity_id, note_id):
+        self.output = ModelBriefingOutput(
+            headline=ModelOutputStatement(
+                statement_key="headline", text="Evaluation Services is active.",
+                importance="high", confidence="supported",
+                source_ids=(f"current_state:opportunity:{opportunity_id}:source_stage",),
+            ),
+            summary_statements=(ModelOutputStatement(
+                statement_key="supported-note",
+                text="PRIVATE CONFIDENCE PROSE: The organization has established internal capability.",
+                importance="normal", confidence="supported",
+                source_ids=(f"opportunity_note:{note_id}",),
+            ),),
+            sections=(),
+        )
+
+    def generate(self, manifest):
+        return GUTSModelCallResult(self.output, "openai", "cli-test", 80, 20, 100, 10.0)
+
+    def retry_with_validation_feedback(self, manifest, feedback):
+        return self.generate(manifest)
+
+
 class GUTSCLITests(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite:///:memory:")
@@ -345,6 +369,50 @@ class GUTSCLITests(unittest.TestCase):
             "Evaluation Services is active.",
         ):
             self.assertNotIn(excluded, output)
+        with self.Session() as db:
+            generation = db.query(OpportunityKnowledgeBriefGeneration).order_by(
+                OpportunityKnowledgeBriefGeneration.id.desc()
+            ).first()
+            self.assertEqual(generation.status, "failed")
+            self.assertIsNone(generation.output_json)
+            self.assertEqual(len(generation.statements), 0)
+
+    def test_confidence_debug_disabled_does_not_print_rejected_prose(self):
+        client = SupportedNoteModelClient(self.opportunity_id, self.note_id)
+        status, output = self.run_cli(service_factory=self.factory(model_client=client))
+        self.assertNotEqual(status, 0)
+        self.assertIn("A supported statement lacked authoritative evidence.", output)
+        self.assertNotIn("PRIVATE CONFIDENCE PROSE", output)
+        self.assertNotIn("Validation debug", output)
+
+    def test_confidence_debug_prints_only_failing_statement_and_safe_metadata(self):
+        client = SupportedNoteModelClient(self.opportunity_id, self.note_id)
+        with self.assertLogs(
+            "bidlens.services.opportunity_knowledge_brief.compiler", level="WARNING",
+        ) as captured_logs:
+            status, output = self.run_cli(
+                service_factory=self.factory(model_client=client), debug_validation=True,
+            )
+        self.assertNotEqual(status, 0)
+        for expected in (
+            "Rule: confidence_source_compatibility",
+            "Reason: A supported statement lacked authoritative evidence.",
+            "Statement key: supported-note",
+            "Placement: summary",
+            "Section type: None",
+            "Confidence: supported",
+            f"Cited source IDs: opportunity_note:{self.note_id}",
+            "Cited source classes/types: organizational_knowledge:note",
+            "Required source classes: current_state, official_evidence",
+            "Rejected statement: PRIVATE CONFIDENCE PROSE: The organization has established internal capability.",
+        ):
+            self.assertIn(expected, output)
+        for excluded in (
+            "PRIVATE SOURCE BODY", "PRIVATE-NOTE-CONTENT", "IGNORE INSTRUCTIONS",
+            "Evaluation Services is active.",
+        ):
+            self.assertNotIn(excluded, output)
+        self.assertNotIn("PRIVATE CONFIDENCE PROSE", "\n".join(captured_logs.output))
         with self.Session() as db:
             generation = db.query(OpportunityKnowledgeBriefGeneration).order_by(
                 OpportunityKnowledgeBriefGeneration.id.desc()

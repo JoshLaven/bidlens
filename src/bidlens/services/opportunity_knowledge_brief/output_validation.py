@@ -112,6 +112,7 @@ class GUTSValidationError(RuntimeError):
         statement_confidence: str | None = None, cited_source_kinds: tuple[str, ...] = (),
         rejected_statement_text: str | None = None, validator_rule: str | None = None,
         allowed_source_classes: tuple[str, ...] = (),
+        required_source_classes: tuple[str, ...] = (),
     ):
         super().__init__(safe_message)
         self.safe_category = safe_category
@@ -130,6 +131,7 @@ class GUTSValidationError(RuntimeError):
         self.rejected_statement_text = rejected_statement_text
         self.validator_rule = validator_rule
         self.allowed_source_classes = allowed_source_classes
+        self.required_source_classes = required_source_classes
 
 
 @dataclass(frozen=True)
@@ -319,10 +321,20 @@ class GUTSOutputValidator:
         cited = [sources[source_id] for source_id in statement.source_ids]
         classes = {source.source_class for source in cited}
         if statement.confidence == "supported" and not classes.intersection({"current_state", "official_evidence"}):
-            self._fail("model_citation_invalid", "A supported statement lacked authoritative evidence.", "Label organizational claims attributed and cite their organizational sources.")
+            self._fail_confidence_source(
+                statement, cited=cited, placement=placement,
+                message="A supported statement lacked authoritative evidence.",
+                feedback="Label organizational claims attributed and cite their organizational sources.",
+                required_source_classes=("current_state", "official_evidence"),
+            )
         if statement.confidence == "attributed":
             if "organizational_knowledge" not in classes:
-                self._fail("model_citation_invalid", "An attributed statement lacked organizational evidence.", "Attributed statements must cite organizational knowledge.")
+                self._fail_confidence_source(
+                    statement, cited=cited, placement=placement,
+                    message="An attributed statement lacked organizational evidence.",
+                    feedback="Attributed statements must cite organizational knowledge.",
+                    required_source_classes=("organizational_knowledge",),
+                )
             if contains_objective_upgrade(text) or not preserves_attribution(text):
                 self._fail(
                     "model_output_unsafe", "An attributed claim did not preserve attribution.",
@@ -340,7 +352,11 @@ class GUTSOutputValidator:
                 for source in cited
             )
             if not evidence_uncertain and not set(statement.source_ids).intersection(conflict_source_ids):
-                self._fail("model_citation_invalid", "An uncertainty lacked supporting evidence.", "Cite evidence that explicitly expresses the unresolved information.")
+                self._fail_confidence_source(
+                    statement, cited=cited, placement=placement,
+                    message="An uncertainty lacked supporting evidence.",
+                    feedback="Cite evidence that explicitly expresses the unresolved information.",
+                )
         if re.search(r"\b(?:because|therefore|as a result)\b", text, re.I) and not any(
             source.source and source.source.structured_facts.get("causal_statement") is True for source in cited
         ):
@@ -354,6 +370,24 @@ class GUTSOutputValidator:
             statement_key=statement.statement_key, placement_type="summary", section_type=None,
             position=position, text=text, importance=statement.importance,
             confidence=statement.confidence, source_ids=tuple(statement.source_ids),
+        )
+
+    def _fail_confidence_source(
+        self, statement: ModelOutputStatement, *, cited: list[SourceMetadata],
+        placement: str, message: str, feedback: str,
+        required_source_classes: tuple[str, ...] = (),
+    ) -> None:
+        self._fail(
+            "model_citation_invalid", message, feedback,
+            statement_key=statement.statement_key, statement_placement=placement,
+            statement_confidence=statement.confidence,
+            cited_source_ids=tuple(statement.source_ids),
+            cited_source_kinds=tuple(sorted(
+                f"{source.source_class}:{source.source_type}" for source in cited
+            )),
+            rejected_statement_text=_normalize_text(statement.text),
+            validator_rule="confidence_source_compatibility",
+            required_source_classes=required_source_classes,
         )
 
     def _validate_section(self, section_type: str, statements: Iterable[ModelOutputStatement], sources: dict[str, SourceMetadata]) -> None:
@@ -476,6 +510,7 @@ class GUTSOutputValidator:
         statement_confidence: str | None = None, cited_source_kinds: tuple[str, ...] = (),
         rejected_statement_text: str | None = None, validator_rule: str | None = None,
         allowed_source_classes: tuple[str, ...] = (),
+        required_source_classes: tuple[str, ...] = (),
     ):
         raise GUTSValidationError(
             category, message, feedback, invalid_source_ids=invalid_source_ids,
@@ -486,4 +521,5 @@ class GUTSOutputValidator:
             statement_confidence=statement_confidence, cited_source_kinds=cited_source_kinds,
             rejected_statement_text=rejected_statement_text, validator_rule=validator_rule,
             allowed_source_classes=allowed_source_classes,
+            required_source_classes=required_source_classes,
         )
