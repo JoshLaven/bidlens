@@ -42,3 +42,15 @@ The design contract is locked. Sessions 1 through 6 are implemented. The applica
 - Session 5 complete: dedicated Responses API client, versioned prompt path, exact structured output, citation/safety validation, and one corrective retry.
 - Session 6 complete: application service, compiler lifecycle, concurrency/stale handling, persistence coordination, warnings/statistics, and safe success/failure behavior.
 - Next: route integration, Opportunity Folder UI/layout work, dogfood evaluation, and production timeout verification.
+
+## Development dogfood command
+
+The development/administrative CLI can generate a briefing through the normal application service without adding a web endpoint:
+
+```bash
+GUTS_ENABLED=true PYTHONPATH=src .venv/bin/python -m bidlens.cli generate-guts \
+  --opportunity-id 554 \
+  --user-id 1
+```
+
+Use `--organization-id` when the user belongs to more than one organization. The command preserves normal opportunity authorization and the caller's personal `PURSUE` requirement. It prints persisted briefing statements, safe operational metadata, and citation labels; it never prints source bodies, manifests, prompts, provider responses, storage keys, credentials, or private URLs.
