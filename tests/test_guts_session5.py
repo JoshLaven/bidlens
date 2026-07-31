@@ -252,6 +252,10 @@ class ValidatorTests(unittest.TestCase):
             "Sarah raised a staffing concern.",
             "Staffing availability remains an internal concern.",
             "An internal note indicates prior experience with this client.",
+            "Jane suggested ABC Services as a subcontractor.",
+            "The team discussed involving the AI department.",
+            "An internal note records prior work with Arizona.",
+            "Kendall recommended involving the AI Intelligence department.",
         )
         for index, text in enumerate(valid_phrases):
             output = valid_output().model_copy(update={
@@ -263,12 +267,36 @@ class ValidatorTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.validator.validate(output, self.manifest)
 
+    def test_generation_8_actor_attribution_passes_in_organizational_section(self):
+        exact_statement = statement(
+            "organizational_knowledge_1",
+            "Kendall Roy suggested that the AI Intelligence department could be involved in the project.",
+            "attributed", ["note:1"],
+        )
+        output = valid_output().model_copy(update={
+            "summary_statements": (
+                statement("summary-attributed", "Roy mentioned possible AI department involvement.", "attributed", ["note:1"]),
+            ),
+            "sections": (
+                ModelOutputSection(section_type="organizational_knowledge", statements=(exact_statement,)),
+            ),
+        })
+        validated = self.validator.validate(output, self.manifest)
+        self.assertEqual(
+            validated.briefing.sections[0].statements[0].text,
+            exact_statement.text,
+        )
+
     def test_organizational_objective_confirmed_action_and_confirmed_risk_fail(self):
         invalid_phrases = (
             "ABC Services is the subcontractor.",
+            "ABC Services is the selected subcontractor.",
             "John contacted ABC Services.",
             "Staffing is a confirmed risk.",
             "The organization completed similar work in 2022.",
+            "The organization has prior experience with this exact program.",
+            "The team decided to involve the AI department.",
+            "The AI Intelligence department will lead the project.",
         )
         for index, text in enumerate(invalid_phrases):
             output = valid_output().model_copy(update={

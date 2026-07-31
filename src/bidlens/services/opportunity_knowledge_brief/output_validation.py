@@ -37,10 +37,49 @@ PROHIBITED_PATTERNS = (
     (re.compile(r"\[(?:\d+|[A-Za-z][^\]]*)\]"), "citation_markup"),
     (re.compile(r"\b(?:current_state|source_material|external_document|opportunity_note|communication|opportunity_update|opportunity_history):", re.I), "source_id_in_prose"),
 )
-ATTRIBUTION_CUES = re.compile(
-    r"\b(?:said|noted|reported|plans?|planned|proposed|intends?|expects?|believes?|"
-    r"identified|raised|asked|according to|observed|described|expressed|"
-    r"indicat(?:e|es|ed)|concerns?|concerned)\b|\bconfirmed\s+(?:that|whether)\b", re.I,
+ATTRIBUTION_VERBS = (
+    r"suggest(?:s|ed)?|propos(?:e|es|ed)|not(?:e|es|ed)|sa(?:y|ys|id)|stat(?:e|es|ed)|"
+    r"mention(?:s|ed)?|indicat(?:e|es|ed)|discuss(?:es|ed)?|consider(?:s|ed)?|"
+    r"rais(?:e|es|ed)|identif(?:y|ies|ied)|recommend(?:s|ed)?|believ(?:e|es|ed)|"
+    r"expect(?:s|ed)?|report(?:s|ed)?|observ(?:e|es|ed)|describ(?:e|es|ed)|"
+    r"express(?:es|ed)?|ask(?:s|ed)?|plan(?:s|ned)?|intend(?:s|ed)?"
+)
+ACTOR_ATTRIBUTION = re.compile(
+    rf"\b(?:[A-Z][\w'’-]*(?:\s+[A-Z][\w'’-]*){{0,4}}|the\s+(?:team|organization|staff))\s+"
+    rf"(?:has\s+|had\s+)?(?:{ATTRIBUTION_VERBS})\b",
+    re.I,
+)
+PASSIVE_ATTRIBUTION = re.compile(
+    r"\b(?:has|have|had|was|were|is|are)\s+(?:been\s+)?"
+    r"(?:proposed|discussed|raised|identified|recommended|considered|reported|noted)\b",
+    re.I,
+)
+INTERNAL_ATTRIBUTION = re.compile(
+    r"\b(?:an?\s+)?internal\s+(?:note|discussion|record|communication)\s+"
+    r"(?:indicates?|records?|notes?|identified|raised|discussed|reported)\b|"
+    r"\bremains?\s+an?\s+internal\s+(?:concern|question|proposal|plan)\b|"
+    r"\bthe\s+available\s+(?:communication|internal)\s+records?\b|"
+    r"\baccording\s+to\b",
+    re.I,
+)
+OBJECTIVE_UPGRADE_PATTERNS = (
+    re.compile(
+        r"^(?:the\s+)?[\w&'’-]+(?:\s+[\w&'’-]+){0,5}\s+"
+        r"(?:is|are|was|were)\s+(?:the\s+)?(?:selected\s+)?"
+        r"(?:lead|subcontractor|responsible|confirmed|approved|assigned|confirmed\s+(?:risk|fact))\b",
+        re.I,
+    ),
+    re.compile(
+        r"^(?:the\s+)?[\w&'’-]+(?:\s+[\w&'’-]+){0,5}\s+"
+        r"(?:contacted|completed|approved|selected|decided|assigned)\b",
+        re.I,
+    ),
+    re.compile(
+        r"^(?:the\s+)?(?:organization|team|company|staff)\s+has\s+"
+        r"(?:prior\s+)?(?:experience|completed|confirmed|selected|approved)\b",
+        re.I,
+    ),
+    re.compile(r"^(?:the\s+)?[\w&'’-]+(?:\s+[\w&'’-]+){0,5}\s+will\s+lead\b", re.I),
 )
 UNCERTAINTY_CUES = re.compile(r"\b(?:uncertain|unknown|unresolved|unclear|not provided|not identified|question)\b|\?", re.I)
 DATE_PATTERN = re.compile(
@@ -91,6 +130,20 @@ class SourceMetadata:
 
 def _normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", value or "").strip()
+
+
+def preserves_attribution(text: str) -> bool:
+    """Recognize explicit grammatical attribution without judging source content."""
+    return bool(
+        ACTOR_ATTRIBUTION.search(text)
+        or PASSIVE_ATTRIBUTION.search(text)
+        or INTERNAL_ATTRIBUTION.search(text)
+    )
+
+
+def contains_objective_upgrade(text: str) -> bool:
+    """Reject a small set of clearly objective organizational-only upgrades."""
+    return any(pattern.search(text) for pattern in OBJECTIVE_UPGRADE_PATTERNS)
 
 
 def _date_variants(value: str) -> set[str]:
@@ -240,6 +293,13 @@ class GUTSOutputValidator:
                 self._fail("model_output_unsafe", "A raw source ID appeared in prose.", "Keep source IDs only in source_ids arrays.")
         for pattern, reason in PROHIBITED_PATTERNS:
             if pattern.search(text):
+                if (
+                    reason == "recommendation"
+                    and statement.confidence == "attributed"
+                    and preserves_attribution(text)
+                    and not contains_objective_upgrade(text)
+                ):
+                    continue
                 self._fail("model_output_unsafe", f"The response contained prohibited {reason} language.", "Remove recommendations, speculation, markup, and raw citation syntax.")
         if re.search(r"(?<![A-Z])[.!?]\s+[A-Z]", text) or ";" in text:
             self._fail("model_output_unsafe", "A statement contained multiple apparent claims.", "Return atomic statements containing one independently supportable idea.")
@@ -250,7 +310,7 @@ class GUTSOutputValidator:
         if statement.confidence == "attributed":
             if "organizational_knowledge" not in classes:
                 self._fail("model_citation_invalid", "An attributed statement lacked organizational evidence.", "Attributed statements must cite organizational knowledge.")
-            if not ATTRIBUTION_CUES.search(text):
+            if contains_objective_upgrade(text) or not preserves_attribution(text):
                 self._fail(
                     "model_output_unsafe", "An attributed claim did not preserve attribution.",
                     "Use explicit attribution such as reported, proposed, plans, raised a concern, or an internal note indicates.",
