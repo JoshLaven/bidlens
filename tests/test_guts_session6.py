@@ -43,6 +43,26 @@ def empty_official(*, unavailable=(), evidence=(), contains_unretained=False):
     )
 
 
+def communication_collection(opportunity_id, organization_id, workspace_id):
+    text = "Cassie has done similar work. I will forward this."
+    source = EvidenceSource(
+        source_id="communication:1", source_class="organizational_knowledge",
+        source_type="email", authority="attributed_claim",
+        citation_label="Communication from Josh", text=text,
+        content_hash="c" * 64, selected_character_count=len(text), original_character_count=len(text),
+        retained_by_bidlens=True,
+        provenance={
+            "organization_id": organization_id, "workspace_id": workspace_id,
+            "opportunity_id": opportunity_id,
+        },
+    )
+    return EvidenceCollectionResult(
+        evidence=(source,), available_count=1, selected_count=1, excluded_count=0,
+        truncated=False, omitted_reason_counts={}, latest_source_at=None,
+        total_selected_characters=len(text),
+    )
+
+
 class Collector:
     def __init__(self, result): self.result = result
     def collect(self, **kwargs): return self.result
@@ -181,6 +201,49 @@ class GUTSSession6Tests(unittest.TestCase):
         persisted = self.db.query(OpportunityKnowledgeBriefSource).filter_by(source_id=source.source_id).one()
         self.assertFalse(persisted.retained_by_bidlens)
         self.assertFalse(any(item.source_id == unavailable.source_id for item in generation.sources))
+
+    def test_selected_unused_communication_adds_non_blocking_development_warning(self):
+        communications = communication_collection(
+            self.opportunity.id, self.org.id, self.workspace.id,
+        )
+        generation = self.generate(self.service(communications=communications))
+        self.assertEqual(generation.status, GenerationStatus.SUCCEEDED)
+        warning = next(
+            item for item in generation.warning_metadata_json
+            if item["type"] == "communication_evidence_unused"
+        )
+        self.assertEqual(warning["visibility"], "development")
+        self.assertEqual(warning["metadata"], {
+            "selected_communications": 1,
+            "communication_derived_statements": 0,
+        })
+        self.assertEqual(generation.statistics_json["selected_communications"], 1)
+        self.assertEqual(generation.statistics_json["communication_derived_statements"], 0)
+
+    def test_communication_citation_suppresses_unused_warning(self):
+        communications = communication_collection(
+            self.opportunity.id, self.org.id, self.workspace.id,
+        )
+        output = model_output(self.opportunity.id).model_copy(update={
+            "summary_statements": (
+                ModelOutputStatement(
+                    statement_key="communication-memory",
+                    text="Josh identified Cassie as having done similar work.",
+                    importance="normal", confidence="attributed",
+                    source_ids=("communication:1",),
+                ),
+            ),
+        })
+        generation = self.generate(self.service(
+            communications=communications, model=FakeModelClient(output),
+        ))
+        self.assertEqual(generation.status, GenerationStatus.SUCCEEDED)
+        self.assertFalse(any(
+            item["type"] == "communication_evidence_unused"
+            for item in generation.warning_metadata_json
+        ))
+        self.assertEqual(generation.statistics_json["selected_communications"], 1)
+        self.assertEqual(generation.statistics_json["communication_derived_statements"], 1)
 
     def test_feature_and_shortlist_policy_reject_before_attempt(self):
         with patch("bidlens.services.opportunity_knowledge_brief.service.config.GUTS_ENABLED", False):

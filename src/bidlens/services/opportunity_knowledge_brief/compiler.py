@@ -148,7 +148,26 @@ def _statement_rows(validated) -> list[dict[str, Any]]:
     } for item in statements]
 
 
-def _warnings(selection: FinalEvidenceSelection, *, input_truncated: bool) -> list[dict[str, Any]]:
+def _communication_coverage(selection: FinalEvidenceSelection, validated) -> dict[str, int]:
+    communication_ids = {
+        source.source_id for source in selection.selection.sources if source.source_type == "email"
+    }
+    briefing = validated.briefing
+    statements = (
+        briefing.headline, *briefing.summary,
+        *(statement for section in briefing.sections for statement in section.statements),
+    )
+    represented = sum(bool(communication_ids.intersection(statement.source_ids)) for statement in statements)
+    return {
+        "selected_communications": len(communication_ids),
+        "communication_derived_statements": represented,
+    }
+
+
+def _warnings(
+    selection: FinalEvidenceSelection, *, input_truncated: bool,
+    communication_coverage: dict[str, int] | None = None,
+) -> list[dict[str, Any]]:
     warnings: list[dict[str, Any]] = []
     unavailable = selection.selection.unavailable_sources
     if unavailable:
@@ -161,6 +180,14 @@ def _warnings(selection: FinalEvidenceSelection, *, input_truncated: bool) -> li
         warnings.append({"type": "truncated_input", "text": "Some available evidence was omitted or shortened to fit generation limits.", "metadata": {"omitted_count": sum(selection.omitted_reason_counts.values())}})
     if selection.reproducibility_status != "fully_reproducible":
         warnings.append({"type": "not_fully_reproducible", "text": "This briefing used selected external evidence that is not fully retained by BidLens.", "metadata": {"status": selection.reproducibility_status}})
+    coverage = communication_coverage or {}
+    if coverage.get("selected_communications", 0) > 0 and coverage.get("communication_derived_statements", 0) == 0:
+        warnings.append({
+            "type": "communication_evidence_unused",
+            "text": "Selected communication evidence was not represented in the generated briefing.",
+            "visibility": "development",
+            "metadata": dict(coverage),
+        })
     return warnings
 
 
@@ -292,6 +319,8 @@ class OpportunityKnowledgeBriefCompiler:
                 selection, official, notes, communications, history,
                 input_truncated=input_truncated,
             )
+            communication_coverage = _communication_coverage(selection, model_result.output)
+            statistics.update(communication_coverage)
             sources = [*_current_state_sources(state), *(_evidence_source_row(source) for source in selection.selection.sources)]
             completed = save_generation_success(
                 self.db, generation, output_json=model_result.output.serializable_dict(),
@@ -304,7 +333,10 @@ class OpportunityKnowledgeBriefCompiler:
                     "source_snapshot_completed_at": snapshot_completed,
                     "latest_source_at": selection.latest_source_at,
                     "source_summary_json": source_summary,
-                    "warning_metadata_json": _warnings(selection, input_truncated=input_truncated),
+                    "warning_metadata_json": _warnings(
+                        selection, input_truncated=input_truncated,
+                        communication_coverage=communication_coverage,
+                    ),
                     "statistics_json": statistics, "input_character_count": input_characters,
                     "estimated_input_tokens": (input_characters + 3) // 4,
                     "input_tokens": model_result.input_tokens, "output_tokens": model_result.output_tokens,

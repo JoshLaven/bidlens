@@ -185,6 +185,23 @@ class PromptAndSchemaTests(unittest.TestCase):
         self.assertIn("Copy source IDs exactly", SYSTEM_INSTRUCTIONS)
         self.assertIn("exact field ID supplied in required_current_state_citations", SYSTEM_INSTRUCTIONS)
 
+    def test_prompt_prioritizes_unique_durable_communication_knowledge_without_forcing_coverage(self):
+        for durable_context in (
+            "proposed contributors", "internal referrals", "planned outreach or routing",
+            "identified subject matter experts", "substantive unanswered internal questions",
+            "pursuit strategy", "staffing", "meaningful coordination",
+        ):
+            self.assertIn(durable_context, SYSTEM_INSTRUCTIONS)
+        self.assertIn("without forcing communication coverage or adding filler", SYSTEM_INSTRUCTIONS)
+
+    def test_prompt_omits_trivial_messages_and_prefers_stronger_duplicate_evidence(self):
+        for trivial in ("greetings", "signatures", "acknowledgements", "thanks", "scheduling", "logistics"):
+            self.assertIn(trivial, SYSTEM_INSTRUCTIONS)
+        self.assertIn("substantially duplicate the same knowledge, prefer the stronger version", SYSTEM_INSTRUCTIONS)
+
+    def test_prompt_allows_complementary_note_and_communication_knowledge(self):
+        self.assertIn("distinct complementary facts, both may appear", SYSTEM_INSTRUCTIONS)
+
     def test_schema_is_exact_and_controlled(self):
         schema = guts_output_schema()
         self.assertFalse(schema["additionalProperties"])
