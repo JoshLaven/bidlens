@@ -124,37 +124,22 @@
             <section class="guts-section guts-section--status" aria-labelledby="guts-status-heading">
               <h3 id="guts-status-heading"><span aria-hidden="true">&#9678;</span> Overall Status</h3>
               {% if guts_presentation.overall_status %}
-                {% for statement in guts_presentation.overall_status %}<p data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</p>{% endfor %}
+                {% for statement in guts_presentation.overall_status %}<p data-guts-statement-id="{{ statement.persisted_statement_id }}" data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</p>{% endfor %}
               {% else %}<p class="guts-empty">No status summary is available yet.</p>{% endif %}
             </section>
             <section class="guts-section" aria-labelledby="guts-recent-heading">
               <h3 id="guts-recent-heading"><span aria-hidden="true">&#9993;</span> Recent Developments</h3>
               {% if guts_presentation.recent_developments %}
-                <ul>{% for statement in guts_presentation.recent_developments %}<li data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</li>{% endfor %}</ul>
+                <ul>{% for statement in guts_presentation.recent_developments %}<li data-guts-statement-id="{{ statement.persisted_statement_id }}" data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</li>{% endfor %}</ul>
               {% else %}<p class="guts-empty">No recent developments identified.</p>{% endif %}
             </section>
             <section class="guts-section" aria-labelledby="guts-internal-heading">
               <h3 id="guts-internal-heading"><span aria-hidden="true">&#9786;</span> Internal Activity</h3>
               {% if guts_presentation.internal_activity %}
-                <ul>{% for statement in guts_presentation.internal_activity %}<li data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</li>{% endfor %}</ul>
+                <ul>{% for statement in guts_presentation.internal_activity %}<li data-guts-statement-id="{{ statement.persisted_statement_id }}" data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</li>{% endfor %}</ul>
               {% else %}<p class="guts-empty">No recent internal activity.</p>{% endif %}
             </section>
-            <section class="guts-section" aria-labelledby="guts-risks-heading">
-              <h3 id="guts-risks-heading"><span aria-hidden="true">&#9888;</span> Risks / Watch Items</h3>
-              {% if guts_presentation.risks_watch_items %}
-                <ul>{% for statement in guts_presentation.risks_watch_items %}<li data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</li>{% endfor %}</ul>
-              {% else %}<p class="guts-empty">No watch items identified.</p>{% endif %}
-            </section>
           </div>
-          <section class="guts-next-steps" aria-labelledby="guts-next-heading">
-            <div class="guts-next-title">
-              <h3 id="guts-next-heading"><span aria-hidden="true">&#10003;</span> Suggested Next Steps</h3>
-              <span>AI-generated recommendations</span>
-            </div>
-            {% if guts_presentation.suggested_next_steps %}
-              <ul>{% for statement in guts_presentation.suggested_next_steps %}<li data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</li>{% endfor %}</ul>
-            {% else %}<p class="guts-empty">No next steps suggested.</p>{% endif %}
-          </section>
         </section>
 
         <section class="detail-description-section overview-description-card" aria-labelledby="overview-description-heading">

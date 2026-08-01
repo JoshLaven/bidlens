@@ -16,6 +16,7 @@ The design contract is locked. Sessions 1 through 6 are implemented. The applica
 6. [Data model](06-data-model.md)
 7. [Service and route architecture](07-service-route-architecture.md)
 8. [Implementation plan](08-implementation-plan.md)
+9. [Presentation contract](09-presentation-contract.md)
 
 ## Locked product decisions
 

@@ -64,21 +64,19 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
         self.assertNotIn(">Opportunity Brief<", self.template)
         self.assertNotIn(">Generate AI Brief<", self.template)
 
-    def test_get_up_to_speed_has_orientation_sections_and_empty_states(self):
+    def test_get_up_to_speed_has_only_v1_orientation_sections_and_empty_states(self):
         for heading in (
             "Overall Status",
             "Recent Developments",
             "Internal Activity",
-            "Risks / Watch Items",
-            "Suggested Next Steps",
         ):
             self.assertIn(heading, self.template)
+        for excluded_heading in ("Risks / Watch Items", "Suggested Next Steps"):
+            self.assertNotIn(excluded_heading, self.template)
         for empty_state in (
             "No status summary is available yet.",
             "No recent developments identified.",
             "No recent internal activity.",
-            "No watch items identified.",
-            "No next steps suggested.",
         ):
             self.assertIn(empty_state, self.template)
 
@@ -95,10 +93,9 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
             "overall_status",
             "recent_developments",
             "internal_activity",
-            "risks_watch_items",
-            "suggested_next_steps",
         ):
             self.assertIn(f"guts_presentation.{collection}", self.template)
+        self.assertIn('data-guts-statement-id="{{ statement.persisted_statement_id }}"', self.template)
         self.assertIn('data-guts-statement-key="{{ statement.statement_key }}"', self.template)
         self.assertIn("{{ statement.text }}", self.template)
 
