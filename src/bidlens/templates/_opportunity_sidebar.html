@@ -1,5 +1,14 @@
 {% macro opportunity_sidebar(tooltip_id) %}
 <aside class="detail-workspace-column detail-overview-rail detail-communication-rail detail-persistent-rail">
+  <div class="detail-context-row detail-context-row--client">
+    <span class="detail-context-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M3 21h18"></path><path d="M5 21V7l7-4 7 4v14"></path><path d="M9 21v-4h6v4"></path><path d="M9 9h.01M15 9h.01M9 13h.01M15 13h.01"></path></svg>
+    </span>
+    <span class="detail-context-copy">
+      <span class="detail-spread-label">Client</span>
+      <strong>{{ opportunity.agency_display if opportunity.agency_display is defined and opportunity.agency_display else opportunity.agency or 'Not available' }}</strong>
+    </span>
+  </div>
   {% if is_qualified %}
     <div class="detail-context-row detail-context-row--interest">
       <button type="button" class="detail-context-interest" aria-label="{{ team_interest_label }}" aria-describedby="{{ tooltip_id }}">

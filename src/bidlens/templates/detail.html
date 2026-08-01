@@ -63,21 +63,29 @@
     </div>
   </header>
 
-  <nav class="detail-section-nav" aria-label="Opportunity sections" role="tablist">
-    <button type="button" id="detail-tab-overview" role="tab" aria-selected="true" aria-controls="detail-panel-overview" data-detail-tab="overview"><span>Overview</span></button>
-    <button type="button" id="detail-tab-communication" role="tab" aria-selected="false" aria-controls="detail-panel-communication" data-detail-tab="communication"><span>Communication</span></button>
-    <button type="button" id="detail-tab-notes" role="tab" aria-selected="false" aria-controls="detail-panel-notes" data-detail-tab="notes"><span>Notes</span></button>
-    <button type="button" id="detail-tab-reference" role="tab" aria-selected="false" aria-controls="detail-panel-reference" data-detail-tab="reference"><span>Reference</span></button>
-    <button type="button" id="detail-tab-history" role="tab" aria-selected="false" aria-controls="detail-panel-history" data-detail-tab="history">
-      <span>Solicitation History{% if history_unread_count %} <span class="detail-history-badge" data-history-unread-count>({{ history_unread_count }})</span>{% endif %}</span>
-    </button>
-  </nav>
-
   <div class="detail-primary detail-folder-workspace">
     {% set conversations = (conversation_context or {}).get('conversations', []) %}
     {% set communication_messages = (conversation_context or {}).get('messages', []) %}
-    {{ opportunity_sidebar('workspace-team-interest-tooltip') }}
-    <div class="detail-folder-tab-content">
+    <div class="detail-folder-inspector">
+      {{ opportunity_sidebar('workspace-team-interest-tooltip') }}
+      <dl class="detail-inspector-metadata" aria-label="Opportunity metadata">
+        {% if opportunity.created_at %}<div><dt>Created</dt><dd>{{ opportunity.created_at.strftime('%b %-d, %Y') }}</dd></div>{% endif %}
+        <div><dt>Source</dt><dd>{{ source_label or 'Unknown' }}</dd></div>
+        {% set detail_updated_at = opportunity.updated_at or opportunity.upserted_at %}
+        {% if detail_updated_at %}<div><dt>Last updated</dt><dd>{{ detail_updated_at.strftime('%b %-d, %Y') }}</dd></div>{% endif %}
+      </dl>
+    </div>
+    <div class="detail-folder">
+      <nav class="detail-section-nav" aria-label="Opportunity sections" role="tablist">
+        <button type="button" id="detail-tab-overview" role="tab" aria-selected="true" aria-controls="detail-panel-overview" data-detail-tab="overview"><span>Overview</span></button>
+        <button type="button" id="detail-tab-communication" role="tab" aria-selected="false" aria-controls="detail-panel-communication" data-detail-tab="communication"><span>Communication</span></button>
+        <button type="button" id="detail-tab-notes" role="tab" aria-selected="false" aria-controls="detail-panel-notes" data-detail-tab="notes"><span>Notes</span></button>
+        <button type="button" id="detail-tab-reference" role="tab" aria-selected="false" aria-controls="detail-panel-reference" data-detail-tab="reference"><span>Reference</span></button>
+        <button type="button" id="detail-tab-history" role="tab" aria-selected="false" aria-controls="detail-panel-history" data-detail-tab="history">
+          <span>Solicitation History{% if history_unread_count %} <span class="detail-history-badge" data-history-unread-count>({{ history_unread_count }})</span>{% endif %}</span>
+        </button>
+      </nav>
+      <div class="detail-folder-tab-content">
 
     <!-- Opportunity Summary -->
     <details open class="accordion detail-section detail-tab-panel" id="detail-panel-overview"
@@ -85,6 +93,70 @@
       <summary class="accordion-summary">Opportunity Summary</summary>
       <div class="accordion-body detail-overview-sheet">
         <div class="detail-description-folder detail-overview-content detail-overview-main">
+        <section class="detail-description-section guts-card" aria-labelledby="guts-heading">
+          <header class="guts-card-header">
+            <div class="guts-card-heading">
+              <span class="guts-sparkle" aria-hidden="true">&#10022;</span>
+              <div>
+                <div class="guts-title-row">
+                  <h2 id="guts-heading">Get Up To Speed</h2>
+                  <span class="overview-ai-label">AI Brief</span>
+                </div>
+                <p>A holistic summary of this opportunity.</p>
+              </div>
+            </div>
+            <div class="guts-card-actions">
+              {% if guts_generation and guts_generation.completed_at %}
+                <span class="guts-generated-at">Generated {{ guts_generation.completed_at.strftime("%b %-d, %Y at %-I:%M %p") }}</span>
+                <span class="guts-refresh-icon" aria-hidden="true">&#8635;</span>
+              {% endif %}
+              <button class="btn btn-sm guts-regenerate-button"
+                      id="generate-brief-button"
+                      data-default-label="{{ 'Regenerate' if guts_generation else 'Generate' }}"
+                      type="button"
+                      onclick="generateBrief('{{ opportunity.id }}')">
+                {{ 'Regenerate' if guts_generation else 'Generate' }}
+              </button>
+            </div>
+          </header>
+          <div id="brief-generate-status" class="muted guts-generate-status" style="display:none;"></div>
+          <div class="guts-section-grid">
+            <section class="guts-section guts-section--status" aria-labelledby="guts-status-heading">
+              <h3 id="guts-status-heading"><span aria-hidden="true">&#9678;</span> Overall Status</h3>
+              {% if guts_presentation.overall_status %}
+                {% for statement in guts_presentation.overall_status %}<p data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</p>{% endfor %}
+              {% else %}<p class="guts-empty">No status summary is available yet.</p>{% endif %}
+            </section>
+            <section class="guts-section" aria-labelledby="guts-recent-heading">
+              <h3 id="guts-recent-heading"><span aria-hidden="true">&#9993;</span> Recent Developments</h3>
+              {% if guts_presentation.recent_developments %}
+                <ul>{% for statement in guts_presentation.recent_developments %}<li data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</li>{% endfor %}</ul>
+              {% else %}<p class="guts-empty">No recent developments identified.</p>{% endif %}
+            </section>
+            <section class="guts-section" aria-labelledby="guts-internal-heading">
+              <h3 id="guts-internal-heading"><span aria-hidden="true">&#9786;</span> Internal Activity</h3>
+              {% if guts_presentation.internal_activity %}
+                <ul>{% for statement in guts_presentation.internal_activity %}<li data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</li>{% endfor %}</ul>
+              {% else %}<p class="guts-empty">No recent internal activity.</p>{% endif %}
+            </section>
+            <section class="guts-section" aria-labelledby="guts-risks-heading">
+              <h3 id="guts-risks-heading"><span aria-hidden="true">&#9888;</span> Risks / Watch Items</h3>
+              {% if guts_presentation.risks_watch_items %}
+                <ul>{% for statement in guts_presentation.risks_watch_items %}<li data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</li>{% endfor %}</ul>
+              {% else %}<p class="guts-empty">No watch items identified.</p>{% endif %}
+            </section>
+          </div>
+          <section class="guts-next-steps" aria-labelledby="guts-next-heading">
+            <div class="guts-next-title">
+              <h3 id="guts-next-heading"><span aria-hidden="true">&#10003;</span> Suggested Next Steps</h3>
+              <span>AI-generated recommendations</span>
+            </div>
+            {% if guts_presentation.suggested_next_steps %}
+              <ul>{% for statement in guts_presentation.suggested_next_steps %}<li data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</li>{% endfor %}</ul>
+            {% else %}<p class="guts-empty">No next steps suggested.</p>{% endif %}
+          </section>
+        </section>
+
         <section class="detail-description-section overview-description-card" aria-labelledby="overview-description-heading">
           <div class="detail-description-section-header">
             <h2 id="overview-description-heading">Description</h2>
@@ -98,115 +170,6 @@
             <p class="detail-panel-empty">No source description is available.</p>
           {% endif %}
         </section>
-
-        {% if brief %}
-        <section class="detail-description-section detail-description-section--brief overview-brief-card" aria-labelledby="detail-description-brief-heading">
-          <div class="detail-description-section-header">
-            <div>
-              <h2 id="detail-description-brief-heading">Opportunity Brief</h2>
-              <span class="overview-ai-label">AI-generated</span>
-            </div>
-            <button class="btn btn-secondary btn-sm"
-                    id="generate-brief-button"
-                    data-default-label="Regenerate Brief"
-                    type="button"
-                    onclick="generateBrief('{{ opportunity.id }}')">
-              Regenerate Brief
-            </button>
-          </div>
-
-          <div id="brief-generate-status" class="muted" style="display:none; margin-bottom: 12px;"></div>
-
-          {% if brief_status == "completed" and brief_generated_at %}
-            <div class="muted" style="margin-bottom: 10px;">
-              Generated {{ brief_generated_at.strftime("%b %d, %Y %I:%M %p") }}
-              {% if brief_provider %} via {{ brief_provider }}{% endif %}
-              {% if brief_model %} · {{ brief_model }}{% endif %}
-            </div>
-          {% elif brief_status == "generating" %}
-            <div class="muted" style="margin-bottom: 10px;">Generating…</div>
-          {% elif brief_status == "failed" %}
-            <div class="muted" style="margin-bottom: 10px;">Last generation attempt failed.</div>
-          {% endif %}
-
-          {% if brief_source_basis %}
-            <div class="brief-source-note">
-              {% if brief_source_basis == "solicitation_documents" %}
-                <span class="brief-source-badge">Based on solicitation documents</span>
-              {% else %}
-                <span class="brief-source-badge">Based on SAM description only</span>
-              {% endif %}
-              {% if brief_source_files %}
-                <span class="brief-source-files">{{ brief_source_files|join(", ") }}</span>
-              {% endif %}
-            </div>
-            {% if brief_source_summary %}
-              <div class="brief-source-summary">
-                <span>{{ brief_source_summary.pdfs_processed or 0 }} PDF{{ "" if (brief_source_summary.pdfs_processed or 0) == 1 else "s" }} processed</span>
-                {% if brief_source_summary.docs_processed %}
-                  <span>{{ brief_source_summary.docs_processed }} Word doc{{ "" if brief_source_summary.docs_processed == 1 else "s" }} processed</span>
-                {% endif %}
-                {% if brief_source_summary.txts_processed %}
-                  <span>{{ brief_source_summary.txts_processed }} TXT file{{ "" if brief_source_summary.txts_processed == 1 else "s" }} processed</span>
-                {% endif %}
-                <span>{{ brief_source_summary.pages_extracted or 0 }} page{{ "" if (brief_source_summary.pages_extracted or 0) == 1 else "s" }} extracted</span>
-                <span>{{ brief_source_summary.total_extracted_characters or 0 }} characters read</span>
-                {% if brief_source_summary.total_attachments_found %}
-                  <span>{{ brief_source_summary.total_attachments_found }} attachment{{ "" if brief_source_summary.total_attachments_found == 1 else "s" }} found</span>
-                {% endif %}
-                {% if brief_source_summary.documents_skipped_due_to_limits or brief_source_summary.pdfs_skipped_due_to_limits %}
-                  <span>{{ brief_source_summary.documents_skipped_due_to_limits or brief_source_summary.pdfs_skipped_due_to_limits }} skipped due to V1 limits</span>
-                {% endif %}
-                {% if brief_source_summary.spreadsheets_skipped %}
-                  <span>{{ brief_source_summary.spreadsheets_skipped }} spreadsheet{{ "" if brief_source_summary.spreadsheets_skipped == 1 else "s" }} skipped</span>
-                {% endif %}
-                {% if brief_source_summary.non_extractable_skipped %}
-                  <span>{{ brief_source_summary.non_extractable_skipped }} non-extractable skipped</span>
-                {% endif %}
-                {% if brief_source_summary.non_pdfs_skipped %}
-                  <span>{{ brief_source_summary.non_pdfs_skipped }} other file{{ "" if brief_source_summary.non_pdfs_skipped == 1 else "s" }} skipped</span>
-                {% endif %}
-                {% if brief_source_summary.controlled_or_unavailable_skipped %}
-                  <span>{{ brief_source_summary.controlled_or_unavailable_skipped }} controlled/unavailable skipped</span>
-                {% endif %}
-                {% if brief_source_summary.extraction_failures %}
-                  <span>{{ brief_source_summary.extraction_failures }} extraction failure{{ "" if brief_source_summary.extraction_failures == 1 else "s" }}</span>
-                {% endif %}
-              </div>
-            {% endif %}
-          {% endif %}
-
-          <div class="brief-content">
-            {% if brief_status == "failed" %}
-              <p><strong>Brief failed:</strong> {{ brief_error or "unknown error" }}</p>
-            {% endif %}
-
-            {% for section in brief_sections %}
-              <h4>{{ section["label"] }}</h4>
-              <ul>
-                {% for item in section["items"] %}
-                  <li>{{ item }}</li>
-                {% endfor %}
-              </ul>
-            {% endfor %}
-          </div>
-        </section>
-        {% else %}
-        <section class="detail-description-section overview-brief-action" aria-labelledby="detail-description-brief-heading">
-          <div class="overview-brief-action-copy">
-            <span class="overview-brief-action-icon" aria-hidden="true">&#10022;</span>
-            <div>
-              <h2 id="detail-description-brief-heading">Generate AI Brief</h2>
-              <p>Get an AI-generated summary of this opportunity.</p>
-            </div>
-          </div>
-          <div>
-            <button class="btn btn-secondary btn-sm" id="generate-brief-button" data-default-label="Generate AI Brief" type="button" onclick="generateBrief('{{ opportunity.id }}')">Generate AI Brief</button>
-            <div id="brief-generate-status" class="muted overview-brief-status" style="display:none;"></div>
-            {% if brief_status == "failed" %}<p class="muted overview-brief-error">Last generation attempt failed.</p>{% endif %}
-          </div>
-        </section>
-        {% endif %}
 
         {% set document_count = namespace(value=0) %}
         {% if grants_gov_documents %}
@@ -608,6 +571,7 @@
       </div>
     </section>
 
+      </div>
     </div>
   </div>
 </div>
@@ -736,13 +700,15 @@ async function generateBrief(oppId) {
   console.info(`[BidLens] Starting brief generation for opportunity ${oppId}`);
 
   try {
-    const response = await fetch(`/api/opps/${oppId}/generate_brief`, { method: "POST" });
+    const response = await fetch(`/api/opps/${oppId}/generate-guts`, { method: "POST" });
     if (!response.ok) {
       let message = "Unable to generate brief right now.";
       try {
         const payload = await response.json();
         if (payload && payload.detail) {
-          message = payload.detail;
+          message = typeof payload.detail === 'string'
+            ? payload.detail
+            : payload.detail.message || message;
         }
       } catch (error) {
         // Fall through to the default message.

@@ -100,12 +100,13 @@ from ..services.opportunity_descriptions import (
     clean_solicitation_description,
     select_opportunity_description,
 )
+from ..services.opportunity_knowledge_brief import get_latest_successful_generation
+from ..services.opportunity_knowledge_brief.presentation import build_guts_presentation
 from sqlalchemy import and_, or_, select
 from dataclasses import dataclass
 from typing import Optional
 from sqlalchemy import func, case
 from ..models import OpportunityPursuitLaneMatch, PursuitLane, Vote
-from ..models import OpportunityBrief
 from ..models import Workspace
 from ..grants_gov_client import GrantsGovApiError
 from ..ingest_grants_gov import enrich_grants_gov_opportunity_detail
@@ -133,20 +134,6 @@ TRIAGE_SOURCE_OPTIONS = (
     {"value": "grants", "label": "Grants.gov"},
     {"value": "govwin", "label": "GovWin"},
 )
-BRIEF_SECTION_DEFS = [
-    ("executive_summary", "Executive Summary"),
-    ("key_dates", "Key Dates"),
-    ("buyer_agency", "Buyer / Agency"),
-    ("scope_of_work", "Scope of Work"),
-    ("eligibility_set_aside", "Eligibility / Set-Aside"),
-    ("submission_requirements", "Submission Requirements"),
-    ("evaluation_criteria", "Evaluation Criteria"),
-    ("fit_signals", "Fit Signals"),
-    ("risk_flags", "Risk Flags"),
-    ("open_questions", "Open Questions"),
-    ("recommended_action", "Recommended Action"),
-]
-
 @dataclass(frozen=True)
 class OpportunityBackDestination:
     label: str
@@ -174,59 +161,6 @@ def opportunity_back_context(value: str | None) -> str:
 def opportunity_back_navigation(value: str | None) -> tuple[str, str]:
     destination = OPPORTUNITY_BACK_DESTINATIONS[opportunity_back_context(value)]
     return destination.label, destination.url
-
-
-def _normalize_brief_status(value: str | None) -> str:
-    if value == "pending":
-        return "generating"
-    if value == "ok":
-        return "completed"
-    return value or "not_started"
-
-
-def _is_url_like(value):
-    if value is None:
-        return False
-    s = str(value).strip().lower()
-    return s.startswith("http://") or s.startswith("https://") or s.startswith("www.")
-
-
-def _normalize_brief_section_items(value) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return [str(item).strip() for item in value if str(item).strip()]
-    if isinstance(value, str):
-        text = value.strip()
-        return [text] if text else []
-    if isinstance(value, dict):
-        return [f"{k}: {v}".strip() for k, v in value.items() if str(v).strip()]
-    return [str(value).strip()]
-
-
-def _build_brief_sections(brief: dict | None) -> list[dict]:
-    if not brief:
-        return []
-
-    legacy = {
-        "executive_summary": brief.get("summary_bullets"),
-        "scope_of_work": brief.get("deliverables"),
-        "eligibility_set_aside": brief.get("eligibility"),
-        "submission_requirements": brief.get("key_requirements"),
-        "risk_flags": brief.get("red_flags"),
-        "recommended_action": brief.get("recommended_next_steps"),
-    }
-
-    sections: list[dict] = []
-    for key, label in BRIEF_SECTION_DEFS:
-        raw_value = brief.get(key)
-        if raw_value is None and key in legacy:
-            raw_value = legacy[key]
-        items = _normalize_brief_section_items(raw_value)
-        if not items:
-            items = ["Not found in available materials"]
-        sections.append({"key": key, "label": label, "items": items})
-    return sections
 
 
 def apply_org_filters(query, db: Session, user):
@@ -2047,21 +1981,12 @@ async def opportunity_detail(
     grants_gov_metadata = _grants_gov_detail_metadata(opportunity)
     grants_gov_documents = _grants_gov_document_metadata(opportunity)
 
-    brief_row = db.query(OpportunityBrief).filter(
-        OpportunityBrief.opportunity_id == opp_id,
-        OpportunityBrief.organization_id == _user_org_id(user),
-    ).first()
-
-    brief = brief_row.brief_json if (brief_row and brief_row.brief_json) else None
-    brief_sections = _build_brief_sections(brief)
-    brief_status = _normalize_brief_status(brief_row.status if brief_row else None)
-    brief_error = brief_row.error_message if brief_row else None
-    brief_source_basis = brief_row.source_basis if brief_row else None
-    brief_source_files = brief_row.filenames_processed if (brief_row and brief_row.filenames_processed) else []
-    brief_source_summary = brief_row.source_summary if (brief_row and brief_row.source_summary) else None
-    brief_generated_at = brief_row.generated_at if brief_row else None
-    brief_provider = brief_row.provider if brief_row else None
-    brief_model = brief_row.model if brief_row else None
+    guts_generation = get_latest_successful_generation(
+        db,
+        organization_id=_user_org_id(user),
+        opportunity_id=opportunity.id,
+    )
+    guts_presentation = build_guts_presentation(guts_generation)
 
     user_opp = db.query(UserOpportunity).filter(
         UserOpportunity.user_id == user.id,
@@ -2208,16 +2133,8 @@ async def opportunity_detail(
         ),
         "teammate_interest_users": teammate_interest_users,
         "active_page": None,
-        "brief": brief,
-        "brief_sections": brief_sections,
-        "brief_status": brief_status,
-        "brief_error": brief_error,
-        "brief_generated_at": brief_generated_at,
-        "brief_provider": brief_provider,
-        "brief_model": brief_model,
-        "brief_source_basis": brief_source_basis,
-        "brief_source_files": brief_source_files,
-        "brief_source_summary": brief_source_summary,
+        "guts_generation": guts_generation,
+        "guts_presentation": guts_presentation,
         "resolved_description": resolved_description,
         "grants_gov_metadata": grants_gov_metadata,
         "grants_gov_documents": grants_gov_documents,

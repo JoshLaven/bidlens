@@ -24,7 +24,7 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
         overview_start = self.template.index('data-detail-panel="overview"')
         communication_start = self.template.index('data-detail-panel="communication"')
         overview = self.template[overview_start:communication_start]
-        for content in ("Description", "Opportunity Brief"):
+        for content in ("Description", "Get Up To Speed"):
             self.assertIn(content, overview)
         for duplicated_field in ("Opportunity characteristics", "Due Date", "NAICS"):
             self.assertNotIn(duplicated_field, overview)
@@ -56,14 +56,51 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
         self.assertIn("openOpportunityEmail", self.template)
         self.assertIn('aria-label="Copy solicitation number"', self.sidebar_template)
 
-    def test_brief_empty_and_generated_states_have_distinct_visual_treatments(self):
-        self.assertIn("{% if brief %}", self.template)
-        self.assertIn('class="detail-description-section detail-description-section--brief overview-brief-card"', self.template)
-        self.assertIn('class="detail-description-section overview-brief-action"', self.template)
-        self.assertIn("Generate AI Brief", self.template)
-        self.assertIn("Regenerate Brief", self.template)
-        self.assertIn("AI-generated", self.template)
+    def test_get_up_to_speed_replaces_the_legacy_brief_presentation(self):
+        self.assertIn('class="detail-description-section guts-card"', self.template)
+        self.assertIn('id="guts-heading">Get Up To Speed', self.template)
+        self.assertIn("A holistic summary of this opportunity.", self.template)
+        self.assertIn("AI Brief", self.template)
+        self.assertNotIn(">Opportunity Brief<", self.template)
+        self.assertNotIn(">Generate AI Brief<", self.template)
+
+    def test_get_up_to_speed_has_orientation_sections_and_empty_states(self):
+        for heading in (
+            "Overall Status",
+            "Recent Developments",
+            "Internal Activity",
+            "Risks / Watch Items",
+            "Suggested Next Steps",
+        ):
+            self.assertIn(heading, self.template)
+        for empty_state in (
+            "No status summary is available yet.",
+            "No recent developments identified.",
+            "No recent internal activity.",
+            "No watch items identified.",
+            "No next steps suggested.",
+        ):
+            self.assertIn(empty_state, self.template)
+
+    def test_get_up_to_speed_preserves_existing_generation_handler(self):
+        self.assertEqual(self.template.count('id="generate-brief-button"'), 1)
+        self.assertIn("onclick=\"generateBrief('{{ opportunity.id }}')\"", self.template)
+        self.assertIn("{{ 'Regenerate' if guts_generation else 'Generate' }}", self.template)
+        self.assertIn("/generate-guts", self.template)
+        self.assertIn('id="brief-generate-status"', self.template)
         self.assertIn("overview-document-count", self.template)
+
+    def test_get_up_to_speed_renders_canonical_statements_one_to_one(self):
+        for collection in (
+            "overall_status",
+            "recent_developments",
+            "internal_activity",
+            "risks_watch_items",
+            "suggested_next_steps",
+        ):
+            self.assertIn(f"guts_presentation.{collection}", self.template)
+        self.assertIn('data-guts-statement-key="{{ statement.statement_key }}"', self.template)
+        self.assertIn("{{ statement.text }}", self.template)
 
     def test_communication_uses_summary_and_collapsed_email_accordions(self):
         self.assertIn('id="communication-summary-heading">AI Summary', self.template)
@@ -95,8 +132,27 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
         self.assertEqual(self.template.count("opportunity_sidebar("), 1)
         self.assertIn("opportunity_sidebar('workspace-team-interest-tooltip')", self.template)
         self.assertIn("detail-folder-workspace", self.template)
+        self.assertIn("detail-folder-inspector", self.template)
+        self.assertIn('class="detail-folder"', self.template)
         self.assertIn("detail-folder-tab-content", self.template)
         self.assertNotIn("detail-shared-workspace", self.template)
+
+    def test_folder_tabs_live_with_the_content_beside_the_persistent_inspector(self):
+        workspace_start = self.template.index('class="detail-primary detail-folder-workspace"')
+        inspector_start = self.template.index('class="detail-folder-inspector"', workspace_start)
+        folder_start = self.template.index('class="detail-folder"', inspector_start)
+        nav_start = self.template.index('class="detail-section-nav"', folder_start)
+        content_start = self.template.index('class="detail-folder-tab-content"', nav_start)
+        self.assertLess(inspector_start, folder_start)
+        self.assertLess(folder_start, nav_start)
+        self.assertLess(nav_start, content_start)
+
+    def test_persistent_inspector_contains_client_and_metadata(self):
+        self.assertIn("detail-context-row--client", self.sidebar_template)
+        self.assertIn(">Client<", self.sidebar_template)
+        self.assertIn('class="detail-inspector-metadata"', self.template)
+        for label in ("Created", "Source", "Last updated"):
+            self.assertIn(f">{label}<", self.template)
 
     def test_history_source_action_is_in_the_card_header(self):
         header_start = self.template.index('class="detail-workspace-card-header"')

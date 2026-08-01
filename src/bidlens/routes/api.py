@@ -30,6 +30,10 @@ from ..services.opportunity_outcomes import (
     OUTCOME_NO_BID,
     record_opportunity_outcome,
 )
+from ..services.opportunity_knowledge_brief import (
+    GUTSServiceError,
+    OpportunityKnowledgeBriefService,
+)
 from ..services.integration_credentials import decrypt_credentials, encrypt_credentials
 from ..tenancy import current_org_id
 from sqlalchemy import and_, or_
@@ -1560,6 +1564,39 @@ def mark_pending(opp_id: int, request: Request, db: Session = Depends(get_db)):
     row.error_message = None
     db.commit()
     return {"ok": True, "opp_id": opp_id, "organization_id": org_id, "status": "generating"}
+
+@router.post("/opps/{opp_id}/generate-guts")
+def generate_guts(
+    opp_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    try:
+        generation = OpportunityKnowledgeBriefService(db).generate(
+            opportunity_id=opp_id,
+            requesting_user=user,
+            active_organization_id=_user_org_id(user),
+        )
+    except GUTSServiceError as exc:
+        if exc.safe_category == "opportunity_not_found":
+            status_code = 404
+        elif exc.safe_category in {"access_denied", "shortlist_required"}:
+            status_code = 403
+        elif exc.safe_category == "generation_already_in_progress":
+            status_code = 409
+        else:
+            status_code = 422
+        raise HTTPException(
+            status_code=status_code,
+            detail={"code": exc.safe_category, "message": exc.safe_message},
+        ) from None
+    return {
+        "ok": True,
+        "generation_id": generation.id,
+        "status": generation.status,
+    }
+
 
 @router.post("/opps/{opp_id}/generate_brief")
 def generate_brief(
