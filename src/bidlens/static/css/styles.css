@@ -14880,6 +14880,13 @@ details[open] .accordion-summary::after {
   margin-top: 4px;
 }
 
+.guts-activity-date {
+  color: var(--gray-500);
+  font-size: .72rem;
+  font-style: normal;
+  white-space: nowrap;
+}
+
 .guts-section .guts-empty {
   color: var(--gray-500);
   font-style: italic;

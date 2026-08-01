@@ -36,6 +36,7 @@ class GUTSStatementPresentation:
     confidence: str
     importance: str
     citations: tuple[GUTSCitationPresentation, ...]
+    display_date: str | None = None
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,7 @@ class GUTSPresentation:
 
 
 def _present_statement(statement: OpportunityKnowledgeBriefStatement) -> GUTSStatementPresentation:
+    latest_source_at = _latest_source_datetime(statement)
     return GUTSStatementPresentation(
         persisted_statement_id=statement.id,
         statement_key=statement.statement_key,
@@ -63,6 +65,10 @@ def _present_statement(statement: OpportunityKnowledgeBriefStatement) -> GUTSSta
                 updated_at_source=getattr(link.brief_source, "updated_at_source", None),
             )
             for link in statement.source_links
+        ),
+        display_date=(
+            f"{latest_source_at.strftime('%b')} {latest_source_at.day}"
+            if latest_source_at is not None else None
         ),
     )
 
@@ -99,49 +105,55 @@ def _field_rank(statement: OpportunityKnowledgeBriefStatement, priorities: tuple
 def _select_overall(
     statements: list[OpportunityKnowledgeBriefStatement],
 ) -> tuple[GUTSStatementPresentation, ...]:
+    operational_priorities = (
+        "response_deadline",
+        "organization_outcome",
+        "source_stage",
+        "opportunity_type",
+        "posted_date",
+    )
     candidates = [
         statement
         for statement in statements
-        if statement.placement_type in {PlacementType.HEADLINE, PlacementType.SUMMARY}
-        or statement.section_type == SectionType.CURRENT_STATE
+        if (
+            statement.placement_type in {PlacementType.HEADLINE, PlacementType.SUMMARY}
+            or statement.section_type == SectionType.CURRENT_STATE
+        )
+        and _current_state_fields(statement).intersection(operational_priorities)
     ]
     if not candidates:
         return ()
 
     importance_rank = lambda statement: 0 if statement.importance == Importance.HIGH else 1
-    orientation_priorities = ("source_stage", "opportunity_type", "description", "client", "title")
-    operative_priorities = ("response_deadline", "organization_outcome", "source_stage", "posted_date")
-
-    orientation = sorted(
+    first = sorted(
         candidates,
         key=lambda statement: (
-            _current_state_fields(statement) == {"title"},
-            _field_rank(statement, orientation_priorities),
+            _field_rank(statement, operational_priorities),
             importance_rank(statement),
             _canonical_key(statement),
         ),
     )[0]
-    selected = [orientation]
-    used_fields = _current_state_fields(orientation)
+    selected = [first]
+    used_fields = _current_state_fields(first)
 
-    remaining = [statement for statement in candidates if statement is not orientation]
+    remaining = [statement for statement in candidates if statement is not first]
     if remaining:
-        operative = sorted(
+        second = sorted(
             remaining,
             key=lambda statement: (
                 bool(_current_state_fields(statement) & used_fields),
-                _field_rank(statement, operative_priorities),
+                _field_rank(statement, operational_priorities),
                 importance_rank(statement),
                 _canonical_key(statement),
             ),
         )[0]
-        selected.append(operative)
+        selected.append(second)
 
     return tuple(_present_statement(statement) for statement in selected[:OVERALL_STATUS_LIMIT])
 
 
-def _source_timestamp(statement: OpportunityKnowledgeBriefStatement) -> float:
-    timestamps = []
+def _latest_source_datetime(statement: OpportunityKnowledgeBriefStatement) -> datetime | None:
+    timestamps: list[datetime] = []
     for link in statement.source_links:
         source = link.brief_source
         for value in (
@@ -151,8 +163,13 @@ def _source_timestamp(statement: OpportunityKnowledgeBriefStatement) -> float:
         ):
             if value is not None:
                 normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-                timestamps.append(normalized.timestamp())
-    return max(timestamps, default=float("-inf"))
+                timestamps.append(normalized)
+    return max(timestamps, default=None)
+
+
+def _source_timestamp(statement: OpportunityKnowledgeBriefStatement) -> float:
+    latest = _latest_source_datetime(statement)
+    return latest.timestamp() if latest is not None else float("-inf")
 
 
 def build_guts_presentation(

@@ -136,7 +136,7 @@
             <section class="guts-section" aria-labelledby="guts-internal-heading">
               <h3 id="guts-internal-heading"><span aria-hidden="true">&#9786;</span> Internal Activity</h3>
               {% if guts_presentation.internal_activity %}
-                <ul>{% for statement in guts_presentation.internal_activity %}<li data-guts-statement-id="{{ statement.persisted_statement_id }}" data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</li>{% endfor %}</ul>
+                <ul>{% for statement in guts_presentation.internal_activity %}<li data-guts-statement-id="{{ statement.persisted_statement_id }}" data-guts-statement-key="{{ statement.statement_key }}"><span>{{ statement.text }}</span>{% if statement.display_date %}<time class="guts-activity-date"> · {{ statement.display_date }}</time>{% endif %}</li>{% endfor %}</ul>
               {% else %}<p class="guts-empty">No recent internal activity.</p>{% endif %}
             </section>
           </div>

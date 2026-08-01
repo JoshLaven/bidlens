@@ -93,9 +93,9 @@ Examples:
 
 **Target:** Two concise bullets or approximately two short sentences.
 
-### Recent Developments
+### Recent Developments (Official Updates)
 
-**Purpose:** Summarize meaningful external changes.
+**Purpose:** Summarize meaningful external changes. This section summarizes changes made by the opportunity owner or sponsor, not by the user's organization.
 
 Examples:
 

@@ -48,7 +48,11 @@ class GUTSPresentationTests(unittest.TestCase):
                 source_id="current_state:opportunity:1:response_deadline",
             ),
             statement("history-1", "Amendment 3 was released.", section="important_history", position=2),
-            statement("org-1", "Josh recommended contacting Westat.", section="organizational_knowledge", position=3),
+            statement(
+                "org-1", "Josh recommended contacting Westat.",
+                section="organizational_knowledge", position=3,
+                occurred_at=datetime(2026, 7, 31, 18, 30, tzinfo=timezone.utc),
+            ),
             statement("risk-1", "Staffing availability is unresolved.", section="uncertainties", position=4),
         ]
 
@@ -56,26 +60,30 @@ class GUTSPresentationTests(unittest.TestCase):
 
         self.assertEqual(
             [item.text for item in result.overall_status],
-            ["The opportunity remains active.", "The deadline is August 31."],
+            ["The deadline is August 31.", "The opportunity remains active."],
         )
         self.assertEqual(result.recent_developments[0].text, "Amendment 3 was released.")
         self.assertEqual(result.internal_activity[0].text, "Josh recommended contacting Westat.")
         self.assertFalse(hasattr(result, "risks_watch_items"))
         self.assertFalse(hasattr(result, "suggested_next_steps"))
-        self.assertEqual(result.overall_status[0].persisted_statement_id, 41)
+        self.assertEqual(result.overall_status[1].persisted_statement_id, 41)
         self.assertEqual(result.internal_activity[0].statement_key, "org-1")
         self.assertEqual(result.internal_activity[0].citations[0].source_id, "source:org-1")
+        self.assertEqual(result.internal_activity[0].confidence, "supported")
+        self.assertEqual(result.internal_activity[0].display_date, "Jul 31")
 
     def test_overall_status_prefers_distinct_stage_and_deadline_and_caps_at_two(self):
         rows = [
             statement("title", "Evaluation Services.", placement="headline", source_id="current_state:opportunity:1:title"),
+            statement("description", "The agency seeks broad program support.", placement="summary", position=4, source_id="current_state:opportunity:1:description"),
             statement("stage", "The opportunity remains active.", placement="summary", position=1, source_id="current_state:opportunity:1:source_stage"),
             statement("deadline", "Responses are due August 31.", section="current_state", position=2, source_id="current_state:opportunity:1:response_deadline"),
             statement("type", "This is a request for proposals.", section="current_state", position=3, source_id="current_state:opportunity:1:opportunity_type"),
         ]
         result = build_guts_presentation(SimpleNamespace(statements=rows))
-        self.assertEqual([item.statement_key for item in result.overall_status], ["stage", "deadline"])
+        self.assertEqual([item.statement_key for item in result.overall_status], ["deadline", "stage"])
         self.assertEqual(len(result.overall_status), 2)
+        self.assertNotIn("description", [item.statement_key for item in result.overall_status])
 
     def test_recent_developments_uses_only_history_newest_first_and_caps_at_three(self):
         rows = [
@@ -111,6 +119,18 @@ class GUTSPresentationTests(unittest.TestCase):
             [item.text for item in result.internal_activity],
             ["Kendall recommended a partner.", "Tom raised a staffing question.", "Josh noted prior experience."],
         )
+
+    def test_internal_activity_uses_latest_existing_evidence_date_with_consistent_format(self):
+        activity = statement(
+            "org-dated",
+            "Josh noted previous relevant work.",
+            section="organizational_knowledge",
+            occurred_at=datetime(2026, 8, 1, 9, 15),
+        )
+        result = build_guts_presentation(SimpleNamespace(statements=[activity]))
+        self.assertEqual(result.internal_activity[0].display_date, "Aug 1")
+        self.assertEqual(result.internal_activity[0].text, activity.text)
+        self.assertEqual(result.internal_activity[0].citations[0].occurred_at, activity.source_links[0].brief_source.occurred_at)
 
     def test_missing_generation_has_only_empty_v1_sections(self):
         result = build_guts_presentation(None)

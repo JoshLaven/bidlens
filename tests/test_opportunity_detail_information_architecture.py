@@ -98,6 +98,8 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
         self.assertIn('data-guts-statement-id="{{ statement.persisted_statement_id }}"', self.template)
         self.assertIn('data-guts-statement-key="{{ statement.statement_key }}"', self.template)
         self.assertIn("{{ statement.text }}", self.template)
+        self.assertIn('class="guts-activity-date"', self.template)
+        self.assertIn("{{ statement.display_date }}", self.template)
 
     def test_communication_uses_summary_and_collapsed_email_accordions(self):
         self.assertIn('id="communication-summary-heading">AI Summary', self.template)
