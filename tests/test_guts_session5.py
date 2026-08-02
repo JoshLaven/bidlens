@@ -1116,21 +1116,38 @@ class RetryAndProviderTests(unittest.TestCase):
         self.assertEqual(len(client.calls), 2)
         self.assertEqual(len(logged.records), 1)
         record = logged.records[0]
-        self.assertEqual(record.getMessage(), "guts_output_validation_failed")
-        self.assertEqual(record.guts_statement_index, 1)
-        self.assertEqual(record.guts_statement_key, "summary-objective")
-        self.assertEqual(record.guts_statement_text, "ABC Services is the subcontractor.")
-        self.assertEqual(record.guts_statement_attribution, structured_attribution.serializable_dict())
-        self.assertEqual(record.guts_cited_source_ids, ("note:1",))
-        self.assertEqual(record.guts_validation_rule, "attribution_preservation")
-        self.assertEqual(record.guts_resolved_organizational_evidence, ({
+        payload = json.loads(record.getMessage())
+        self.assertEqual(payload["event"], "guts_output_validation_failed")
+        self.assertEqual(payload["statement_index"], 1)
+        self.assertEqual(payload["statement_placement"], "summary")
+        self.assertEqual(payload["statement_key"], "summary-objective")
+        self.assertEqual(payload["rejected_text"], "ABC Services is the subcontractor.")
+        self.assertEqual(payload["attribution"], {
+            "type": "person",
+            "actors": [{
+                "user_id": 2, "display_name": "Alex", "email": "[redacted]",
+            }],
+        })
+        self.assertEqual(payload["cited_source_ids"], ["note:1"])
+        self.assertEqual(payload["validation_rule"], "attribution_preservation")
+        self.assertEqual(payload["resolved_organizational_evidence"], [{
             "source_id": "note:1",
             "source_type": "note",
             "author": {
-                "user_id": 2, "display_name": "Alex", "address": "alex@example.test",
+                "user_id": 2, "display_name": "Alex", "address": "[redacted]",
             },
             "text": "Alex plans to contact ABC Services.",
-        },))
+        }])
+        self.assertNotIn("alex@example.test", record.getMessage())
+
+        from uvicorn.config import LOGGING_CONFIG
+        from uvicorn.logging import DefaultFormatter
+        formatter_config = LOGGING_CONFIG["formatters"]["default"]
+        formatted = DefaultFormatter(
+            fmt=formatter_config["fmt"], use_colors=False,
+        ).format(record)
+        rendered_payload = json.loads(formatted[formatted.index("{"):])
+        self.assertEqual(rendered_payload, payload)
 
     def test_schema_error_and_prohibited_first_output_each_retry_to_valid(self):
         schema_error = GUTSModelError(

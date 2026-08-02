@@ -403,7 +403,29 @@ def _validation_debug(exc: GUTSValidationError) -> dict[str, Any] | None:
 def _log_output_validation_failure(
     output: ModelBriefingOutput, manifest: GUTSManifest, exc: GUTSValidationError,
 ) -> None:
-    """Emit one server-side diagnostic for the rejected statement only."""
+    """Emit one bounded JSON diagnostic through the production message formatter."""
+    def bounded_text(value: str | None, maximum: int) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split())
+        return normalized if len(normalized) <= maximum else normalized[: maximum - 1].rstrip() + "…"
+
+    def sanitized_actor(actor: Any) -> dict[str, Any]:
+        return {
+            "user_id": actor.user_id,
+            "display_name": bounded_text(actor.display_name, 200),
+            "email": "[redacted]" if actor.email else None,
+        }
+
+    def sanitized_author(author: Any) -> dict[str, Any] | None:
+        if author is None:
+            return None
+        return {
+            "user_id": author.user_id,
+            "display_name": bounded_text(author.display_name, 200),
+            "address": "[redacted]" if author.address else None,
+        }
+
     statements = [
         ("headline", output.headline),
         *(("summary", statement) for statement in output.summary_statements),
@@ -423,32 +445,41 @@ def _log_output_validation_failure(
     index, placement, statement = match or (None, exc.statement_placement, None)
     cited_source_ids = tuple(statement.source_ids) if statement is not None else tuple(exc.cited_source_ids)
     cited = set(cited_source_ids)
-    organizational_evidence = tuple(
+    organizational_evidence = [
         {
             "source_id": source.source_id,
             "source_type": source.source_type,
-            "author": source.author.serializable_dict() if source.author else None,
-            "text": source.text,
+            "author": sanitized_author(source.author),
+            "text": bounded_text(source.text, 500),
         }
         for source in manifest.evidence.sources
         if source.source_id in cited and source.source_class == "organizational_knowledge"
-    )
-    logger.error(
-        "guts_output_validation_failed",
-        extra={
-            "guts_statement_index": index,
-            "guts_statement_placement": placement,
-            "guts_statement_key": statement.statement_key if statement is not None else exc.statement_key,
-            "guts_statement_text": statement.text if statement is not None else exc.rejected_statement_text,
-            "guts_statement_attribution": (
-                statement.attribution.serializable_dict()
-                if statement is not None and statement.attribution is not None else None
-            ),
-            "guts_cited_source_ids": cited_source_ids,
-            "guts_resolved_organizational_evidence": organizational_evidence,
-            "guts_validation_rule": exc.validator_rule,
-        },
-    )
+    ][:10]
+    attribution = statement.attribution if statement is not None else None
+    payload = {
+        "event": "guts_output_validation_failed",
+        "statement_index": index,
+        "statement_placement": placement,
+        "statement_key": bounded_text(
+            statement.statement_key if statement is not None else exc.statement_key, 200,
+        ),
+        "rejected_text": bounded_text(
+            statement.text if statement is not None else exc.rejected_statement_text, 1000,
+        ),
+        "attribution": (
+            {
+                "type": attribution.type,
+                "actors": [sanitized_actor(actor) for actor in attribution.actors[:10]],
+            }
+            if attribution is not None else None
+        ),
+        "cited_source_ids": [bounded_text(source_id, 500) for source_id in cited_source_ids[:20]],
+        "resolved_organizational_evidence": organizational_evidence,
+        "validation_rule": bounded_text(exc.validator_rule, 100),
+    }
+    # Railway receives stdout/stderr after Uvicorn's default formatter, which
+    # retains only LogRecord.message. Serialize the complete diagnostic there.
+    logger.error(json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
 
 
 @dataclass(frozen=True)
