@@ -1087,19 +1087,50 @@ class RetryAndProviderTests(unittest.TestCase):
             self.assertNotIn(private_content, feedback)
 
     def test_second_objective_organizational_attempt_fails_strictly(self):
+        structured_attribution = StatementAttribution(type="person", actors=(
+            AttributionActor(user_id=2, display_name="Alex", email="alex@example.test"),
+        ))
         objective = valid_output().model_copy(update={
             "summary_statements": (
-                statement("summary-objective", "ABC Services is the subcontractor.", "attributed", ["note:1"]),
+                statement(
+                    "summary-objective", "ABC Services is the subcontractor.",
+                    "attributed", ["note:1"],
+                ).model_copy(update={"attribution": structured_attribution}),
             ),
             "sections": (),
         })
         client = FakeModelClient(call_result(objective), call_result(objective))
-        with self.assertRaises(GUTSModelError) as captured:
-            generate_validated_briefing(manifest(), client=client)
+        with (
+            self.assertLogs(
+                "bidlens.services.opportunity_knowledge_brief.model_client", level=logging.ERROR,
+            ) as logged,
+            self.assertRaises(GUTSModelError) as captured,
+        ):
+            generate_validated_briefing(
+                manifest(), client=client,
+                validator=GUTSOutputValidator(output_schema_version="guts-output-v2"),
+            )
         self.assertEqual(captured.exception.safe_category, "model_output_unsafe")
         self.assertEqual(captured.exception.safe_message, "An attributed claim did not preserve attribution.")
         self.assertFalse(captured.exception.retryable)
         self.assertEqual(len(client.calls), 2)
+        self.assertEqual(len(logged.records), 1)
+        record = logged.records[0]
+        self.assertEqual(record.getMessage(), "guts_output_validation_failed")
+        self.assertEqual(record.guts_statement_index, 1)
+        self.assertEqual(record.guts_statement_key, "summary-objective")
+        self.assertEqual(record.guts_statement_text, "ABC Services is the subcontractor.")
+        self.assertEqual(record.guts_statement_attribution, structured_attribution.serializable_dict())
+        self.assertEqual(record.guts_cited_source_ids, ("note:1",))
+        self.assertEqual(record.guts_validation_rule, "attribution_preservation")
+        self.assertEqual(record.guts_resolved_organizational_evidence, ({
+            "source_id": "note:1",
+            "source_type": "note",
+            "author": {
+                "user_id": 2, "display_name": "Alex", "address": "alex@example.test",
+            },
+            "text": "Alex plans to contact ABC Services.",
+        },))
 
     def test_schema_error_and_prohibited_first_output_each_retry_to_valid(self):
         schema_error = GUTSModelError(

@@ -400,6 +400,57 @@ def _validation_debug(exc: GUTSValidationError) -> dict[str, Any] | None:
     }
 
 
+def _log_output_validation_failure(
+    output: ModelBriefingOutput, manifest: GUTSManifest, exc: GUTSValidationError,
+) -> None:
+    """Emit one server-side diagnostic for the rejected statement only."""
+    statements = [
+        ("headline", output.headline),
+        *(("summary", statement) for statement in output.summary_statements),
+        *(
+            (f"section:{section.section_type}", statement)
+            for section in output.sections for statement in section.statements
+        ),
+    ]
+    match = next(
+        (
+            (index, placement, statement)
+            for index, (placement, statement) in enumerate(statements)
+            if statement.statement_key == exc.statement_key
+        ),
+        None,
+    )
+    index, placement, statement = match or (None, exc.statement_placement, None)
+    cited_source_ids = tuple(statement.source_ids) if statement is not None else tuple(exc.cited_source_ids)
+    cited = set(cited_source_ids)
+    organizational_evidence = tuple(
+        {
+            "source_id": source.source_id,
+            "source_type": source.source_type,
+            "author": source.author.serializable_dict() if source.author else None,
+            "text": source.text,
+        }
+        for source in manifest.evidence.sources
+        if source.source_id in cited and source.source_class == "organizational_knowledge"
+    )
+    logger.error(
+        "guts_output_validation_failed",
+        extra={
+            "guts_statement_index": index,
+            "guts_statement_placement": placement,
+            "guts_statement_key": statement.statement_key if statement is not None else exc.statement_key,
+            "guts_statement_text": statement.text if statement is not None else exc.rejected_statement_text,
+            "guts_statement_attribution": (
+                statement.attribution.serializable_dict()
+                if statement is not None and statement.attribution is not None else None
+            ),
+            "guts_cited_source_ids": cited_source_ids,
+            "guts_resolved_organizational_evidence": organizational_evidence,
+            "guts_validation_rule": exc.validator_rule,
+        },
+    )
+
+
 @dataclass(frozen=True)
 class GUTSModelCallResult:
     output: ModelBriefingOutput
@@ -720,6 +771,7 @@ def generate_validated_briefing(
         schema_debug = headline_key_diagnostic(exc, attempt="corrective_retry")
         if schema_debug:
             schema_debug["earlier_attempt_failed"] = first_error is not None
+        _log_output_validation_failure(second_call.output, manifest, exc)
         raise GUTSModelError(
             exc.safe_category, exc.safe_message, retryable=False, stage=exc.stage,
             validation_debug=_validation_debug(exc),
