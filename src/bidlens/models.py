@@ -277,6 +277,7 @@ class OpportunityKnowledgeBriefStatement(Base):
     text = Column(Text, nullable=False)
     importance = Column(String, nullable=False)
     confidence = Column(String, nullable=False)
+    attribution_json = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     generation = relationship("OpportunityKnowledgeBriefGeneration", back_populates="statements")

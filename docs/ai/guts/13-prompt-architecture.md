@@ -12,13 +12,15 @@ The prompt registry and authoritative static instructions live in:
 src/bidlens/services/opportunity_knowledge_brief/prompt.py
 ```
 
-The current registry contains exactly one production definition:
+The current registry contains two explicit definitions:
 
 ```text
 guts-v8 → build_guts_v8_prompt → GUTS_V8_SYSTEM_INSTRUCTIONS
+guts-v9 → build_guts_v9_prompt → GUTS_V9_SYSTEM_INSTRUCTIONS
 ```
 
-The `guts-v8` instruction value preserves the pre-registry wording exactly. There is no `guts-v9` runtime definition yet.
+The `guts-v8` instruction value remains unchanged and is paired with `guts-output-v1`.
+`guts-v9` extends that immutable V1 wording with the Structured Attribution V2 contract and is paired with `guts-output-v2`.
 
 `GUTS_PROMPT_VERSION` selects a registry entry. An unknown value raises a controlled, content-free configuration error before a pending generation is created. GUTS never falls back to the newest or only registered prompt.
 
@@ -73,11 +75,11 @@ The configured prompt version controls:
 - OpenAI request metadata; and
 - the version persisted on the generation attempt.
 
-The version does not select or modify:
+The registered definition also declares its compatible output-schema version so invalid prompt/schema pairings fail before generation. The version does not select or modify:
 
 - the manifest schema version;
 - evidence collection or selection;
-- the output schema version;
+- output-schema implementation details beyond that compatibility pairing;
 - compiler or validator behavior;
 - provider model capabilities;
 - presentation mapping; or
@@ -107,4 +109,3 @@ An authoritative registry prevents an arbitrary metadata label from describing u
 Adding a future prompt requires an explicit registry entry and distinct immutable instruction definition. Existing entries remain available for controlled comparison and historical interpretation; they are not silently redirected to newer wording.
 
 Synthetic V1 compatibility fixtures freeze representative `guts-v8`/`guts-output-v1` persisted behavior. They ensure later output-contract work does not require historical attribution backfills, rewrite canonical prose, detach citations, reorder statements, or infer actor metadata while reading older generations.
-

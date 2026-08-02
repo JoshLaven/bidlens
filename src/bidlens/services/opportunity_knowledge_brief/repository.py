@@ -7,6 +7,7 @@ route, or presentation behavior.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 from time import perf_counter
 from typing import Any, Iterable
 
@@ -37,6 +38,7 @@ from .constants import (
     GenerationStatus,
     ReproducibilityStatus,
 )
+from .contracts import StatementAttribution
 
 
 ACTIVE_STATUSES = (GenerationStatus.PENDING, GenerationStatus.RUNNING)
@@ -75,6 +77,7 @@ _SOURCE_REQUIRED_FIELDS = {"source_id", "source_class", "source_type", "authorit
 _STATEMENT_FIELDS = {
     "statement_key", "placement_type", "section_type", "section_title", "position", "text",
     "importance", "confidence",
+    "attribution_json",
 }
 _STATEMENT_REQUIRED_FIELDS = {
     "statement_key", "placement_type", "position", "text", "importance", "confidence",
@@ -240,6 +243,7 @@ def mark_generation_failed(
 def _validated_rows(
     sources: Iterable[dict[str, Any]],
     statements: Iterable[dict[str, Any]],
+    *, output_schema_version: str = "guts-output-v1",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     source_rows = [dict(row) for row in sources]
     statement_rows = [dict(row) for row in statements]
@@ -274,6 +278,21 @@ def _validated_rows(
             raise KnowledgeBriefValidationError(f"Statement {row['statement_key']} has unsupported section type.")
         if row["importance"] not in IMPORTANCE_VALUES or row["confidence"] not in CONFIDENCE_VALUES:
             raise KnowledgeBriefValidationError(f"Statement {row['statement_key']} uses unsupported contract values.")
+        attribution = row.get("attribution_json")
+        if output_schema_version == "guts-output-v2":
+            if row["confidence"] == "attributed" and attribution is None:
+                raise KnowledgeBriefValidationError("V2 attributed statements require attribution.")
+            if row["confidence"] != "attributed" and attribution is not None:
+                raise KnowledgeBriefValidationError("V2 non-attributed statements require null attribution.")
+            if attribution is not None:
+                try:
+                    row["attribution_json"] = StatementAttribution.model_validate_json(
+                        json.dumps(attribution, ensure_ascii=False)
+                    ).serializable_dict()
+                except (TypeError, ValueError) as exc:
+                    raise KnowledgeBriefValidationError("Statement attribution is invalid.") from exc
+        elif attribution is not None:
+            raise KnowledgeBriefValidationError("V1 statements cannot persist structured attribution.")
         if not isinstance(citations, list) or not citations:
             raise KnowledgeBriefValidationError(f"Statement {row.get('statement_key')} requires at least one citation.")
         if len(citations) != len(set(citations)):
@@ -307,7 +326,9 @@ def save_generation_success(
         raise KnowledgeBriefValidationError("Validated output and current-state snapshot must be JSON objects.")
     if reproducibility_status not in REPRODUCIBILITY_STATUSES:
         raise KnowledgeBriefValidationError(f"Unsupported reproducibility status: {reproducibility_status}")
-    source_rows, statement_rows = _validated_rows(sources, statements)
+    source_rows, statement_rows = _validated_rows(
+        sources, statements, output_schema_version=generation.output_schema_version,
+    )
     unknown_metadata = set(metadata or {}) - _SUCCESS_METADATA_FIELDS
     if unknown_metadata:
         raise KnowledgeBriefValidationError(f"Unsupported success metadata fields: {sorted(unknown_metadata)}")

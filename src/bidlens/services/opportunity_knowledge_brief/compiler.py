@@ -23,6 +23,7 @@ from .current_state import CurrentStateAssembler
 from .historical_evidence import HistoricalEvidenceCollector
 from .manifest import ManifestBuilder, ManifestHasher, ManifestValidationError
 from .model_client import GUTSModelError, generate_validated_briefing
+from .output_validation import GUTSOutputValidator
 from .official_evidence import OfficialEvidenceCollector
 from .organizational_evidence import CommunicationEvidenceCollector, NoteEvidenceCollector
 from .repository import (
@@ -149,6 +150,7 @@ def _statement_rows(validated) -> list[dict[str, Any]]:
         "section_title": section_titles.get(item.section_type) if item.section_type else None,
         "position": item.position, "text": item.text, "importance": item.importance,
         "confidence": item.confidence, "source_ids": list(item.source_ids),
+        "attribution_json": item.attribution.serializable_dict() if item.attribution else None,
     } for item in statements]
 
 
@@ -313,7 +315,12 @@ class OpportunityKnowledgeBriefCompiler:
             })
 
             stage = "model"; started = perf_counter()
-            model_result = generate_validated_briefing(manifest, client=self.model_client, validator=self.validator)
+            validator = self.validator or GUTSOutputValidator(
+                output_schema_version=generation.output_schema_version,
+            )
+            model_result = generate_validated_briefing(
+                manifest, client=self.model_client, validator=validator,
+            )
             measured_model_ms = _elapsed_ms(started)
             timings["model_ms"] = round(model_result.model_ms)
             timings["validation_ms"] = max(0, measured_model_ms - timings["model_ms"])

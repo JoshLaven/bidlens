@@ -2,6 +2,7 @@ import json
 import unittest
 from datetime import date, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -94,10 +95,14 @@ class GUTSV1CompatibilityFixtureTests(unittest.TestCase):
         )
         self.db.add(opportunity)
         self.db.commit()
-        generation = create_pending_generation(
-            self.db, organization_id=self.organization.id, workspace_id=self.workspace.id,
-            opportunity_id=opportunity.id, generated_by_user_id=self.user.id,
-        )
+        with (
+            patch("bidlens.services.opportunity_knowledge_brief.repository.config.GUTS_PROMPT_VERSION", "guts-v8"),
+            patch("bidlens.services.opportunity_knowledge_brief.repository.config.GUTS_OUTPUT_SCHEMA_VERSION", "guts-output-v1"),
+        ):
+            generation = create_pending_generation(
+                self.db, organization_id=self.organization.id, workspace_id=self.workspace.id,
+                opportunity_id=opportunity.id, generated_by_user_id=self.user.id,
+            )
         self.assertEqual(generation.prompt_version, fixture["generation"]["prompt_version"])
         self.assertEqual(generation.manifest_version, fixture["generation"]["manifest_version"])
         self.assertEqual(
@@ -124,7 +129,7 @@ class GUTSV1CompatibilityFixtureTests(unittest.TestCase):
         return fixture, loaded
 
     def test_synthetic_v1_generations_load_with_metadata_and_without_attribution(self):
-        self.assertNotIn(
+        self.assertIn(
             "attribution_json", OpportunityKnowledgeBriefStatement.__table__.columns.keys(),
         )
         for index, path in enumerate(FIXTURE_PATHS, start=1):
@@ -138,9 +143,8 @@ class GUTSV1CompatibilityFixtureTests(unittest.TestCase):
                 self.assertFalse(any(
                     "attribution" in statement for statement in fixture["statements"]
                 ))
-                self.assertFalse(any(
-                    hasattr(statement, "attribution") or hasattr(statement, "attribution_json")
-                    for statement in generation.statements
+                self.assertTrue(all(
+                    statement.attribution_json is None for statement in generation.statements
                 ))
 
     def test_v1_presentation_preserves_internal_activity_text_order_and_metadata(self):
@@ -167,7 +171,7 @@ class GUTSV1CompatibilityFixtureTests(unittest.TestCase):
                     self.assertEqual(
                         [citation.source_id for citation in item.citations], source["source_ids"],
                     )
-                    self.assertFalse(hasattr(item, "attribution"))
+                    self.assertIsNone(item.attribution)
 
     def test_v1_citations_remain_attached_in_canonical_order(self):
         fixture, generation = self._load_fixture(FIXTURE_PATHS[0], 20)

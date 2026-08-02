@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from bidlens.database import Base
 from bidlens.models import (
     Opportunity, OpportunityCommunicationMessage, OpportunityConversation,
-    OpportunityNote, Organization, User, UserOpportunity, Workspace,
+    OpportunityNote, Organization, OrganizationMembership, User, UserOpportunity, Workspace,
 )
 from bidlens.services.opportunity_knowledge_brief.organizational_evidence import (
     CommunicationEvidenceCollector, EvidenceCollectorScopeError,
@@ -29,6 +29,8 @@ class OrganizationalEvidenceCollectorTests(unittest.TestCase):
         self.other_workspace = Workspace(organization_id=self.other_org.id, name="Other", slug="guts-evidence-other")
         self.user = User(email="author@example.com", name="Alex Author", organization_id=self.org.id)
         self.db.add_all((self.workspace, self.other_workspace, self.user)); self.db.flush()
+        self.db.add(OrganizationMembership(organization_id=self.org.id, user_id=self.user.id))
+        self.db.flush()
         self.opp = self._opportunity(self.org.id, "main")
         self.other_opp = self._opportunity(self.other_org.id, "other")
         self.db.add_all((self.opp, self.other_opp)); self.db.flush()
@@ -98,7 +100,8 @@ class OrganizationalEvidenceCollectorTests(unittest.TestCase):
         first, second = result.evidence
         self.assertEqual(first.text, "Call the client tomorrow.")
         self.assertEqual(first.author.display_name, "Alex Author")
-        self.assertEqual(second.author.display_name, "Unknown user")
+        self.assertEqual(first.author.address, "author@example.com")
+        self.assertIsNone(second.author)
         self.assertEqual(first.updated_at_source, older.updated_at)
         self.assertEqual(first.content_hash, hashlib.sha256(first.text.encode()).hexdigest())
         self.assertEqual(first.authority, "attributed_claim")
@@ -151,7 +154,8 @@ class OrganizationalEvidenceCollectorTests(unittest.TestCase):
         )
         self.assertEqual([item.internal_record_id for item in result.evidence], [old.id, fallback.id])
         self.assertEqual(result.evidence[0].text, "Important update")
-        self.assertEqual(result.evidence[0].author.display_name, "sender@example.com")
+        self.assertIsNone(result.evidence[0].author.display_name)
+        self.assertEqual(result.evidence[0].author.address, "sender@example.com")
         self.assertEqual(result.evidence[1].text, "I’ll contact ABC Services tomorrow.")
         self.assertEqual(result.evidence[1].occurred_at, fallback.created_at)
         self.assertEqual(result.available_count, 7)
@@ -182,6 +186,92 @@ class OrganizationalEvidenceCollectorTests(unittest.TestCase):
         self.assertEqual([item.text for item in result.evidence], ["First body", "Provider body", "Fallback body"])
         self.assertEqual(result.omitted_reason_counts["duplicate_message"], 3)
         self.assertEqual(result.omitted_reason_counts["duplicate_content"], 1)
+
+    def test_author_snapshots_and_workspace_scoped_email_resolution(self):
+        note = self._note("Alex recommended early outreach.")
+        internal = self._message(
+            "Alex identified relevant expertise.", minute=1,
+            sender_address="AUTHOR@EXAMPLE.COM", sender_display_name="Mailbox Alias",
+        )
+        external = self._message(
+            "Pat raised a staffing concern.", minute=2,
+            sender_address="PAT@EXAMPLE.COM", sender_display_name="  Pat   Lee  ",
+        )
+        self.db.commit()
+
+        note_source = NoteEvidenceCollector(self.db).collect(
+            opportunity_id=self.opp.id, organization_id=self.org.id,
+        ).evidence[0]
+        messages = CommunicationEvidenceCollector(self.db).collect(
+            opportunity_id=self.opp.id, organization_id=self.org.id,
+            workspace_id=self.workspace.id,
+        ).evidence
+
+        self.assertEqual(note_source.internal_record_id, note.id)
+        self.assertEqual(note_source.author.model_dump(), {
+            "user_id": self.user.id, "display_name": "Alex Author",
+            "address": "author@example.com",
+        })
+        self.assertEqual(messages[0].internal_record_id, internal.id)
+        self.assertEqual(messages[0].author.model_dump(), note_source.author.model_dump())
+        self.assertEqual(messages[1].internal_record_id, external.id)
+        self.assertEqual(messages[1].author.model_dump(), {
+            "user_id": None, "display_name": "Pat Lee", "address": "pat@example.com",
+        })
+
+        self.user.name = "Changed Later"
+        self.user.email = "changed@example.com"
+        self.db.flush()
+        self.assertEqual(note_source.author.display_name, "Alex Author")
+        self.assertEqual(note_source.author.address, "author@example.com")
+
+    def test_communication_does_not_guess_ambiguous_or_placeholder_authors(self):
+        duplicate = User(
+            email="AUTHOR@EXAMPLE.COM", name="Other Alex", organization_id=self.org.id,
+        )
+        same_name = User(
+            email="different@example.com", name="Shared Name", organization_id=self.org.id,
+        )
+        self.db.add_all((duplicate, same_name)); self.db.flush()
+        self.db.add_all((
+            OrganizationMembership(organization_id=self.org.id, user_id=duplicate.id),
+            OrganizationMembership(organization_id=self.org.id, user_id=same_name.id),
+        )); self.db.flush()
+        ambiguous = self._message(
+            "This is substantive internal context.", minute=1,
+            sender_address="author@example.com", sender_display_name="Shared Name",
+        )
+        placeholder = self._message(
+            "This is substantive authorless context.", minute=2,
+            sender_address=None, sender_display_name="Unknown sender",
+        )
+        self.db.commit()
+
+        evidence = CommunicationEvidenceCollector(self.db).collect(
+            opportunity_id=self.opp.id, organization_id=self.org.id,
+            workspace_id=self.workspace.id,
+        ).evidence
+        self.assertEqual(evidence[0].internal_record_id, ambiguous.id)
+        self.assertIsNone(evidence[0].author.user_id)
+        self.assertEqual(evidence[0].author.display_name, "Shared Name")
+        self.assertEqual(evidence[0].author.address, "author@example.com")
+        self.assertEqual(evidence[1].internal_record_id, placeholder.id)
+        self.assertIsNone(evidence[1].author)
+
+    def test_unicode_case_normalized_sender_email_matches_internal_member(self):
+        self.user.email = "JOS\u00c9@EXAMPLE.COM"
+        row = self._message(
+            "Alex described a useful prior project.", minute=1,
+            sender_address="jose\u0301@example.com", sender_display_name="Untrusted Alias",
+        )
+        self.db.commit()
+        result = CommunicationEvidenceCollector(self.db).collect(
+            opportunity_id=self.opp.id, organization_id=self.org.id,
+            workspace_id=self.workspace.id,
+        )
+        self.assertEqual(result.evidence[0].internal_record_id, row.id)
+        self.assertEqual(result.evidence[0].author.user_id, self.user.id)
+        self.assertEqual(result.evidence[0].author.address, "jos\u00e9@example.com")
 
     def test_communication_caps_preserve_earliest_latest_and_chronology(self):
         rows = [self._message(f"Material message number {minute} " * 3, minute=minute) for minute in range(1, 7)]

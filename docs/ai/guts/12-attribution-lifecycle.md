@@ -406,41 +406,40 @@ This trust does not mean BidLens certifies that Westat is the correct subcontrac
 - The compiler, persistence layer, presentation mapper, and UI never create new claims.
 - Actor metadata does not grant access; all source access remains tenancy- and opportunity-authorized.
 
-## Phase B Traceability Gaps and Required Adjustments
+## Phase B Traceability Implementation
 
-Tracing the example through the current implementation exposes these bounded implementation gaps already anticipated by the Phase A design:
+Phase B closes the bounded gaps identified during the Phase A trace:
 
-1. The communication collector snapshots sender display name and address but does not resolve a unique workspace member `user_id`.
-2. The note collector snapshots `user_id` and a display value but does not populate the author's email in `EvidenceAuthor.address`.
-3. Current collector fallbacks such as `Unknown sender`, `Unknown user`, or `User 4` must be prevented from becoming `person` actors.
-4. Current provider and canonical statement contracts do not contain `attribution`.
-5. Current statement persistence has no nullable `attribution_json` column.
-6. Current validation relies partly on prose patterns and does not yet validate V2 actor/source correspondence.
-7. Current presentation objects do not carry optional structured attribution.
-8. The source contract calls the author email field `address`, while V2 output calls the actor field `email`; Phase B needs one explicit, deterministic mapping rather than parallel ad hoc normalization.
+1. Communications resolve a unique organization-member `user_id` by normalized sender email; ambiguous matches remain external.
+2. Notes snapshot the resolved user's ID, display name, and normalized email.
+3. Placeholder identities never become `person` actors.
+4. V2 provider and canonical statements require nullable `attribution`.
+5. Statements persist exact validated metadata in nullable `attribution_json`.
+6. Validation proves actor/source correspondence before retaining narrower prose safeguards.
+7. Presentation carries sanitized optional attribution without changing canonical text.
+8. One shared normalization/correspondence module maps evidence `address` to actor `email` deterministically.
 
-Before Phase B, implementation should use one shared normalization/correspondence module, complete source-author snapshots before manifest construction, switch behavior through the persisted output-schema version, validate structured attribution before prose safeguards, and persist only the exact validated object. These are implementation adjustments, not unresolved product decisions, and they do not require a manifest schema-version change.
+Behavior switches through the persisted output-schema version. The manifest shape and `guts-manifest-v1` version remain unchanged.
 
 ## Design Checklist
 
-- [ ] Every newly generated V2 statement has a required `attribution` field.
-- [ ] Every attributed statement has valid structured `person` or `internal_source` attribution.
-- [ ] Every named actor matches at least one cited eligible organizational evidence source.
-- [ ] Internal actors carry complete immutable user ID, display-name, and email snapshots.
-- [ ] External actors are not resolved to users by display name alone.
-- [ ] Ambiguous or missing identities never become invented people.
-- [ ] Every statement retains exact, independently validated source citations.
-- [ ] Structured attribution never replaces citations.
-- [ ] Official and current-state validation remains strict.
-- [ ] Organizational validation prioritizes provenance and epistemic fidelity.
-- [ ] No organizational or team consensus is invented.
-- [ ] Conflicting sources are not compressed into consensus.
-- [ ] Plans remain plans, recommendations remain recommendations, opinions remain opinions, and questions remain questions.
-- [ ] Completed actions and objective facts are not manufactured from organizational discussion.
-- [ ] Compiler and repository logic do not repair, infer, or rewrite attribution.
-- [ ] Persistence is atomic and append-only.
-- [ ] Historical V1 briefings remain valid without structured attribution.
-- [ ] Presentation performs no reconstruction or reinterpretation.
-- [ ] UI displays canonical statements only and keeps evidence access authorized.
-- [ ] Email snapshots and source content remain absent from ordinary logs and default UI output.
-
+- [x] Every newly generated V2 statement has a required `attribution` field.
+- [x] Every attributed statement has valid structured `person` or `internal_source` attribution.
+- [x] Every named actor matches at least one cited eligible organizational evidence source.
+- [x] Internal actors carry complete immutable user ID, display-name, and email snapshots.
+- [x] External actors are not resolved to users by display name alone.
+- [x] Ambiguous or missing identities never become invented people.
+- [x] Every statement retains exact, independently validated source citations.
+- [x] Structured attribution never replaces citations.
+- [x] Official and current-state validation remains strict.
+- [x] Organizational validation prioritizes provenance and epistemic fidelity.
+- [x] No organizational or team consensus is invented.
+- [x] Conflicting sources are not compressed into consensus.
+- [x] Plans remain plans, recommendations remain recommendations, opinions remain opinions, and questions remain questions.
+- [x] Completed actions and objective facts are not manufactured from organizational discussion.
+- [x] Compiler and repository logic do not repair, infer, or rewrite attribution.
+- [x] Persistence is atomic and append-only.
+- [x] Historical V1 briefings remain valid without structured attribution.
+- [x] Presentation performs no reconstruction or reinterpretation.
+- [x] UI displays canonical statements only and keeps evidence access authorized.
+- [x] Email snapshots and source content remain absent from ordinary logs and default UI output.

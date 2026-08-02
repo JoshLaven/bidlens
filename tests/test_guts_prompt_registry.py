@@ -125,6 +125,7 @@ class GUTSPromptRegistryTests(unittest.TestCase):
     def test_registry_selection_changes_instructions_not_only_metadata(self):
         alternate = GUTSPromptDefinition(
             version="test-prompt", instructions="Synthetic alternate instructions.",
+            output_schema_version="guts-output-v2",
         )
         builders = {**PROMPT_BUILDERS, "test-prompt": lambda: alternate}
         client = FakeOpenAIClient()
@@ -157,10 +158,10 @@ class GUTSPromptRegistryTests(unittest.TestCase):
 
         first, retry = client.responses.requests
         self.assertEqual(first["instructions"], retry["instructions"])
-        self.assertEqual(first["metadata"]["prompt_version"], "guts-v8")
-        self.assertEqual(retry["metadata"]["prompt_version"], "guts-v8")
-        self.assertEqual(json.loads(first["input"])["prompt_version"], "guts-v8")
-        self.assertEqual(json.loads(retry["input"])["prompt_version"], "guts-v8")
+        self.assertEqual(first["metadata"]["prompt_version"], "guts-v9")
+        self.assertEqual(retry["metadata"]["prompt_version"], "guts-v9")
+        self.assertEqual(json.loads(first["input"])["prompt_version"], "guts-v9")
+        self.assertEqual(json.loads(retry["input"])["prompt_version"], "guts-v9")
         self.assertEqual(
             json.loads(retry["input"])["validation_feedback"],
             "Use statement_key 'headline' for the headline.",

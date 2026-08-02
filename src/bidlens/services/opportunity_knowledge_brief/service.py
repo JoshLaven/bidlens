@@ -53,7 +53,11 @@ class OpportunityKnowledgeBriefService:
         if not config.GUTS_ENABLED:
             raise GUTSServiceError("access_denied", "Get Up to Speed is not enabled.", stage="authorization")
         try:
-            resolve_prompt(config.GUTS_PROMPT_VERSION)
+            prompt = resolve_prompt(config.GUTS_PROMPT_VERSION)
+            if prompt.output_schema_version != config.GUTS_OUTPUT_SCHEMA_VERSION:
+                raise GUTSPromptConfigurationError(
+                    GUTSPromptConfigurationError.safe_message,
+                )
         except GUTSPromptConfigurationError as exc:
             raise GUTSServiceError(
                 exc.safe_category, exc.safe_message, stage="configuration",

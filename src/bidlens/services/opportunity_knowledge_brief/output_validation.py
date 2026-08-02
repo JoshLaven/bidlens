@@ -13,6 +13,9 @@ from .contracts import (
     EvidenceSource, GUTSManifest, ModelBriefingOutput, ModelOutputStatement,
     ModelSection, ModelStatement, ValidatedBriefingOutput, ValidatedModelBriefing,
 )
+from .attribution import (
+    actor_matches_author, author_identity_key, normalized_name_key, normalize_email,
+)
 
 
 SECTION_ORDER = (
@@ -243,12 +246,14 @@ class GUTSOutputValidator:
         max_statements_per_section: int = config.GUTS_MAX_STATEMENTS_PER_SECTION,
         max_statement_characters: int = config.GUTS_MAX_STATEMENT_CHARS,
         max_total_characters: int = config.GUTS_MAX_TOTAL_OUTPUT_CHARS,
+        output_schema_version: str = "guts-output-v1",
     ):
         self.max_summary_statements = max_summary_statements
         self.max_sections = max_sections
         self.max_statements_per_section = max_statements_per_section
         self.max_statement_characters = max_statement_characters
         self.max_total_characters = max_total_characters
+        self.output_schema_version = output_schema_version
 
     def validate(self, output: ModelBriefingOutput, manifest: GUTSManifest) -> ValidatedBriefingOutput:
         if output.headline.statement_key != "headline":
@@ -306,7 +311,7 @@ class GUTSOutputValidator:
             }) for statement_index, statement in enumerate(section.statements)),
         ) for index, section in enumerate(ordered_sections))
         return ValidatedBriefingOutput(
-            output_schema_version=config.GUTS_OUTPUT_SCHEMA_VERSION,
+            output_schema_version=self.output_schema_version,
             briefing=ValidatedModelBriefing(
                 headline=normalized[output.headline.statement_key].model_copy(update={"placement_type": "headline", "position": 0}),
                 summary=tuple(normalized[item.statement_key].model_copy(update={"placement_type": "summary", "position": index}) for index, item in enumerate(output.summary_statements)),
@@ -341,7 +346,13 @@ class GUTSOutputValidator:
                 if (
                     reason == "recommendation"
                     and statement.confidence == "attributed"
-                    and preserves_attribution(text)
+                    and (
+                        preserves_attribution(text)
+                        or (
+                            self.output_schema_version == "guts-output-v2"
+                            and statement.attribution is not None
+                        )
+                    )
                     and not contains_objective_upgrade(text)
                 ):
                     continue
@@ -365,28 +376,46 @@ class GUTSOutputValidator:
                     feedback="Attributed statements must cite organizational knowledge.",
                     required_source_classes=("organizational_knowledge",),
                 )
-            team_attribution = bool(TEAM_ATTRIBUTION.search(text))
-            coordinated_attribution = bool(COORDINATED_ACTOR_ATTRIBUTION.search(text))
-            consensus_unsupported = (team_attribution or coordinated_attribution) and (
-                len(statement.source_ids) < 2
-                or bool(set(statement.source_ids).intersection(conflict_source_ids))
-            )
-            if (
-                contains_objective_upgrade(text)
-                or not preserves_attribution(text)
-                or consensus_unsupported
-            ):
-                self._fail(
-                    "model_output_unsafe", "An attributed claim did not preserve attribution.",
-                    "Name the person who made the recommendation, plan, concern, or observation; do not generalize one person's statement into organizational consensus; use concise actor-attributed wording.",
-                    statement_key=statement.statement_key, statement_placement=placement,
-                    statement_confidence=statement.confidence,
-                    cited_source_ids=tuple(statement.source_ids),
-                    cited_source_kinds=tuple(sorted(f"{source.source_class}:{source.source_type}" for source in cited)),
-                    rejected_statement_text=text, validator_rule="attribution_preservation",
-                    multiple_cited_actors=_multiple_communication_actors(cited),
+            if self.output_schema_version == "guts-output-v2":
+                self._validate_v2_attribution(
+                    statement, cited=cited, conflict_source_ids=conflict_source_ids,
+                    text=text, placement=placement,
                 )
+            else:
+                team_attribution = bool(TEAM_ATTRIBUTION.search(text))
+                coordinated_attribution = bool(COORDINATED_ACTOR_ATTRIBUTION.search(text))
+                consensus_unsupported = (team_attribution or coordinated_attribution) and (
+                    len(statement.source_ids) < 2
+                    or bool(set(statement.source_ids).intersection(conflict_source_ids))
+                )
+                if (
+                    contains_objective_upgrade(text)
+                    or not preserves_attribution(text)
+                    or consensus_unsupported
+                ):
+                    self._fail_attribution(statement, cited, placement, text)
+        elif self.output_schema_version == "guts-output-v2" and statement.attribution is not None:
+            self._fail(
+                "model_output_unsafe", "A non-attributed statement included attribution.",
+                "Use attribution=null for supported and authoritative uncertain statements.",
+                statement_key=statement.statement_key, statement_placement=placement,
+                statement_confidence=statement.confidence,
+                cited_source_ids=tuple(statement.source_ids),
+                cited_source_kinds=tuple(sorted(f"{source.source_class}:{source.source_type}" for source in cited)),
+                rejected_statement_text=text, validator_rule="attribution_unexpected",
+            )
         if statement.confidence == "uncertain":
+            if (
+                self.output_schema_version == "guts-output-v2"
+                and classes == {"organizational_knowledge"}
+                and not set(statement.source_ids).intersection(conflict_source_ids)
+            ):
+                self._fail_confidence_source(
+                    statement, cited=cited, placement=placement,
+                    message="An organizational uncertainty lacked attribution.",
+                    feedback="Represent a person's concern or question as attributed with structured attribution.",
+                    required_source_classes=("current_state", "official_evidence", "historical_context"),
+                )
             evidence_uncertain = any(
                 UNCERTAINTY_CUES.search(source.searchable)
                 or bool(source.source and source.source.structured_facts.get("uncertain"))
@@ -411,6 +440,100 @@ class GUTSOutputValidator:
             statement_key=statement.statement_key, placement_type="summary", section_type=None,
             position=position, text=text, importance=statement.importance,
             confidence=statement.confidence, source_ids=tuple(statement.source_ids),
+            attribution=statement.attribution,
+        )
+
+    def _validate_v2_attribution(
+        self, statement: ModelOutputStatement, *, cited: list[SourceMetadata],
+        conflict_source_ids: set[str], text: str, placement: str,
+    ) -> None:
+        attribution = statement.attribution
+        if attribution is None:
+            self._fail(
+                "model_output_unsafe", "An attributed statement lacked structured attribution.",
+                "Add structured attribution copied from eligible cited source-author metadata.",
+                statement_key=statement.statement_key, statement_placement=placement,
+                statement_confidence=statement.confidence,
+                cited_source_ids=tuple(statement.source_ids),
+                cited_source_kinds=tuple(sorted(f"{source.source_class}:{source.source_type}" for source in cited)),
+                rejected_statement_text=text, validator_rule="attribution_missing",
+            )
+        organizational = [item for item in cited if item.source_class == "organizational_knowledge"]
+        if attribution.type == "internal_source":
+            if not organizational or any(item.source and item.source.author for item in organizational):
+                self._fail(
+                    "model_citation_invalid", "Internal-source attribution was unsupported.",
+                    "Use internal_source only for eligible cited organizational evidence without a resolvable author.",
+                    statement_key=statement.statement_key, statement_placement=placement,
+                    statement_confidence=statement.confidence,
+                    cited_source_ids=tuple(statement.source_ids),
+                    cited_source_kinds=tuple(sorted(f"{source.source_class}:{source.source_type}" for source in cited)),
+                    rejected_statement_text=text, validator_rule="unsupported_internal_source",
+                )
+            if not INTERNAL_ATTRIBUTION.search(text) or contains_objective_upgrade(text):
+                self._fail_attribution(statement, cited, placement, text)
+            return
+
+        authors = [item.source.author for item in organizational if item.source and item.source.author]
+        for actor in attribution.actors:
+            matches = [author for author in authors if actor_matches_author(actor, author)]
+            if actor.user_id is None and normalize_email(actor.email) is None:
+                identities = {author_identity_key(author) for author in matches}
+                if len(identities) > 1:
+                    self._fail(
+                        "model_citation_invalid", "An actor identity was ambiguous.",
+                        "Use exact source-author metadata and do not guess an ambiguous actor.",
+                        statement_key=statement.statement_key, statement_placement=placement,
+                        statement_confidence=statement.confidence,
+                        cited_source_ids=tuple(statement.source_ids),
+                        cited_source_kinds=tuple(sorted(f"{source.source_class}:{source.source_type}" for source in cited)),
+                        rejected_statement_text=text, validator_rule="ambiguous_actor_identity",
+                    )
+            if not matches:
+                self._fail(
+                    "model_citation_invalid", "An actor did not match cited evidence.",
+                    "Copy each actor exactly from eligible cited source-author metadata.",
+                    statement_key=statement.statement_key, statement_placement=placement,
+                    statement_confidence=statement.confidence,
+                    cited_source_ids=tuple(statement.source_ids),
+                    cited_source_kinds=tuple(sorted(f"{source.source_class}:{source.source_type}" for source in cited)),
+                    rejected_statement_text=text, validator_rule="actor_source_mismatch",
+                )
+            name_key = normalized_name_key(actor.display_name)
+            if name_key and name_key not in text.casefold():
+                self._fail_attribution(statement, cited, placement, text)
+
+        consensus_wording = bool(TEAM_ATTRIBUTION.search(text) or COORDINATED_ACTOR_ATTRIBUTION.search(text))
+        if consensus_wording and (
+            len(attribution.actors) < 2
+            or len(organizational) < 2
+            or bool(set(statement.source_ids).intersection(conflict_source_ids))
+        ):
+            self._fail(
+                "model_output_unsafe", "The statement implied unsupported consensus.",
+                "Use team wording only for multiple consistent cited actors.",
+                statement_key=statement.statement_key, statement_placement=placement,
+                statement_confidence=statement.confidence,
+                cited_source_ids=tuple(statement.source_ids),
+                cited_source_kinds=tuple(sorted(f"{source.source_class}:{source.source_type}" for source in cited)),
+                rejected_statement_text=text, validator_rule="consensus_scope_invalid",
+            )
+        if contains_objective_upgrade(text):
+            self._fail_attribution(statement, cited, placement, text)
+
+    def _fail_attribution(
+        self, statement: ModelOutputStatement, cited: list[SourceMetadata],
+        placement: str, text: str,
+    ) -> None:
+        self._fail(
+            "model_output_unsafe", "An attributed claim did not preserve attribution.",
+            "Name the person who made the recommendation, plan, concern, or observation; do not generalize one person's statement into organizational consensus; use concise actor-attributed wording.",
+            statement_key=statement.statement_key, statement_placement=placement,
+            statement_confidence=statement.confidence,
+            cited_source_ids=tuple(statement.source_ids),
+            cited_source_kinds=tuple(sorted(f"{source.source_class}:{source.source_type}" for source in cited)),
+            rejected_statement_text=text, validator_rule="attribution_preservation",
+            multiple_cited_actors=_multiple_communication_actors(cited),
         )
 
     def _fail_confidence_source(

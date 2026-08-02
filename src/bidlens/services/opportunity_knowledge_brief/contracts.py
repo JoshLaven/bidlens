@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .attribution import actor_identity_key, normalize_display_name, normalize_email
+
 
 SourceClassValue = Literal[
     "current_state", "official_evidence", "organizational_knowledge", "historical_context"
@@ -68,6 +70,63 @@ class EvidenceAuthor(GUTSContract):
     user_id: int | None = None
     display_name: str | None = None
     address: str | None = None
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        return normalize_display_name(value)
+
+    @field_validator("address")
+    @classmethod
+    def normalize_address(cls, value: str | None) -> str | None:
+        return normalize_email(value)
+
+
+class AttributionActor(GUTSContract):
+    user_id: int | None
+    display_name: str | None
+    email: str | None
+
+    @field_validator("user_id")
+    @classmethod
+    def validate_user_id(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("user_id must be positive")
+        return value
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        return normalize_display_name(value)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_actor_email(cls, value: str | None) -> str | None:
+        return normalize_email(value)
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> "AttributionActor":
+        if self.user_id is not None and (self.display_name is None or self.email is None):
+            raise ValueError("internal actors require complete snapshots")
+        if self.user_id is None and self.display_name is None and self.email is None:
+            raise ValueError("external actors require a display name or email")
+        return self
+
+
+class StatementAttribution(GUTSContract):
+    type: Literal["person", "internal_source"]
+    actors: tuple[AttributionActor, ...]
+
+    @model_validator(mode="after")
+    def validate_actor_set(self) -> "StatementAttribution":
+        if self.type == "internal_source" and self.actors:
+            raise ValueError("internal_source attribution cannot contain actors")
+        if self.type == "person" and not 1 <= len(self.actors) <= 10:
+            raise ValueError("person attribution requires one to ten actors")
+        keys = [actor_identity_key(actor) for actor in self.actors]
+        if None in keys or len(keys) != len(set(keys)):
+            raise ValueError("attribution actors must be unique")
+        return self
 
 
 class CurrentStateField(GUTSContract):
@@ -290,6 +349,7 @@ class ModelStatement(GUTSContract):
     importance: ImportanceValue
     confidence: ConfidenceValue
     source_ids: tuple[str, ...]
+    attribution: StatementAttribution | None = None
 
     @field_validator("source_ids")
     @classmethod
@@ -312,6 +372,7 @@ class ModelOutputStatement(GUTSContract):
     importance: ImportanceValue
     confidence: ConfidenceValue
     source_ids: tuple[str, ...]
+    attribution: StatementAttribution | None = None
 
     @field_validator("source_ids")
     @classmethod

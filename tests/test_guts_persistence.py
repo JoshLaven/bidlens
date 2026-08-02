@@ -212,6 +212,71 @@ class GutsPersistenceTests(unittest.TestCase):
                 reproducibility_status="fully_reproducible",
             )
 
+    def test_v2_attribution_persists_exactly_and_is_exposed_without_email(self):
+        attribution = {
+            "type": "person",
+            "actors": [{
+                "user_id": self.user.id,
+                "display_name": "GUTS User",
+                "email": "guts@example.test",
+            }],
+        }
+        sources = self._sources() + [{
+            "source_id": "opportunity_note:1",
+            "source_class": "organizational_knowledge",
+            "source_type": "note",
+            "authority": "attributed_claim",
+            "citation_label": "Internal note",
+            "author_display_name": "GUTS User",
+            "author_user_id": self.user.id,
+            "author_address": "guts@example.test",
+        }]
+        statements = self._statements() + [{
+            "statement_key": "organizational_knowledge-1",
+            "placement_type": "section",
+            "section_type": "organizational_knowledge",
+            "section_title": "Organizational Knowledge",
+            "position": 1,
+            "text": "GUTS User recommended early outreach.",
+            "importance": "normal",
+            "confidence": "attributed",
+            "attribution_json": attribution,
+            "source_ids": ["opportunity_note:1"],
+        }]
+        with (
+            patch("bidlens.services.opportunity_knowledge_brief.repository.config.GUTS_PROMPT_VERSION", "guts-v9"),
+            patch("bidlens.services.opportunity_knowledge_brief.repository.config.GUTS_OUTPUT_SCHEMA_VERSION", "guts-output-v2"),
+        ):
+            generation = self._pending()
+        mark_generation_running(self.db, generation)
+        saved = save_generation_success(
+            self.db, generation, output_json={"briefing": {}},
+            current_state_snapshot_json={"title": "GUTS-1"}, sources=sources,
+            statements=statements, reproducibility_status="fully_reproducible",
+        )
+        row = next(item for item in saved.statements if item.confidence == "attributed")
+        self.assertEqual(row.attribution_json, attribution)
+        attribution["actors"][0]["display_name"] = "Mutated Caller Value"
+        self.assertEqual(row.attribution_json["actors"][0]["display_name"], "GUTS User")
+
+    def test_v2_invalid_attribution_rolls_back_atomic_success(self):
+        with (
+            patch("bidlens.services.opportunity_knowledge_brief.repository.config.GUTS_PROMPT_VERSION", "guts-v9"),
+            patch("bidlens.services.opportunity_knowledge_brief.repository.config.GUTS_OUTPUT_SCHEMA_VERSION", "guts-output-v2"),
+        ):
+            generation = self._pending()
+        mark_generation_running(self.db, generation)
+        invalid = self._statements()
+        invalid[0]["confidence"] = "attributed"
+        with self.assertRaises(KnowledgeBriefValidationError):
+            save_generation_success(
+                self.db, generation, output_json={}, current_state_snapshot_json={},
+                sources=self._sources(), statements=invalid,
+                reproducibility_status="fully_reproducible",
+            )
+        self.assertEqual(self.db.query(OpportunityKnowledgeBriefStatement).count(), 0)
+        self.assertEqual(self.db.query(OpportunityKnowledgeBriefSource).count(), 0)
+
     def test_latest_success_is_scoped_and_later_failure_does_not_replace_it(self):
         first = self._succeed(
             self._pending(), completed_at=datetime(2026, 7, 31, 10, tzinfo=timezone.utc),

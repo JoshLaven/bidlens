@@ -37,6 +37,7 @@ class GUTSStatementPresentation:
     importance: str
     citations: tuple[GUTSCitationPresentation, ...]
     display_date: str | None = None
+    attribution: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -70,7 +71,27 @@ def _present_statement(statement: OpportunityKnowledgeBriefStatement) -> GUTSSta
             f"{latest_source_at.strftime('%b')} {latest_source_at.day}"
             if latest_source_at is not None else None
         ),
+        attribution=_presentation_attribution(getattr(statement, "attribution_json", None)),
     )
+
+
+def _presentation_attribution(value: dict | None) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    attribution_type = value.get("type")
+    actors = value.get("actors")
+    if attribution_type not in {"person", "internal_source"} or not isinstance(actors, list):
+        return None
+    return {
+        "type": attribution_type,
+        "actors": [
+            {
+                "user_id": actor.get("user_id"),
+                "display_name": actor.get("display_name"),
+            }
+            for actor in actors if isinstance(actor, dict)
+        ],
+    }
 
 
 def _canonical_key(statement: OpportunityKnowledgeBriefStatement) -> tuple[int, int, int]:

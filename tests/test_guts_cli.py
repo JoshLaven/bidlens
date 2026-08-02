@@ -17,8 +17,15 @@ from bidlens.services.opportunity_knowledge_brief import (
     OpportunityKnowledgeBriefService,
 )
 from bidlens.services.opportunity_knowledge_brief.contracts import (
-    ModelBriefingOutput, ModelOutputSection, ModelOutputStatement,
+    AttributionActor, ModelBriefingOutput, ModelOutputSection, ModelOutputStatement,
+    StatementAttribution,
 )
+
+
+def alex_attribution():
+    return StatementAttribution(type="person", actors=(AttributionActor(
+        user_id=1, display_name="Alex", email="cli-member@example.test",
+    ),))
 
 
 class FakeModelClient:
@@ -60,6 +67,7 @@ class InvalidAttributionModelClient:
                 text="PRIVATE REJECTED PROSE: ABC Services is the subcontractor.",
                 importance="normal", confidence="attributed",
                 source_ids=(f"opportunity_note:{note_id}",),
+                attribution=alex_attribution(),
             ),),
             sections=(),
         )
@@ -91,6 +99,7 @@ class SectionMismatchModelClient:
                     text="PRIVATE SECTION REJECTED PROSE: Alex plans to contact ABC Services.",
                     importance="normal", confidence="attributed",
                     source_ids=(f"opportunity_note:{note_id}",),
+                    attribution=alex_attribution(),
                 ),),
             ),),
         )
@@ -159,7 +168,9 @@ class GUTSCLITests(unittest.TestCase):
             self.org = Organization(name="CLI Org", slug="cli-org")
             db.add(self.org); db.flush()
             self.workspace = Workspace(organization_id=self.org.id, name="CLI", slug="cli")
-            self.member = User(email="cli-member@example.test", organization_id=self.org.id)
+            self.member = User(
+                email="cli-member@example.test", name="Alex", organization_id=self.org.id,
+            )
             self.admin = User(email="cli-admin@example.test", organization_id=self.org.id)
             db.add_all([self.workspace, self.member, self.admin]); db.flush()
             db.add_all([

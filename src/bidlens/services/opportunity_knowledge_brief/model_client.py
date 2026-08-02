@@ -101,6 +101,24 @@ def build_responses_request(model_name: str, **request: Any) -> dict[str, Any]:
     return payload
 
 
+def _allowed_actor_values(manifest: GUTSManifest) -> list[dict[str, Any]]:
+    evidence = getattr(manifest, "evidence", None)
+    authors = [
+        source.author for source in getattr(evidence, "sources", ())
+        if source.source_class == "organizational_knowledge" and source.author is not None
+    ]
+    snapshots: list[dict[str, Any]] = []
+    for author in authors:
+        snapshot = {
+            "user_id": author.user_id,
+            "display_name": author.display_name,
+            "email": author.address,
+        }
+        if snapshot not in snapshots:
+            snapshots.append(snapshot)
+    return snapshots
+
+
 def _safe_schema_path(location: Any) -> tuple[str, str | None]:
     parts: list[str] = []
     field_name = None
@@ -532,6 +550,10 @@ class GUTSModelClient:
         self.model = model or config.GUTS_AI_MODEL
         try:
             self.prompt = resolve_prompt(config.GUTS_PROMPT_VERSION)
+            if self.prompt.output_schema_version != config.GUTS_OUTPUT_SCHEMA_VERSION:
+                raise GUTSPromptConfigurationError(
+                    GUTSPromptConfigurationError.safe_message,
+                )
         except GUTSPromptConfigurationError as exc:
             raise GUTSModelError(
                 exc.safe_category, exc.safe_message, retryable=False,
@@ -570,13 +592,15 @@ class GUTSModelClient:
                     "type": "json_schema", "name": "guts_briefing",
                     "strict": True, "schema": guts_output_schema(
                         allowed_source_ids=manifest.allowed_source_ids(),
+                        output_schema_version=self.prompt.output_schema_version,
+                        allowed_actors=_allowed_actor_values(manifest),
                     ),
                 }},
                 max_output_tokens=config.GUTS_MAX_OUTPUT_TOKENS,
                 metadata={
                     "prompt_version": self.prompt.version,
                     "manifest_version": manifest.manifest_version,
-                    "output_schema_version": config.GUTS_OUTPUT_SCHEMA_VERSION,
+                    "output_schema_version": self.prompt.output_schema_version,
                 },
             )
             response = self.client.responses.create(**request)
@@ -664,7 +688,10 @@ def generate_validated_briefing(
     validator: GUTSOutputValidator | None = None,
 ) -> GUTSValidatedGenerationResult:
     model_client = client or GUTSModelClient()
-    output_validator = validator or GUTSOutputValidator()
+    output_validator = validator or GUTSOutputValidator(
+        output_schema_version=model_client.prompt.output_schema_version
+        if isinstance(model_client, GUTSModelClient) else "guts-output-v1",
+    )
     first_call: GUTSModelCallResult | None = None
     first_error: GUTSModelError | GUTSValidationError | None = None
     try:

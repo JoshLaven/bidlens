@@ -28,12 +28,54 @@ def model_probe_output_schema() -> dict[str, Any]:
     )
 
 
-def _statement_schema(*, allowed_source_ids: tuple[str, ...] | None = None) -> dict[str, Any]:
+def _attribution_schema(*, allowed_actors: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    generic_actor = strict_object_schema(
+        properties={
+            "user_id": {"type": ["integer", "null"]},
+            "display_name": {"type": ["string", "null"]},
+            "email": {"type": ["string", "null"]},
+        },
+        required=["user_id", "display_name", "email"],
+    )
+    actor: dict[str, Any] = generic_actor
+    if allowed_actors:
+        actor = {"anyOf": [
+            strict_object_schema(
+                properties={field: {"enum": [snapshot.get(field)]} for field in (
+                    "user_id", "display_name", "email",
+                )},
+                required=["user_id", "display_name", "email"],
+            )
+            for snapshot in allowed_actors
+        ]}
+    variants = [{"type": "null"}]
+    if allowed_actors is None or allowed_actors:
+        variants.append(strict_object_schema(
+                properties={
+                    "type": {"type": "string", "enum": ["person"]},
+                    "actors": {"type": "array", "items": actor, "minItems": 1, "maxItems": 10},
+                },
+                required=["type", "actors"],
+            ))
+    variants.append(strict_object_schema(
+                properties={
+                    "type": {"type": "string", "enum": ["internal_source"]},
+                    "actors": {"type": "array", "items": generic_actor, "maxItems": 0},
+                },
+                required=["type", "actors"],
+            ))
+    return {"anyOf": variants}
+
+
+def _statement_schema(
+    *, allowed_source_ids: tuple[str, ...] | None = None,
+    output_schema_version: str = "guts-output-v1",
+    allowed_actors: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     source_id_schema: dict[str, Any] = {"type": "string"}
     if allowed_source_ids is not None:
         source_id_schema["enum"] = list(allowed_source_ids)
-    return strict_object_schema(
-        properties={
+    properties = {
             # OpenAI strict Structured Outputs supports only a subset of JSON
             # Schema string constraints. Non-empty and length checks therefore
             # remain deterministic application validation concerns.
@@ -45,13 +87,27 @@ def _statement_schema(*, allowed_source_ids: tuple[str, ...] | None = None) -> d
                 "type": "array", "items": source_id_schema,
                 "minItems": 1, "maxItems": 20,
             },
-        },
-        required=["statement_key", "text", "importance", "confidence", "source_ids"],
+        }
+    required = ["statement_key", "text", "importance", "confidence", "source_ids"]
+    if output_schema_version == "guts-output-v2":
+        properties["attribution"] = _attribution_schema(allowed_actors=allowed_actors)
+        required.append("attribution")
+    return strict_object_schema(
+        properties=properties,
+        required=required,
     )
 
 
-def guts_output_schema(*, allowed_source_ids: tuple[str, ...] | None = None) -> dict[str, Any]:
-    statement = _statement_schema(allowed_source_ids=allowed_source_ids)
+def guts_output_schema(
+    *, allowed_source_ids: tuple[str, ...] | None = None,
+    output_schema_version: str = "guts-output-v1",
+    allowed_actors: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    statement = _statement_schema(
+        allowed_source_ids=allowed_source_ids,
+        output_schema_version=output_schema_version,
+        allowed_actors=allowed_actors,
+    )
     headline = deepcopy(statement)
     headline["properties"]["statement_key"] = {"type": "string", "enum": ["headline"]}
     headline["properties"]["importance"] = {"type": "string", "enum": ["high"]}

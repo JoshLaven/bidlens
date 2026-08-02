@@ -12,7 +12,7 @@ from bidlens.services.opportunity_knowledge_brief.presentation import build_guts
 
 def statement(
     key, text, *, placement="section", section=None, position=0, source_id=None,
-    importance="normal", occurred_at=None, persisted_id=None,
+    importance="normal", occurred_at=None, persisted_id=None, attribution_json=None,
 ):
     source = SimpleNamespace(
         source_id=source_id or f"source:{key}",
@@ -32,6 +32,7 @@ def statement(
         position=position,
         confidence="supported",
         importance=importance,
+        attribution_json=attribution_json,
         source_links=[SimpleNamespace(brief_source=source)],
     )
 
@@ -131,6 +132,29 @@ class GUTSPresentationTests(unittest.TestCase):
         self.assertEqual(result.internal_activity[0].display_date, "Aug 1")
         self.assertEqual(result.internal_activity[0].text, activity.text)
         self.assertEqual(result.internal_activity[0].citations[0].occurred_at, activity.source_links[0].brief_source.occurred_at)
+
+    def test_v2_attribution_is_retained_without_rewriting_or_exposing_email(self):
+        activity = statement(
+            "org-attributed", "Josh Laven recommended contacting Westat.",
+            section="organizational_knowledge", occurred_at=datetime(2026, 8, 1, 9, 15),
+            attribution_json={
+                "type": "person",
+                "actors": [{
+                    "user_id": 4, "display_name": "Josh Laven",
+                    "email": "private@example.test",
+                }],
+            },
+        )
+        result = build_guts_presentation(SimpleNamespace(statements=[activity]))
+        presented = result.internal_activity[0]
+        self.assertEqual(presented.text, activity.text)
+        self.assertEqual(presented.display_date, "Aug 1")
+        self.assertEqual(presented.citations[0].source_id, "source:org-attributed")
+        self.assertEqual(presented.attribution, {
+            "type": "person",
+            "actors": [{"user_id": 4, "display_name": "Josh Laven"}],
+        })
+        self.assertNotIn("email", presented.attribution["actors"][0])
 
     def test_missing_generation_has_only_empty_v1_sections(self):
         result = build_guts_presentation(None)

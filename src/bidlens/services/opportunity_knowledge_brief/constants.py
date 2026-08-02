@@ -1,5 +1,7 @@
 """Stable string values used by Get Up to Speed persistence contracts."""
 
+GUTS_ATTRIBUTION_CONTRACT_VERSION = "guts-attribution-v2"
+
 
 class GenerationStatus:
     PENDING = "pending"

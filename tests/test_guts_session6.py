@@ -17,8 +17,9 @@ from bidlens.services.opportunity_knowledge_brief import (
     create_pending_generation, get_latest_successful_generation,
 )
 from bidlens.services.opportunity_knowledge_brief.contracts import (
-    EvidenceCollectionResult, EvidenceSource, ModelBriefingOutput,
-    ModelOutputStatement, OfficialEvidenceCollectionResult, UnavailableSource,
+    AttributionActor, EvidenceAuthor, EvidenceCollectionResult, EvidenceSource,
+    ModelBriefingOutput, ModelOutputStatement, OfficialEvidenceCollectionResult,
+    StatementAttribution, UnavailableSource,
 )
 
 
@@ -49,6 +50,9 @@ def communication_collection(opportunity_id, organization_id, workspace_id):
         source_id="communication:1", source_class="organizational_knowledge",
         source_type="email", authority="attributed_claim",
         citation_label="Communication from Josh", text=text,
+        author=EvidenceAuthor(
+            user_id=1, display_name="Josh", address="josh@example.test",
+        ),
         content_hash="c" * 64, selected_character_count=len(text), original_character_count=len(text),
         retained_by_bidlens=True,
         provenance={
@@ -231,6 +235,11 @@ class GUTSSession6Tests(unittest.TestCase):
                     text="Josh identified Cassie as having done similar work.",
                     importance="normal", confidence="attributed",
                     source_ids=("communication:1",),
+                    attribution=StatementAttribution(
+                        type="person", actors=(AttributionActor(
+                            user_id=1, display_name="Josh", email="josh@example.test",
+                        ),),
+                    ),
                 ),
             ),
         })

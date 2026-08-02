@@ -21,7 +21,9 @@ from .constants import (
     SectionType,
     SourceClass,
     WarningType,
+    GUTS_ATTRIBUTION_CONTRACT_VERSION,
 )
+from .contracts import AttributionActor, StatementAttribution
 from .repository import (
     ActiveKnowledgeBriefGenerationError,
     KnowledgeBriefLifecycleError,
@@ -93,6 +95,9 @@ __all__ = [
     "SectionType",
     "SourceClass",
     "WarningType",
+    "GUTS_ATTRIBUTION_CONTRACT_VERSION",
+    "AttributionActor",
+    "StatementAttribution",
     "ActiveKnowledgeBriefGenerationError",
     "KnowledgeBriefLifecycleError",
     "KnowledgeBriefPersistenceError",

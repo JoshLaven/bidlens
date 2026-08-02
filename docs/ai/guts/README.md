@@ -4,7 +4,7 @@ GUTS is a shared, opportunity-level briefing that distills the current opportuni
 
 ## Status
 
-The design contract is locked. Sessions 1 through 6 are implemented. The application-facing service now coordinates shortlist-gated generation, stale-attempt recovery, the complete compiler pipeline, strict model validation, atomic source/statement/citation persistence, deterministic warnings/statistics, and safe failure finalization. HTTP routes and UI are not implemented.
+The design contract is locked. Sessions 1 through 6 and Structured Attribution V2 Phase B are implemented. The application-facing service coordinates shortlist-gated generation, stale-attempt recovery, the complete compiler pipeline, strict model validation, atomic source/statement/citation/attribution persistence, deterministic warnings/statistics, and safe failure finalization.
 
 ## Reading order
 
@@ -47,7 +47,8 @@ The design contract is locked. Sessions 1 through 6 are implemented. The applica
 - Session 4 complete: historical/official evidence, conservative cross-class deduplication, structured conflicts, final selection, and canonical manifest hashing.
 - Session 5 complete: dedicated Responses API client, versioned prompt path, exact structured output, citation/safety validation, and one corrective retry.
 - Session 6 complete: application service, compiler lifecycle, concurrency/stale handling, persistence coordination, warnings/statistics, and safe success/failure behavior.
-- Next: route integration, Opportunity Folder UI/layout work, dogfood evaluation, and production timeout verification.
+- Structured Attribution V2 Phase B complete: `guts-v9`, `guts-output-v2`, immutable author snapshots, deterministic actor/source correspondence, nullable attribution persistence, and V1 read compatibility.
+- Next: V2 dogfood evaluation and production verification.
 
 ## Development dogfood command
 

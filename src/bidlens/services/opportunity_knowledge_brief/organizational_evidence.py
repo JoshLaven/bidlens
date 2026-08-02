@@ -16,10 +16,13 @@ from ...models import (
     OpportunityCommunicationMessage,
     Opportunity,
     OpportunityNote,
+    OrganizationMembership,
+    User,
     Workspace,
 )
 from ..communication_summary import clean_message_body
 from .contracts import EvidenceAuthor, EvidenceCollectionResult, EvidenceSource
+from .attribution import normalize_display_name, normalize_email
 
 
 MIN_MEANINGFUL_CHARACTERS = 2
@@ -164,20 +167,21 @@ class NoteEvidenceCollector:
             seen_content.add(digest)
             selected_text, truncated = _bounded(normalized, self.maximum_note_characters)
             user = row.user
-            display_name = ((user.name or user.email) if user else None) or (
-                f"User {row.user_id}" if row.user_id else "Unknown user"
+            email = normalize_email(user.email) if user else None
+            display_name = normalize_display_name(user.name if user else None) or email
+            author = (
+                EvidenceAuthor(user_id=user.id, display_name=display_name, address=email)
+                if user and display_name and email else None
             )
+            author_label = display_name or "Internal note"
             sources.append(EvidenceSource(
                 source_id=f"opportunity_note:{row.id}",
                 source_class="organizational_knowledge",
                 source_type="note",
                 authority="attributed_claim",
-                citation_label=f"{display_name.strip()} note, {_date_label(row.created_at)}",
+                citation_label=f"{author_label} note, {_date_label(row.created_at)}",
                 text=selected_text,
-                author=EvidenceAuthor(
-                    user_id=row.user_id,
-                    display_name=display_name.strip(),
-                ),
+                author=author,
                 occurred_at=row.created_at,
                 content_hash=_hash(selected_text),
                 was_truncated=truncated,
@@ -230,6 +234,16 @@ class CommunicationEvidenceCollector:
             ).asc(),
             OpportunityCommunicationMessage.id.asc(),
         ).all()
+        members = self.db.query(User).join(
+            OrganizationMembership, OrganizationMembership.user_id == User.id,
+        ).filter(
+            OrganizationMembership.organization_id == organization_id,
+        ).all()
+        users_by_email: dict[str, list[User]] = {}
+        for user in members:
+            email = normalize_email(user.email)
+            if email:
+                users_by_email.setdefault(email, []).append(user)
         omitted = Counter()
         sources: list[EvidenceSource] = []
         seen_identifiers: set[tuple] = set()
@@ -277,9 +291,23 @@ class CommunicationEvidenceCollector:
             seen_content.add(body_digest)
             selected_text, truncated = _bounded(cleaned, self.maximum_message_characters)
             occurred_at = row.provider_timestamp or row.created_at
-            author_name = normalize_evidence_text(row.sender_display_name)
-            author_address = normalize_evidence_text(row.sender_address).casefold()
-            author_label = author_name or author_address or "Unknown sender"
+            author_name = normalize_display_name(row.sender_display_name)
+            author_address = normalize_email(row.sender_address)
+            matched_users = users_by_email.get(author_address, []) if author_address else []
+            if len(matched_users) == 1:
+                matched = matched_users[0]
+                matched_email = normalize_email(matched.email)
+                matched_name = normalize_display_name(matched.name) or matched_email
+                author = EvidenceAuthor(
+                    user_id=matched.id, display_name=matched_name, address=matched_email,
+                )
+            elif author_name or author_address:
+                author = EvidenceAuthor(
+                    display_name=author_name, address=author_address,
+                )
+            else:
+                author = None
+            author_label = (author.display_name if author else None) or author_address or "Unknown sender"
             conversation = row.conversation
             sources.append(EvidenceSource(
                 source_id=f"communication:{row.id}",
@@ -288,7 +316,7 @@ class CommunicationEvidenceCollector:
                 authority="attributed_claim",
                 citation_label=f"{author_label}, {_date_label(occurred_at)}",
                 text=selected_text,
-                author=EvidenceAuthor(display_name=author_label, address=author_address or None),
+                author=author,
                 occurred_at=occurred_at,
                 content_hash=_hash(selected_text),
                 was_truncated=truncated,
