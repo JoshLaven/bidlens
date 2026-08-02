@@ -48,6 +48,7 @@ The design contract is locked. Sessions 1 through 6 and Structured Attribution V
 - Session 5 complete: dedicated Responses API client, versioned prompt path, exact structured output, citation/safety validation, and one corrective retry.
 - Session 6 complete: application service, compiler lifecycle, concurrency/stale handling, persistence coordination, warnings/statistics, and safe success/failure behavior.
 - Structured Attribution V2 Phase B complete: `guts-v9`, `guts-output-v2`, immutable author snapshots, deterministic actor/source correspondence, nullable attribution persistence, and V1 read compatibility.
+- Atomic Statement V2 refinement: `guts-v10` retains `guts-output-v2` and makes the domain-neutral one-sentence, one-independently-supportable-claim generation contract explicit without changing validation.
 - Next: V2 dogfood evaluation and production verification.
 
 ## Development dogfood command

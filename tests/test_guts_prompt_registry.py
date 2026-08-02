@@ -6,7 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from bidlens.services.opportunity_knowledge_brief.model_client import GUTSModelClient, GUTSModelError
 from bidlens.services.opportunity_knowledge_brief.prompt import (
-    GUTS_V8_SYSTEM_INSTRUCTIONS,
+    GUTS_V8_SYSTEM_INSTRUCTIONS, GUTS_V9_SYSTEM_INSTRUCTIONS,
+    GUTS_V10_ATOMIC_STATEMENT_INSTRUCTIONS, GUTS_V10_SYSTEM_INSTRUCTIONS,
     GUTSPromptConfigurationError,
     GUTSPromptDefinition,
     PROMPT_BUILDERS,
@@ -102,6 +103,25 @@ class GUTSPromptRegistryTests(unittest.TestCase):
         self.assertEqual(model_error.exception.safe_category, "model_configuration_missing")
         self.assertNotIn("unknown-prompt", model_error.exception.safe_message)
 
+    def test_v10_adds_general_atomic_statement_contract_without_mutating_v9(self):
+        v9 = resolve_prompt("guts-v9")
+        v10 = resolve_prompt("guts-v10")
+        self.assertEqual(v9.instructions, GUTS_V9_SYSTEM_INSTRUCTIONS)
+        self.assertEqual(v10.instructions, GUTS_V10_SYSTEM_INSTRUCTIONS)
+        self.assertTrue(v10.instructions.startswith(v9.instructions))
+        self.assertEqual(v10.output_schema_version, "guts-output-v2")
+        for phrase in (
+            "exactly one independently supportable fact or attributed observation",
+            "should normally be one sentence",
+            "return two separate statement objects",
+            "observations, recommendations, decisions, concerns, actions, plans, and facts",
+            "Normalize fragmented, quoted, forwarded, or otherwise messy source writing",
+            "A recommendation and its independent rationale",
+            "an observation and a resulting action",
+            "a decision and a future plan",
+        ):
+            self.assertIn(phrase, GUTS_V10_ATOMIC_STATEMENT_INSTRUCTIONS)
+
     def test_service_rejects_unknown_version_before_database_or_generation_work(self):
         db = MagicMock()
         service = OpportunityKnowledgeBriefService(db)
@@ -160,10 +180,10 @@ class GUTSPromptRegistryTests(unittest.TestCase):
 
         first, retry = client.responses.requests
         self.assertEqual(first["instructions"], retry["instructions"])
-        self.assertEqual(first["metadata"]["prompt_version"], "guts-v9")
-        self.assertEqual(retry["metadata"]["prompt_version"], "guts-v9")
-        self.assertEqual(json.loads(first["input"])["prompt_version"], "guts-v9")
-        self.assertEqual(json.loads(retry["input"])["prompt_version"], "guts-v9")
+        self.assertEqual(first["metadata"]["prompt_version"], "guts-v10")
+        self.assertEqual(retry["metadata"]["prompt_version"], "guts-v10")
+        self.assertEqual(json.loads(first["input"])["prompt_version"], "guts-v10")
+        self.assertEqual(json.loads(retry["input"])["prompt_version"], "guts-v10")
         self.assertEqual(
             json.loads(retry["input"])["validation_feedback"],
             "Use statement_key 'headline' for the headline.",

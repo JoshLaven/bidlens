@@ -11,6 +11,7 @@ from .contracts import GUTSManifest
 
 GUTS_V8_PROMPT_VERSION = "guts-v8"
 GUTS_V9_PROMPT_VERSION = "guts-v9"
+GUTS_V10_PROMPT_VERSION = "guts-v10"
 
 GUTS_V8_SYSTEM_INSTRUCTIONS = """You are preparing a concise Get Up to Speed briefing for a teammate who may not have reviewed this opportunity for weeks or months. Help them understand the current state, what the organization has learned, what materially changed, and evidence-backed uncertainty so they can re-engage in under two minutes.
 
@@ -58,6 +59,14 @@ GUTS_V9_SYSTEM_INSTRUCTIONS = (
     GUTS_V8_SYSTEM_INSTRUCTIONS + "\n\n" + GUTS_V9_ATTRIBUTION_INSTRUCTIONS
 )
 
+GUTS_V10_ATOMIC_STATEMENT_INSTRUCTIONS = """Every canonical statement represents exactly one independently supportable fact or attributed observation and should normally be one sentence. If two complete sentences would naturally be written, return two separate statement objects instead. Separate distinct observations, recommendations, decisions, concerns, actions, plans, and facts into their own statement objects, with the citations and attribution that support each statement.
+
+Normalize fragmented, quoted, forwarded, or otherwise messy source writing into clean canonical statements; do not copy source punctuation or sentence boundaries mechanically. A recommendation and its independent rationale, an observation and a resulting action, or a decision and a future plan are distinct claims and should not be combined. Do not sacrifice accurate attribution, citations, confidence, or epistemic status when splitting claims."""
+
+GUTS_V10_SYSTEM_INSTRUCTIONS = (
+    GUTS_V9_SYSTEM_INSTRUCTIONS + "\n\n" + GUTS_V10_ATOMIC_STATEMENT_INSTRUCTIONS
+)
+
 
 @dataclass(frozen=True)
 class GUTSPromptDefinition:
@@ -89,9 +98,18 @@ def build_guts_v9_prompt() -> GUTSPromptDefinition:
     )
 
 
+def build_guts_v10_prompt() -> GUTSPromptDefinition:
+    return GUTSPromptDefinition(
+        version=GUTS_V10_PROMPT_VERSION,
+        instructions=GUTS_V10_SYSTEM_INSTRUCTIONS,
+        output_schema_version="guts-output-v2",
+    )
+
+
 PROMPT_BUILDERS = {
     GUTS_V8_PROMPT_VERSION: build_guts_v8_prompt,
     GUTS_V9_PROMPT_VERSION: build_guts_v9_prompt,
+    GUTS_V10_PROMPT_VERSION: build_guts_v10_prompt,
 }
 
 

@@ -392,9 +392,9 @@ class GUTSOutputValidator:
         if sentence_split or ";" in text:
             self._fail(
                 "model_output_unsafe", "A statement contained multiple apparent claims.",
-                "Express one independently supportable claim per statement. Split distinct "
-                "recommendations, concerns, observations, plans, or actions and preserve each "
-                "statement's citations and attribution separately.",
+                "If a statement contains more than one complete sentence or more than one "
+                "independently supportable idea, split it into multiple statement objects while "
+                "preserving each statement's attribution and citations.",
                 statement_key=statement.statement_key, statement_placement=placement,
                 statement_index=position, statement_confidence=statement.confidence,
                 cited_source_ids=tuple(statement.source_ids),

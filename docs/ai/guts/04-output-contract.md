@@ -1,6 +1,6 @@
 # Output Contract
 
-Canonical output is validated structured JSON. Rendering is application-controlled. The configured `GUTS_PROMPT_VERSION` defaults to `guts-v9`; this version retains the structured citation contract and preserves distinct actor provenance when multiple communications contribute different organizational ideas. Output continues to use `GUTS_OUTPUT_SCHEMA_VERSION`.
+Canonical output is validated structured JSON. Rendering is application-controlled. The configured `GUTS_PROMPT_VERSION` defaults to `guts-v10`; this version retains the structured citation and attribution contracts while making the single-sentence, single-claim statement obligation explicit. Output continues to use `GUTS_OUTPUT_SCHEMA_VERSION`.
 
 ## Provider output
 
@@ -18,6 +18,8 @@ Every visible claim is an atomic statement with:
 - Importance: `high` or `normal`
 - Confidence: `supported`, `attributed`, or `uncertain`
 - One or more machine-readable source IDs
+
+For new V2 generation, each statement normally uses one sentence for exactly one independently supportable fact or attributed observation. Distinct facts, observations, recommendations, concerns, actions, decisions, and plans use separate statement objects with their own citations and attribution. Source punctuation is not authoritative; the model normalizes messy source writing into this canonical shape, and the application validator remains the final authority.
 
 Sections are limited to current state, official updates, organizational knowledge, important history, and uncertainties.
 

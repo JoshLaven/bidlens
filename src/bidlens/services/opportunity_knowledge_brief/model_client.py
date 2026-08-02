@@ -45,7 +45,7 @@ SAFE_RETRY_FEEDBACK = frozenset({
     "Keep source IDs only in source_ids arrays.",
     "Remove recommendations, speculation, markup, and raw citation syntax.",
     "Return atomic statements containing one independently supportable idea.",
-    "Express one independently supportable claim per statement. Split distinct recommendations, concerns, observations, plans, or actions and preserve each statement's citations and attribution separately.",
+    "If a statement contains more than one complete sentence or more than one independently supportable idea, split it into multiple statement objects while preserving each statement's attribution and citations.",
     "Label organizational claims attributed and cite their organizational sources.",
     "Attributed statements must cite organizational knowledge.",
     "Use wording such as reported, proposed, plans, or noted.",

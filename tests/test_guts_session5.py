@@ -913,6 +913,32 @@ class ValidatorTests(unittest.TestCase):
         self.assertEqual(error.failure_subtype, "multiple_sentences")
         self.assertIsNone(error.rejected_statement_text)
 
+    def test_atomicity_contract_is_domain_neutral_across_source_styles(self):
+        base = valid_output()
+        accepted = (
+            "The official notice extended the submission period.",
+            "Morgan observed that attendance had declined.",
+            "The meeting record identifies one approved decision.",
+        )
+        for text in accepted:
+            output = base.model_copy(update={
+                "headline": base.headline.model_copy(update={"text": text}),
+            })
+            with self.subTest(text=text):
+                self.validator.validate(output, self.manifest)
+
+        rejected = (
+            "The official notice changed the date. A revised attachment was also published.",
+            "The meeting recorded a decision; participants also planned a future review.",
+        )
+        for text in rejected:
+            output = base.model_copy(update={
+                "headline": base.headline.model_copy(update={"text": text}),
+            })
+            with self.subTest(text=text), self.assertRaises(GUTSValidationError) as captured:
+                self.validator.validate(output, self.manifest)
+            self.assertEqual(captured.exception.validator_rule, "single_claim_statement")
+
     def test_multiple_claim_retry_is_once_and_logs_metadata_without_prose(self):
         private_text = "Private first claim happened. Private second claim happened."
         invalid = valid_output().model_copy(update={
@@ -930,7 +956,9 @@ class ValidatorTests(unittest.TestCase):
         ):
             generate_validated_briefing(manifest(), client=client)
         self.assertEqual(len(client.calls), 2)
-        self.assertIn("one independently supportable claim", client.calls[1][1])
+        self.assertIn("more than one complete sentence", client.calls[1][1])
+        self.assertIn("split it into multiple statement objects", client.calls[1][1])
+        self.assertIn("preserving each statement's attribution and citations", client.calls[1][1])
         self.assertNotIn(private_text, client.calls[1][1])
         debug = captured.exception.validation_debug
         self.assertEqual(debug["validator_rule"], "single_claim_statement")

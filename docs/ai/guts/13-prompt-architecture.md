@@ -12,15 +12,17 @@ The prompt registry and authoritative static instructions live in:
 src/bidlens/services/opportunity_knowledge_brief/prompt.py
 ```
 
-The current registry contains two explicit definitions:
+The current registry contains three explicit definitions:
 
 ```text
 guts-v8 → build_guts_v8_prompt → GUTS_V8_SYSTEM_INSTRUCTIONS
 guts-v9 → build_guts_v9_prompt → GUTS_V9_SYSTEM_INSTRUCTIONS
+guts-v10 → build_guts_v10_prompt → GUTS_V10_SYSTEM_INSTRUCTIONS
 ```
 
 The `guts-v8` instruction value remains unchanged and is paired with `guts-output-v1`.
 `guts-v9` extends that immutable V1 wording with the Structured Attribution V2 contract and is paired with `guts-output-v2`.
+`guts-v10` preserves the complete immutable V2 attribution contract and adds domain-neutral guidance that each canonical statement normally contains exactly one sentence and one independently supportable fact or attributed observation. It remains paired with `guts-output-v2`.
 
 `GUTS_PROMPT_VERSION` selects a registry entry. An unknown value raises a controlled, content-free configuration error before a pending generation is created. GUTS never falls back to the newest or only registered prompt.
 
