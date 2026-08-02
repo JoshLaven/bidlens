@@ -126,6 +126,7 @@ class GUTSValidationError(RuntimeError):
         allowed_source_classes: tuple[str, ...] = (),
         required_source_classes: tuple[str, ...] = (),
         multiple_cited_actors: bool = False,
+        statement_index: int | None = None, failure_subtype: str | None = None,
     ):
         super().__init__(safe_message)
         self.safe_category = safe_category
@@ -146,6 +147,8 @@ class GUTSValidationError(RuntimeError):
         self.allowed_source_classes = allowed_source_classes
         self.required_source_classes = required_source_classes
         self.multiple_cited_actors = multiple_cited_actors
+        self.statement_index = statement_index
+        self.failure_subtype = failure_subtype
 
 
 class GUTSStatementKeyInvariantError(RuntimeError):
@@ -384,9 +387,23 @@ class GUTSOutputValidator:
                 ):
                     continue
                 self._fail("model_output_unsafe", f"The response contained prohibited {reason} language.", "Remove recommendations, speculation, markup, and raw citation syntax.")
-        if re.search(r"(?<![A-Z])[.!?]\s+[A-Z]", text) or ";" in text:
-            self._fail("model_output_unsafe", "A statement contained multiple apparent claims.", "Return atomic statements containing one independently supportable idea.")
         cited = [sources[source_id] for source_id in statement.source_ids]
+        sentence_split = bool(re.search(r"(?<![A-Z])[.!?]\s+[A-Z]", text))
+        if sentence_split or ";" in text:
+            self._fail(
+                "model_output_unsafe", "A statement contained multiple apparent claims.",
+                "Express one independently supportable claim per statement. Split distinct "
+                "recommendations, concerns, observations, plans, or actions and preserve each "
+                "statement's citations and attribution separately.",
+                statement_key=statement.statement_key, statement_placement=placement,
+                statement_index=position, statement_confidence=statement.confidence,
+                cited_source_ids=tuple(statement.source_ids),
+                cited_source_kinds=tuple(sorted(
+                    f"{source.source_class}:{source.source_type}" for source in cited
+                )),
+                validator_rule="single_claim_statement",
+                failure_subtype="multiple_sentences" if sentence_split else "semicolon_split",
+            )
         classes = {source.source_class for source in cited}
         if statement.confidence == "supported" and not classes.intersection({"current_state", "official_evidence"}):
             self._fail_confidence_source(
@@ -703,6 +720,7 @@ class GUTSOutputValidator:
         allowed_source_classes: tuple[str, ...] = (),
         required_source_classes: tuple[str, ...] = (),
         multiple_cited_actors: bool = False,
+        statement_index: int | None = None, failure_subtype: str | None = None,
     ):
         raise GUTSValidationError(
             category, message, feedback, invalid_source_ids=invalid_source_ids,
@@ -715,4 +733,5 @@ class GUTSOutputValidator:
             allowed_source_classes=allowed_source_classes,
             required_source_classes=required_source_classes,
             multiple_cited_actors=multiple_cited_actors,
+            statement_index=statement_index, failure_subtype=failure_subtype,
         )

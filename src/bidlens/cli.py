@@ -156,6 +156,10 @@ def _render_validation_debug(output: TextIO, details: dict) -> None:
     _line(output, "Validation debug (development CLI only):")
     _line(output, f"  Rule: {details.get('validator_rule', 'unknown')}")
     _line(output, f"  Reason: {details.get('validator_reason', 'Unavailable')}")
+    if details.get("failure_subtype"):
+        _line(output, f"  Failure subtype: {details['failure_subtype']}")
+    if details.get("statement_index") is not None:
+        _line(output, f"  Statement index: {details['statement_index']}")
     _line(output, f"  Statement key: {details.get('statement_key', 'unknown')}")
     _line(output, f"  Placement: {details.get('placement', 'unknown')}")
     _line(output, f"  Section type: {details.get('section_type') or 'None'}")
@@ -180,7 +184,8 @@ def _render_validation_debug(output: TextIO, details: dict) -> None:
     )
     if other_required_ids:
         _line(output, f"  Other required source IDs: {', '.join(other_required_ids)}")
-    _line(output, f"  Rejected statement: {details.get('statement_text', 'Unavailable')}")
+    if details.get("validator_rule") != "single_claim_statement":
+        _line(output, f"  Rejected statement: {details.get('statement_text', 'Unavailable')}")
 
 
 def _render_provider_debug(output: TextIO, details: dict) -> None:

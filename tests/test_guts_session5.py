@@ -888,6 +888,67 @@ class ValidatorTests(unittest.TestCase):
         base = valid_output()
         self.assert_invalid(base.model_copy(update={"headline": base.headline.model_copy(update={"text": "x" * (config.GUTS_MAX_STATEMENT_CHARS + 1)})}))
 
+    def test_multiple_claim_failure_attaches_safe_statement_context(self):
+        base = valid_output()
+        multi_claim = base.sections[1].statements[0].model_copy(update={
+            "text": "Alex raised a concern. Alex planned a follow-up.",
+        })
+        output = base.model_copy(update={
+            "sections": (
+                base.sections[0],
+                base.sections[1].model_copy(update={"statements": (multi_claim,)}),
+            ),
+        })
+        with self.assertRaises(GUTSValidationError) as captured:
+            self.validator.validate(output, self.manifest)
+        error = captured.exception
+        self.assertEqual(error.safe_message, "A statement contained multiple apparent claims.")
+        self.assertEqual(error.validator_rule, "single_claim_statement")
+        self.assertEqual(error.statement_key, "org-1")
+        self.assertEqual(error.statement_placement, "section:organizational_knowledge")
+        self.assertEqual(error.statement_index, 3)
+        self.assertEqual(error.statement_confidence, "attributed")
+        self.assertEqual(error.cited_source_ids, ("note:1",))
+        self.assertEqual(error.cited_source_kinds, ("organizational_knowledge:note",))
+        self.assertEqual(error.failure_subtype, "multiple_sentences")
+        self.assertIsNone(error.rejected_statement_text)
+
+    def test_multiple_claim_retry_is_once_and_logs_metadata_without_prose(self):
+        private_text = "Private first claim happened. Private second claim happened."
+        invalid = valid_output().model_copy(update={
+            "summary_statements": (
+                valid_output().summary_statements[0].model_copy(update={"text": private_text}),
+            ),
+            "sections": (),
+        })
+        client = FakeModelClient(call_result(invalid), call_result(invalid))
+        with (
+            self.assertLogs(
+                "bidlens.services.opportunity_knowledge_brief.model_client", level=logging.ERROR,
+            ) as logged,
+            self.assertRaises(GUTSModelError) as captured,
+        ):
+            generate_validated_briefing(manifest(), client=client)
+        self.assertEqual(len(client.calls), 2)
+        self.assertIn("one independently supportable claim", client.calls[1][1])
+        self.assertNotIn(private_text, client.calls[1][1])
+        debug = captured.exception.validation_debug
+        self.assertEqual(debug["validator_rule"], "single_claim_statement")
+        self.assertEqual(debug["failure_subtype"], "multiple_sentences")
+        self.assertNotIn(private_text, str(debug))
+        payload = json.loads(logged.records[0].getMessage())
+        self.assertEqual(payload["event"], "guts_output_validation_failed")
+        self.assertEqual(payload["validation_rule"], "single_claim_statement")
+        self.assertEqual(payload["statement_key"], "summary-1")
+        self.assertEqual(payload["statement_placement"], "summary")
+        self.assertEqual(payload["confidence"], "supported")
+        self.assertEqual(payload["failure_subtype"], "multiple_sentences")
+        self.assertEqual(payload["cited_source_ids"], [field("response_deadline").source_id])
+        self.assertEqual(payload["cited_source_kinds"], ["current_state:response_deadline"])
+        self.assertIsNone(payload["rejected_text"])
+        self.assertEqual(payload["resolved_organizational_evidence"], [])
+        self.assertNotIn(private_text, logged.records[0].getMessage())
+
     def test_current_deadline_requires_exact_current_state_citation(self):
         base = valid_output()
         bad = base.model_copy(update={

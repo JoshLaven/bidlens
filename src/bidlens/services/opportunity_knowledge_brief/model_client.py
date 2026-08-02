@@ -45,6 +45,7 @@ SAFE_RETRY_FEEDBACK = frozenset({
     "Keep source IDs only in source_ids arrays.",
     "Remove recommendations, speculation, markup, and raw citation syntax.",
     "Return atomic statements containing one independently supportable idea.",
+    "Express one independently supportable claim per statement. Split distinct recommendations, concerns, observations, plans, or actions and preserve each statement's citations and attribution separately.",
     "Label organizational claims attributed and cite their organizational sources.",
     "Attributed statements must cite organizational knowledge.",
     "Use wording such as reported, proposed, plans, or noted.",
@@ -380,13 +381,16 @@ class GUTSModelError(RuntimeError):
 
 
 def _validation_debug(exc: GUTSValidationError) -> dict[str, Any] | None:
-    if not exc.rejected_statement_text or not exc.statement_key or not exc.validator_rule:
+    if not exc.statement_key or not exc.validator_rule:
+        return None
+    if not exc.rejected_statement_text and exc.validator_rule != "single_claim_statement":
         return None
     placement = exc.statement_placement or "unknown"
     section_type = placement.removeprefix("section:") if placement.startswith("section:") else None
     controlled_placement = "section" if section_type else placement
     return {
         "statement_key": exc.statement_key,
+        "statement_index": exc.statement_index,
         "placement": controlled_placement,
         "section_type": section_type,
         "confidence": exc.statement_confidence or "unknown",
@@ -400,6 +404,7 @@ def _validation_debug(exc: GUTSValidationError) -> dict[str, Any] | None:
         "statement_text": exc.rejected_statement_text,
         "validator_rule": exc.validator_rule,
         "validator_reason": exc.safe_message,
+        "failure_subtype": exc.failure_subtype,
     }
 
 
@@ -459,14 +464,19 @@ def _log_output_validation_failure(
         if source.source_id in cited and source.source_class == "organizational_knowledge"
     ][:10]
     attribution = statement.attribution if statement is not None else None
+    metadata_only = exc.validator_rule == "single_claim_statement"
     payload = {
         "event": "guts_output_validation_failed",
-        "statement_index": index,
+        "statement_index": index if index is not None else exc.statement_index,
         "statement_placement": placement,
+        "section_type": (
+            placement.removeprefix("section:")
+            if isinstance(placement, str) and placement.startswith("section:") else None
+        ),
         "statement_key": bounded_text(
             statement.statement_key if statement is not None else exc.statement_key, 200,
         ),
-        "rejected_text": bounded_text(
+        "rejected_text": None if metadata_only else bounded_text(
             statement.text if statement is not None else exc.rejected_statement_text, 1000,
         ),
         "attribution": (
@@ -474,11 +484,15 @@ def _log_output_validation_failure(
                 "type": attribution.type,
                 "actors": [sanitized_actor(actor) for actor in attribution.actors[:10]],
             }
-            if attribution is not None else None
+            if attribution is not None and not metadata_only else None
         ),
         "cited_source_ids": [bounded_text(source_id, 500) for source_id in cited_source_ids[:20]],
-        "resolved_organizational_evidence": organizational_evidence,
+        "cited_source_kinds": [bounded_text(kind, 200) for kind in exc.cited_source_kinds[:20]],
+        "confidence": exc.statement_confidence,
+        "resolved_organizational_evidence": [] if metadata_only else organizational_evidence,
         "validation_rule": bounded_text(exc.validator_rule, 100),
+        "validation_reason": bounded_text(exc.safe_message, 300),
+        "failure_subtype": bounded_text(exc.failure_subtype, 100),
     }
     # Railway receives stdout/stderr after Uvicorn's default formatter, which
     # retains only LogRecord.message. Serialize the complete diagnostic there.
@@ -612,6 +626,8 @@ def _validation_feedback(exc: GUTSValidationError) -> str:
             "required_source_id": exc.required_source_id,
             "cited_source_ids": list(exc.cited_source_ids),
         }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    if exc.validator_rule == "single_claim_statement":
+        return exc.feedback
     if exc.statement_key and exc.statement_confidence and exc.cited_source_kinds:
         instruction = (
             "Copy attribution only from source_attribution attached to the cited source IDs; do not substitute another actor with the same display name."

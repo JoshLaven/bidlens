@@ -79,6 +79,31 @@ class InvalidAttributionModelClient:
         return self.generate(manifest)
 
 
+class MultipleClaimModelClient:
+    def __init__(self, opportunity_id, note_id):
+        self.output = ModelBriefingOutput(
+            headline=ModelOutputStatement(
+                statement_key="headline", text="Evaluation Services is active.",
+                importance="high", confidence="supported",
+                source_ids=(f"current_state:opportunity:{opportunity_id}:source_stage",),
+            ),
+            summary_statements=(ModelOutputStatement(
+                statement_key="multi-claim",
+                text="PRIVATE first claim happened. PRIVATE second claim happened.",
+                importance="normal", confidence="attributed",
+                source_ids=(f"opportunity_note:{note_id}",),
+                attribution=alex_attribution(),
+            ),),
+            sections=(),
+        )
+
+    def generate(self, manifest):
+        return GUTSModelCallResult(self.output, "openai", "cli-test", 80, 20, 100, 10.0)
+
+    def retry_with_validation_feedback(self, manifest, feedback):
+        return self.generate(manifest)
+
+
 class SectionMismatchModelClient:
     def __init__(self, opportunity_id, note_id):
         self.output = ModelBriefingOutput(
@@ -308,6 +333,41 @@ class GUTSCLITests(unittest.TestCase):
         self.assertIn("An attributed claim did not preserve attribution.", output)
         self.assertNotIn("PRIVATE REJECTED PROSE", output)
         self.assertNotIn("Validation debug", output)
+
+    def test_multiple_claim_debug_is_safe_metadata_only_and_opt_in(self):
+        client = MultipleClaimModelClient(self.opportunity_id, self.note_id)
+        status, ordinary = self.run_cli(service_factory=self.factory(model_client=client))
+        self.assertNotEqual(status, 0)
+        self.assertNotIn("Validation debug", ordinary)
+        self.assertNotIn("PRIVATE first claim", ordinary)
+
+        status, debug = self.run_cli(
+            service_factory=self.factory(model_client=client), debug_validation=True,
+        )
+        self.assertNotEqual(status, 0)
+        for expected in (
+            "Validation debug (development CLI only)",
+            "Rule: single_claim_statement",
+            "Reason: A statement contained multiple apparent claims.",
+            "Failure subtype: multiple_sentences",
+            "Statement index: 1",
+            "Statement key: multi-claim",
+            "Placement: summary",
+            "Confidence: attributed",
+            f"Cited source IDs: opportunity_note:{self.note_id}",
+            "Cited source classes/types: organizational_knowledge:note",
+        ):
+            self.assertIn(expected, debug)
+        self.assertNotIn("Rejected statement:", debug)
+        self.assertNotIn("PRIVATE first claim", debug)
+        self.assertNotIn("PRIVATE second claim", debug)
+        with self.Session() as db:
+            generation = db.query(OpportunityKnowledgeBriefGeneration).order_by(
+                OpportunityKnowledgeBriefGeneration.id.desc()
+            ).first()
+            self.assertEqual(generation.status, "failed")
+            self.assertIsNone(generation.output_json)
+            self.assertEqual(len(generation.statements), 0)
 
     def test_schema_debug_is_opt_in_safe_and_not_persisted(self):
         schema_debug = {
