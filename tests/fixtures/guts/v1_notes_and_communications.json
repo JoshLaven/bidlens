@@ -1,0 +1,119 @@
+{
+  "fixture_version": 1,
+  "case": "notes_and_communications",
+  "generation": {
+    "prompt_version": "guts-v8",
+    "manifest_version": "guts-manifest-v1",
+    "output_schema_version": "guts-output-v1",
+    "provider": "openai",
+    "model": "synthetic-v1-model",
+    "reproducibility_status": "fully_reproducible",
+    "manifest_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "current_state_snapshot": {
+    "title": "Synthetic Health Research Services",
+    "response_deadline": "2026-10-01",
+    "source_stage": "shortlisted"
+  },
+  "sources": [
+    {
+      "source_id": "current_state:opportunity:fixture:source_stage",
+      "source_class": "current_state",
+      "source_type": "opportunity_field",
+      "authority": "authoritative_current",
+      "citation_label": "Current opportunity stage"
+    },
+    {
+      "source_id": "current_state:opportunity:fixture:response_deadline",
+      "source_class": "current_state",
+      "source_type": "opportunity_field",
+      "authority": "authoritative_current",
+      "citation_label": "Current response deadline"
+    },
+    {
+      "source_id": "official:fixture-301",
+      "source_class": "official_evidence",
+      "source_type": "solicitation_document",
+      "authority": "official_source",
+      "citation_label": "Synthetic amendment",
+      "effective_at": "2026-08-01T00:00:00+00:00"
+    },
+    {
+      "source_id": "opportunity_note:fixture-401",
+      "source_class": "organizational_knowledge",
+      "source_type": "note",
+      "authority": "attributed_claim",
+      "citation_label": "Note by Casey Nguyen",
+      "author_display_name": "Casey Nguyen",
+      "author_address": "casey@example.test",
+      "occurred_at": "2026-08-03T14:00:00+00:00"
+    },
+    {
+      "source_id": "communication:fixture-402",
+      "source_class": "organizational_knowledge",
+      "source_type": "email",
+      "authority": "attributed_claim",
+      "citation_label": "Communication from Riley Smith",
+      "author_display_name": "Riley Smith",
+      "author_address": "riley@example.test",
+      "occurred_at": "2026-08-04T17:45:00+00:00"
+    }
+  ],
+  "statements": [
+    {
+      "statement_key": "headline",
+      "placement_type": "headline",
+      "section_type": null,
+      "section_title": null,
+      "position": 0,
+      "text": "The opportunity remains shortlisted.",
+      "importance": "high",
+      "confidence": "supported",
+      "source_ids": ["current_state:opportunity:fixture:source_stage"]
+    },
+    {
+      "statement_key": "summary-1",
+      "placement_type": "summary",
+      "section_type": null,
+      "section_title": null,
+      "position": 0,
+      "text": "Responses are due October 1, 2026.",
+      "importance": "high",
+      "confidence": "supported",
+      "source_ids": ["current_state:opportunity:fixture:response_deadline"]
+    },
+    {
+      "statement_key": "official-1",
+      "placement_type": "section",
+      "section_type": "official_updates",
+      "section_title": "Official Updates",
+      "position": 0,
+      "text": "A synthetic amendment clarified the submission format.",
+      "importance": "normal",
+      "confidence": "supported",
+      "source_ids": ["official:fixture-301"]
+    },
+    {
+      "statement_key": "org-note-1",
+      "placement_type": "section",
+      "section_type": "organizational_knowledge",
+      "section_title": "Organizational Knowledge",
+      "position": 0,
+      "text": "Casey Nguyen identified relevant prior research experience.",
+      "importance": "high",
+      "confidence": "attributed",
+      "source_ids": ["opportunity_note:fixture-401"]
+    },
+    {
+      "statement_key": "org-email-1",
+      "placement_type": "section",
+      "section_type": "organizational_knowledge",
+      "section_title": "Organizational Knowledge",
+      "position": 1,
+      "text": "Riley Smith suggested involving the synthetic analytics group.",
+      "importance": "normal",
+      "confidence": "attributed",
+      "source_ids": ["communication:fixture-402"]
+    }
+  ]
+}

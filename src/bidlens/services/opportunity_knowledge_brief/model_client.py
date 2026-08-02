@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import logging
+import re
 from time import perf_counter
 from typing import Any, Protocol
 
@@ -12,9 +13,9 @@ from pydantic import ValidationError
 
 from ... import config
 from .contracts import GUTSManifest, ModelBriefingOutput, ValidatedBriefingOutput
-from .output_schema import guts_output_schema
+from .output_schema import guts_output_schema, model_probe_output_schema
 from .output_validation import GUTSOutputValidator, GUTSValidationError
-from .prompt import PROMPT_VERSION, SYSTEM_INSTRUCTIONS, manifest_input
+from .prompt import GUTSPromptConfigurationError, manifest_input, resolve_prompt
 
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ _ATTRIBUTION_FEEDBACK_PREFIX = "attribution_v1:"
 _MAX_CITATION_FEEDBACK_CHARACTERS = 16_000
 SAFE_RETRY_FEEDBACK = frozenset({
     "Use statement_key 'headline' for the headline.",
+    "The headline must use the exact reserved statement_key 'headline'; no alternate, shortened, numbered, or generated key is allowed.",
     "Use high importance for the headline.",
     "Return at least one summary statement.",
     "Return fewer summary statements and sections.",
@@ -52,6 +54,288 @@ SAFE_RETRY_FEEDBACK = frozenset({
     "Cite the current solicitation_number source for the identifier.",
 })
 
+PROVIDER_ERROR_SUBTYPES = frozenset({
+    "model_not_found", "model_access_denied", "unsupported_parameter", "invalid_request",
+    "invalid_output_schema", "rate_limited", "quota_exceeded", "authentication_failed",
+    "provider_unavailable", "provider_timeout", "unknown_provider_error",
+})
+_SAFE_PROVIDER_CODES = frozenset({
+    "model_not_found", "model_not_available", "model_access_denied",
+    "unsupported_parameter", "unsupported_value", "invalid_parameter",
+    "invalid_json_schema", "invalid_schema", "schema_validation_error",
+    "rate_limit_exceeded", "insufficient_quota", "quota_exceeded",
+    "billing_hard_limit_reached", "invalid_api_key", "server_error",
+})
+_SAFE_PROVIDER_TYPES = frozenset({
+    "invalid_request_error", "authentication_error", "permission_error",
+    "rate_limit_error", "server_error", "not_found_error",
+})
+_SAFE_PROVIDER_PARAMS = frozenset({
+    "model", "temperature", "max_output_tokens", "text.format",
+    "text.format.schema", "response_format", "response_format.json_schema",
+})
+_SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_SAFE_SCHEMA_PATH_PART = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+_SAFE_SCHEMA_TOKEN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_CONTROLLED_ENUM_VALUES = {
+    "importance": frozenset({"high", "normal"}),
+    "confidence": frozenset({"supported", "attributed", "uncertain"}),
+    "section_type": frozenset({
+        "current_state", "official_updates", "organizational_knowledge",
+        "important_history", "uncertainties",
+    }),
+}
+
+
+def supports_temperature(model_name: str) -> bool:
+    """Return whether the configured Responses model accepts explicit temperature."""
+    normalized = model_name.strip().casefold()
+    return not (normalized == "gpt-5.5" or normalized.startswith("gpt-5.5-"))
+
+
+def build_responses_request(model_name: str, **request: Any) -> dict[str, Any]:
+    """Apply deterministic per-model request capabilities before an API call."""
+    payload = {"model": model_name, **request}
+    if supports_temperature(model_name):
+        payload["temperature"] = 0
+    return payload
+
+
+def _safe_schema_path(location: Any) -> tuple[str, str | None]:
+    parts: list[str] = []
+    field_name = None
+    if not isinstance(location, (tuple, list)):
+        return "root", None
+    for part in location[:12]:
+        if isinstance(part, int) and 0 <= part <= 9999:
+            if parts:
+                parts[-1] += f"[{part}]"
+            else:
+                parts.append(f"[{part}]")
+        elif isinstance(part, str) and _SAFE_SCHEMA_PATH_PART.fullmatch(part):
+            parts.append(part)
+            field_name = part
+        else:
+            return "unknown", None
+    return ".".join(parts)[:256] or "root", field_name
+
+
+def _safe_received_type(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, (list, tuple)):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return "unknown"
+
+
+def schema_error_diagnostic(exc: Exception, *, attempt: str) -> dict[str, Any]:
+    """Normalize one schema failure without retaining raw output or prose."""
+    diagnostic = {
+        "diagnostic_rule": "structured_output_schema", "parse_stage": "output_parse",
+        "error_class": "PydanticValidationError" if isinstance(exc, ValidationError) else type(exc).__name__,
+        "schema_error_type": "unknown_schema_error", "path": "root",
+        "expected": None, "received_type": None, "missing_field": None,
+        "unexpected_field": None, "invalid_enum_value": None,
+        "attempt": attempt, "earlier_attempt_failed": False,
+        "safe_reason": "The structured output did not match the required schema.",
+    }
+    if not isinstance(exc, ValidationError):
+        return diagnostic
+    errors = exc.errors(include_url=False, include_context=False, include_input=True)
+    if not errors:
+        return diagnostic
+    error = errors[0]
+    raw_type = error.get("type")
+    path, field_name = _safe_schema_path(error.get("loc"))
+    diagnostic["path"] = path
+    diagnostic["received_type"] = _safe_received_type(error.get("input"))
+    if raw_type == "json_invalid":
+        diagnostic.update(
+            schema_error_type="invalid_json", received_type=None,
+            safe_reason="The model output was not valid JSON.",
+        )
+    elif raw_type == "missing":
+        diagnostic.update(
+            schema_error_type="missing_required_field", expected="required field",
+            received_type=None, missing_field=field_name,
+            safe_reason="A required schema field was missing.",
+        )
+    elif raw_type == "extra_forbidden":
+        diagnostic.update(
+            schema_error_type="unexpected_field", unexpected_field=field_name,
+            safe_reason="The output contained an unexpected schema field.",
+        )
+    elif raw_type == "literal_error":
+        invalid = error.get("input")
+        allowed = _CONTROLLED_ENUM_VALUES.get(field_name or "", frozenset())
+        diagnostic.update(
+            schema_error_type="invalid_enum",
+            expected="one of: " + ", ".join(sorted(allowed)) if allowed else "controlled enum value",
+            invalid_enum_value=(
+                invalid if isinstance(invalid, str) and _SAFE_SCHEMA_TOKEN.fullmatch(invalid) else None
+            ),
+            safe_reason="A controlled enum field contained an invalid value.",
+        )
+    elif raw_type in {"model_type", "dict_type", "mapping_type"}:
+        diagnostic.update(
+            schema_error_type="invalid_object_shape", expected="object",
+            safe_reason="A schema object had the wrong shape.",
+        )
+    elif raw_type in {"list_type", "tuple_type", "set_type"}:
+        diagnostic.update(
+            schema_error_type="invalid_array_shape", expected="array",
+            safe_reason="A schema array had the wrong shape.",
+        )
+    elif raw_type in {
+        "string_type", "int_type", "float_type", "bool_type", "none_required",
+    }:
+        expected = {
+            "string_type": "string", "int_type": "integer", "float_type": "number",
+            "bool_type": "boolean", "none_required": "null",
+        }[raw_type]
+        diagnostic.update(
+            schema_error_type="wrong_type", expected=expected,
+            safe_reason="A schema field had the wrong type.",
+        )
+    return diagnostic
+
+
+def headline_key_diagnostic(exc: GUTSValidationError, *, attempt: str) -> dict[str, Any] | None:
+    if exc.validator_rule != "headline_key":
+        return None
+    received = exc.statement_key
+    safe_received = (
+        received
+        if isinstance(received, str) and _SAFE_SCHEMA_TOKEN.fullmatch(received)
+        else None
+    )
+    return {
+        "diagnostic_rule": "headline_key", "parse_stage": "output_validation",
+        "error_class": "GUTSValidationError", "schema_error_type": "invalid_enum",
+        "path": "headline.statement_key", "expected": "headline",
+        "received_type": "string" if isinstance(received, str) else "unknown",
+        "missing_field": None, "unexpected_field": None,
+        "invalid_enum_value": safe_received, "received_key": safe_received,
+        "required_key": "headline", "attempt": attempt,
+        "earlier_attempt_failed": False,
+        "safe_reason": "The headline used an invalid reserved statement key.",
+    }
+
+
+@dataclass(frozen=True)
+class ProviderErrorDiagnostic:
+    provider: str
+    model: str
+    subtype: str
+    http_status: int | None
+    provider_code: str | None
+    provider_type: str | None
+    parameter: str | None
+    request_id: str | None
+    retryable: bool
+    safe_explanation: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "subtype": self.subtype,
+            "http_status": self.http_status,
+            "provider_code": self.provider_code,
+            "provider_type": self.provider_type,
+            "parameter": self.parameter,
+            "request_id": self.request_id,
+            "retryable": self.retryable,
+            "safe_explanation": self.safe_explanation,
+        }
+
+
+_PROVIDER_EXPLANATIONS = {
+    "model_not_found": "The configured model was not found by the provider.",
+    "model_access_denied": "The provider account does not have access to the configured model.",
+    "unsupported_parameter": "The configured model does not support a request parameter.",
+    "invalid_request": "The provider rejected the request configuration.",
+    "invalid_output_schema": "The provider rejected the structured-output schema.",
+    "rate_limited": "The provider temporarily rate limited the request.",
+    "quota_exceeded": "The provider account quota is unavailable or exhausted.",
+    "authentication_failed": "The provider rejected authentication.",
+    "provider_unavailable": "The provider was unavailable or could not be reached.",
+    "provider_timeout": "The provider request timed out.",
+    "unknown_provider_error": "The provider returned an unclassified safe error.",
+}
+
+
+def sanitize_openai_provider_error(
+    exc: Exception, *, model: str, provider: str = "openai",
+) -> ProviderErrorDiagnostic:
+    """Extract only allowlisted structured metadata from an OpenAI SDK error."""
+    class_name = type(exc).__name__
+    status = getattr(exc, "status_code", None)
+    status = status if isinstance(status, int) and 100 <= status <= 599 else None
+    raw_code = getattr(exc, "code", None)
+    code = raw_code if isinstance(raw_code, str) and raw_code in _SAFE_PROVIDER_CODES else None
+    raw_type = getattr(exc, "type", None)
+    provider_type = raw_type if isinstance(raw_type, str) and raw_type in _SAFE_PROVIDER_TYPES else None
+    raw_param = getattr(exc, "param", None)
+    parameter = raw_param if isinstance(raw_param, str) and raw_param in _SAFE_PROVIDER_PARAMS else None
+    raw_request_id = getattr(exc, "request_id", None)
+    request_id = (
+        raw_request_id
+        if isinstance(raw_request_id, str) and _SAFE_REQUEST_ID.fullmatch(raw_request_id)
+        else None
+    )
+
+    if class_name == "APITimeoutError":
+        subtype = "provider_timeout"
+    elif class_name == "AuthenticationError" or status == 401 or code == "invalid_api_key":
+        subtype = "authentication_failed"
+    elif code in {"insufficient_quota", "quota_exceeded", "billing_hard_limit_reached"}:
+        subtype = "quota_exceeded"
+    elif class_name == "RateLimitError" or status == 429:
+        subtype = "rate_limited"
+    elif code in {"model_not_found", "model_not_available"} or class_name == "NotFoundError":
+        subtype = "model_not_found"
+    elif code == "model_access_denied" or class_name == "PermissionDeniedError" or status == 403:
+        subtype = "model_access_denied"
+    elif code in {"invalid_json_schema", "invalid_schema", "schema_validation_error"} or parameter in {
+        "text.format", "text.format.schema", "response_format", "response_format.json_schema",
+    }:
+        subtype = "invalid_output_schema"
+    elif code in {"unsupported_parameter", "unsupported_value"} or (
+        code == "invalid_parameter" and parameter is not None
+    ):
+        subtype = "unsupported_parameter"
+    elif class_name in {"APIConnectionError", "InternalServerError"} or (status is not None and status >= 500):
+        subtype = "provider_unavailable"
+    elif class_name in {"BadRequestError", "UnprocessableEntityError"} or status in {400, 422}:
+        subtype = "invalid_request"
+    else:
+        subtype = "unknown_provider_error"
+
+    retryable = subtype in {"rate_limited", "provider_unavailable", "provider_timeout", "unknown_provider_error"}
+    return ProviderErrorDiagnostic(
+        provider=provider,
+        model=model,
+        subtype=subtype,
+        http_status=status,
+        provider_code=code,
+        provider_type=provider_type,
+        parameter=parameter,
+        request_id=request_id,
+        retryable=retryable,
+        safe_explanation=_PROVIDER_EXPLANATIONS[subtype],
+    )
+
 
 class GUTSModelError(RuntimeError):
     def __init__(
@@ -59,6 +343,8 @@ class GUTSModelError(RuntimeError):
         usage: dict[str, int | None] | None = None, model_ms: float = 0.0,
         stage: str = "model_call",
         validation_debug: dict[str, Any] | None = None,
+        provider_debug: dict[str, Any] | None = None,
+        schema_debug: dict[str, Any] | None = None,
     ):
         super().__init__(safe_message)
         self.safe_category = safe_category
@@ -68,6 +354,8 @@ class GUTSModelError(RuntimeError):
         self.model_ms = model_ms
         self.stage = stage
         self.validation_debug = validation_debug
+        self.provider_debug = provider_debug
+        self.schema_debug = schema_debug
 
 
 def _validation_debug(exc: GUTSValidationError) -> dict[str, Any] | None:
@@ -116,6 +404,14 @@ class GUTSValidatedGenerationResult:
     model_ms: float
     validation_retry_count: int
     first_attempt_validation_category: str | None = None
+
+
+@dataclass(frozen=True)
+class GUTSModelProbeResult:
+    success: bool
+    provider: str
+    model: str
+    diagnostic: ProviderErrorDiagnostic | None = None
 
 
 class GUTSModelClientProtocol(Protocol):
@@ -234,6 +530,13 @@ class GUTSModelClient:
     def __init__(self, *, client=None, model: str | None = None):
         self.provider = config.GUTS_AI_PROVIDER
         self.model = model or config.GUTS_AI_MODEL
+        try:
+            self.prompt = resolve_prompt(config.GUTS_PROMPT_VERSION)
+        except GUTSPromptConfigurationError as exc:
+            raise GUTSModelError(
+                exc.safe_category, exc.safe_message, retryable=False,
+                stage="configuration",
+            ) from None
         if self.provider != "openai" or not self.model or (client is None and not config.OPENAI_API_KEY):
             raise GUTSModelError(
                 "model_configuration_missing", "GUTS model generation is not configured.", retryable=False,
@@ -257,10 +560,12 @@ class GUTSModelClient:
         started = perf_counter()
         response = None
         try:
-            response = self.client.responses.create(
-                model=self.model,
-                instructions=SYSTEM_INSTRUCTIONS,
-                input=manifest_input(manifest, validation_feedback=validation_feedback),
+            request = build_responses_request(
+                self.model,
+                instructions=self.prompt.instructions,
+                input=manifest_input(
+                    manifest, prompt=self.prompt, validation_feedback=validation_feedback,
+                ),
                 text={"format": {
                     "type": "json_schema", "name": "guts_briefing",
                     "strict": True, "schema": guts_output_schema(
@@ -268,13 +573,13 @@ class GUTSModelClient:
                     ),
                 }},
                 max_output_tokens=config.GUTS_MAX_OUTPUT_TOKENS,
-                temperature=0,
                 metadata={
-                    "prompt_version": PROMPT_VERSION,
+                    "prompt_version": self.prompt.version,
                     "manifest_version": manifest.manifest_version,
                     "output_schema_version": config.GUTS_OUTPUT_SCHEMA_VERSION,
                 },
             )
+            response = self.client.responses.create(**request)
             model_ms = round((perf_counter() - started) * 1000, 2)
             usage = _usage(response)
             raw = getattr(response, "output_text", None)
@@ -286,6 +591,17 @@ class GUTSModelClient:
                 raise GUTSModelError(
                     "model_schema_invalid", "The model returned no structured briefing.", retryable=True,
                     usage=usage, model_ms=model_ms, stage="output_parse",
+                    schema_debug={
+                        "diagnostic_rule": "structured_output_schema",
+                        "parse_stage": "output_parse", "error_class": "EmptyStructuredOutput",
+                        "schema_error_type": "unknown_schema_error", "path": "root",
+                        "expected": "structured JSON object", "received_type": "empty",
+                        "missing_field": None, "unexpected_field": None,
+                        "invalid_enum_value": None,
+                        "attempt": "corrective_retry" if validation_feedback is not None else "initial",
+                        "earlier_attempt_failed": False,
+                        "safe_reason": "The model returned no structured output.",
+                    },
                 )
             try:
                 output = ModelBriefingOutput.model_validate_json(raw)
@@ -297,23 +613,34 @@ class GUTSModelClient:
                 raise GUTSModelError(
                     "model_schema_invalid", "The model returned an invalid structured briefing.", retryable=True,
                     usage=usage, model_ms=model_ms, stage="output_parse",
+                    schema_debug=schema_error_diagnostic(
+                        exc, attempt="corrective_retry" if validation_feedback is not None else "initial",
+                    ),
                 ) from exc
         except GUTSModelError:
             raise
         except Exception as exc:
             model_ms = round((perf_counter() - started) * 1000, 2)
-            name = type(exc).__name__.casefold()
-            if "timeout" in name:
-                category, message, retryable = "model_timeout", "The GUTS model request timed out.", True
-            elif "ratelimit" in name or "rate_limit" in name:
-                category, message, retryable = "model_provider_error", "The GUTS model provider is temporarily rate limited.", True
+            diagnostic = sanitize_openai_provider_error(exc, model=self.model, provider=self.provider)
+            if diagnostic.subtype == "provider_timeout":
+                category, message = "model_timeout", "The GUTS model request timed out."
+            elif diagnostic.subtype in {"rate_limited", "quota_exceeded"}:
+                category, message = "model_provider_error", "The GUTS model provider is temporarily rate limited."
             else:
-                category, message, retryable = "model_provider_error", "The GUTS model provider could not complete the request.", True
+                category, message = "model_provider_error", "The GUTS model provider could not complete the request."
             logger.warning(
-                "guts_model_call_failed provider=%s model=%s category=%s model_ms=%s retry=%s",
-                self.provider, self.model, category, model_ms, str(validation_feedback is not None).lower(),
+                "guts_model_call_failed provider=%s model=%s category=%s provider_error_subtype=%s "
+                "http_status=%s provider_code=%s provider_type=%s provider_parameter=%s "
+                "provider_request_id=%s retryable=%s model_ms=%s retry=%s",
+                self.provider, self.model, category, diagnostic.subtype, diagnostic.http_status,
+                diagnostic.provider_code, diagnostic.provider_type, diagnostic.parameter,
+                diagnostic.request_id, str(diagnostic.retryable).lower(), model_ms,
+                str(validation_feedback is not None).lower(),
             )
-            raise GUTSModelError(category, message, retryable=retryable, model_ms=model_ms) from exc
+            raise GUTSModelError(
+                category, message, retryable=diagnostic.retryable, model_ms=model_ms,
+                provider_debug=diagnostic.as_dict(),
+            ) from exc
         logger.info(
             "guts_model_call_complete provider=%s model=%s model_ms=%s input_tokens=%s output_tokens=%s retry=%s",
             self.provider, self.model, model_ms, usage["input_tokens"], usage["output_tokens"],
@@ -363,16 +690,26 @@ def generate_validated_briefing(
         second_call = model_client.retry_with_validation_feedback(manifest, feedback)
         validated = output_validator.validate(second_call.output, manifest)
     except GUTSValidationError as exc:
+        schema_debug = headline_key_diagnostic(exc, attempt="corrective_retry")
+        if schema_debug:
+            schema_debug["earlier_attempt_failed"] = first_error is not None
         raise GUTSModelError(
             exc.safe_category, exc.safe_message, retryable=False, stage=exc.stage,
             validation_debug=_validation_debug(exc),
+            schema_debug=schema_debug,
         ) from exc
     except GUTSModelError as exc:
         if exc.safe_category in {"model_schema_invalid", "model_citation_invalid", "model_output_unsafe"}:
+            schema_debug = dict(exc.schema_debug) if exc.schema_debug else None
+            if schema_debug and isinstance(first_error, GUTSModelError):
+                schema_debug["earlier_attempt_failed"] = (
+                    first_error.safe_category == "model_schema_invalid"
+                )
             raise GUTSModelError(
                 exc.safe_category, exc.safe_message, retryable=False, usage=exc.usage,
                 model_ms=exc.model_ms, stage=exc.stage,
                 validation_debug=exc.validation_debug,
+                schema_debug=schema_debug,
             ) from exc
         raise
     first_usage = first_call
@@ -395,3 +732,39 @@ def generate_validated_briefing(
         validation_retry_count=1,
         first_attempt_validation_category=first_error.safe_category,
     )
+
+
+def probe_guts_model(*, client=None, model: str | None = None) -> GUTSModelProbeResult:
+    """Make one evidence-free structured request for development compatibility checks."""
+    resolved_model = model or config.GUTS_AI_MODEL
+    provider = config.GUTS_AI_PROVIDER
+    if provider != "openai" or not resolved_model or (client is None and not config.OPENAI_API_KEY):
+        raise GUTSModelError(
+            "model_configuration_missing", "GUTS model generation is not configured.", retryable=False,
+        )
+    if client is None:
+        from openai import OpenAI
+        client = OpenAI(
+            api_key=config.OPENAI_API_KEY,
+            timeout=config.GUTS_TIMEOUT_SECONDS,
+            max_retries=config.GUTS_MAX_RETRIES,
+        )
+    try:
+        request = build_responses_request(
+            resolved_model,
+            input="Return a JSON object with ok set to true.",
+            text={"format": {
+                "type": "json_schema", "name": "guts_model_probe", "strict": True,
+                "schema": {
+                    **model_probe_output_schema(),
+                },
+            }},
+            max_output_tokens=32,
+        )
+        client.responses.create(**request)
+    except Exception as exc:
+        return GUTSModelProbeResult(
+            success=False, provider=provider, model=resolved_model,
+            diagnostic=sanitize_openai_provider_error(exc, model=resolved_model, provider=provider),
+        )
+    return GUTSModelProbeResult(success=True, provider=provider, model=resolved_model)

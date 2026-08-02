@@ -12,6 +12,7 @@ from ... import config
 from ...models import OpportunityKnowledgeBriefGeneration, User
 from .access_policy import GUTSAccessError, require_guts_generation_access
 from .compiler import GUTSCompilerError, OpportunityKnowledgeBriefCompiler
+from .prompt import GUTSPromptConfigurationError, resolve_prompt
 from .repository import (
     ActiveKnowledgeBriefGenerationError, create_pending_generation, expire_stale_generation,
     get_active_generation,
@@ -26,6 +27,8 @@ class GUTSServiceError(RuntimeError):
         self, safe_category: str, safe_message: str, *, stage: str,
         retryable: bool = False, generation_id: int | None = None,
         validation_debug: dict[str, Any] | None = None,
+        provider_debug: dict[str, Any] | None = None,
+        schema_debug: dict[str, Any] | None = None,
     ):
         super().__init__(safe_message)
         self.safe_category = safe_category
@@ -34,6 +37,8 @@ class GUTSServiceError(RuntimeError):
         self.retryable = retryable
         self.generation_id = generation_id
         self.validation_debug = validation_debug
+        self.provider_debug = provider_debug
+        self.schema_debug = schema_debug
 
 
 class OpportunityKnowledgeBriefService:
@@ -47,6 +52,12 @@ class OpportunityKnowledgeBriefService:
     ) -> OpportunityKnowledgeBriefGeneration:
         if not config.GUTS_ENABLED:
             raise GUTSServiceError("access_denied", "Get Up to Speed is not enabled.", stage="authorization")
+        try:
+            resolve_prompt(config.GUTS_PROMPT_VERSION)
+        except GUTSPromptConfigurationError as exc:
+            raise GUTSServiceError(
+                exc.safe_category, exc.safe_message, stage="configuration",
+            ) from None
         authorization_started = perf_counter()
         try:
             context = require_guts_generation_access(
@@ -91,4 +102,6 @@ class OpportunityKnowledgeBriefService:
                 exc.safe_category, exc.safe_message, stage=exc.stage,
                 retryable=exc.retryable, generation_id=generation.id,
                 validation_debug=exc.validation_debug,
+                provider_debug=exc.provider_debug,
+                schema_debug=exc.schema_debug,
             ) from None

@@ -39,6 +39,8 @@ class GUTSCompilerError(RuntimeError):
     def __init__(
         self, safe_category: str, safe_message: str, *, stage: str,
         retryable: bool = False, validation_debug: dict[str, Any] | None = None,
+        provider_debug: dict[str, Any] | None = None,
+        schema_debug: dict[str, Any] | None = None,
     ):
         super().__init__(safe_message)
         self.safe_category = safe_category
@@ -46,6 +48,8 @@ class GUTSCompilerError(RuntimeError):
         self.stage = stage
         self.retryable = retryable
         self.validation_debug = validation_debug
+        self.provider_debug = provider_debug
+        self.schema_debug = schema_debug
 
 
 def _utcnow() -> datetime:
@@ -396,6 +400,8 @@ class OpportunityKnowledgeBriefCompiler:
             return GUTSCompilerError(
                 exc.safe_category, exc.safe_message, stage=exc.stage,
                 retryable=exc.retryable, validation_debug=exc.validation_debug,
+                provider_debug=exc.provider_debug,
+                schema_debug=exc.schema_debug,
             )
         if isinstance(exc, ManifestValidationError):
             return GUTSCompilerError("manifest_validation_failed", "The briefing evidence manifest was invalid.", stage="manifest")

@@ -46,16 +46,25 @@ PROHIBITED_PATTERNS = (
     (re.compile(r"\[(?:\d+|[A-Za-z][^\]]*)\]"), "citation_markup"),
     (re.compile(r"\b(?:current_state|source_material|external_document|opportunity_note|communication|opportunity_update|opportunity_history):", re.I), "source_id_in_prose"),
 )
-ATTRIBUTION_VERBS = (
+REPORTING_AND_PLANNING_ATTRIBUTION_VERBS = (
     r"suggest(?:s|ed)?|propos(?:e|es|ed)|not(?:e|es|ed)|sa(?:y|ys|id)|stat(?:e|es|ed)|"
     r"mention(?:s|ed)?|indicat(?:e|es|ed)|discuss(?:es|ed)?|consider(?:s|ed)?|"
-    r"rais(?:e|es|ed)|identif(?:y|ies|ied)|recommend(?:s|ed)?|believ(?:e|es|ed)|"
-    r"expect(?:s|ed)?|report(?:s|ed)?|observ(?:e|es|ed)|describ(?:e|es|ed)|"
+    r"rais(?:e|es|ed)|identif(?:y|ies|ied)|recommend(?:s|ed)?|"
+    r"report(?:s|ed)?|"
     r"express(?:es|ed)?|ask(?:s|ed)?|plan(?:s|ned)?|intend(?:s|ed)?"
 )
+EVALUATIVE_ATTRIBUTION_VERBS = (
+    r"assess(?:es|ed)?|view(?:s|ed)?|consider(?:s|ed)?|believ(?:e|es|ed)|"
+    r"observ(?:e|es|ed)|characteriz(?:e|es|ed)|describ(?:e|es|ed)|"
+    r"conclud(?:e|es|ed)|expect(?:s|ed)?"
+)
+ATTRIBUTION_VERBS = (
+    rf"(?:{REPORTING_AND_PLANNING_ATTRIBUTION_VERBS}|{EVALUATIVE_ATTRIBUTION_VERBS})"
+)
+ACTOR_ATTRIBUTION_MODIFIER = r"(?:initially\s+)?"
 ACTOR_ATTRIBUTION = re.compile(
     rf"\b[A-Z][\w'’-]*(?:\s+[A-Z][\w'’-]*){{0,4}}\s+"
-    rf"(?:has\s+|had\s+)?(?:{ATTRIBUTION_VERBS})\b",
+    rf"(?:has\s+|had\s+)?{ACTOR_ATTRIBUTION_MODIFIER}(?:{ATTRIBUTION_VERBS})\b",
 )
 TEAM_ATTRIBUTION = re.compile(rf"\bthe\s+team\s+(?:has\s+|had\s+)?(?:{ATTRIBUTION_VERBS})\b", re.I)
 COORDINATED_ACTOR_ATTRIBUTION = re.compile(
@@ -243,7 +252,12 @@ class GUTSOutputValidator:
 
     def validate(self, output: ModelBriefingOutput, manifest: GUTSManifest) -> ValidatedBriefingOutput:
         if output.headline.statement_key != "headline":
-            self._fail("model_schema_invalid", "The headline key was invalid.", "Use statement_key 'headline' for the headline.")
+            self._fail(
+                "model_schema_invalid", "The headline key was invalid.",
+                "The headline must use the exact reserved statement_key 'headline'; no alternate, shortened, numbered, or generated key is allowed.",
+                statement_key=output.headline.statement_key,
+                statement_placement="headline", validator_rule="headline_key",
+            )
         if output.headline.importance != "high":
             self._fail("model_schema_invalid", "The headline importance was invalid.", "Use high importance for the headline.")
         if not output.summary_statements:

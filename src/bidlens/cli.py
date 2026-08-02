@@ -12,6 +12,9 @@ from .models import OrganizationMembership, User
 from .services.opportunity_knowledge_brief import (
     GUTSServiceError, OpportunityKnowledgeBriefService,
 )
+from .services.opportunity_knowledge_brief.model_client import (
+    GUTSModelError, probe_guts_model,
+)
 
 
 SECTION_ORDER = (
@@ -68,6 +71,42 @@ def _render_validation_debug(output: TextIO, details: dict) -> None:
     if other_required_ids:
         _line(output, f"  Other required source IDs: {', '.join(other_required_ids)}")
     _line(output, f"  Rejected statement: {details.get('statement_text', 'Unavailable')}")
+
+
+def _render_provider_debug(output: TextIO, details: dict) -> None:
+    """Render sanitized provider metadata to this CLI stream only."""
+    _line(output, "Provider debug (development CLI only):")
+    fields = (
+        ("Provider", "provider"), ("Configured model", "model"), ("Subtype", "subtype"),
+        ("HTTP status", "http_status"), ("Provider code", "provider_code"),
+        ("Provider type", "provider_type"), ("Parameter", "parameter"),
+        ("Request ID", "request_id"), ("Retryable", "retryable"),
+        ("Safe explanation", "safe_explanation"),
+    )
+    for label, key in fields:
+        value = details.get(key)
+        if value is not None:
+            _line(output, f"  {label}: {str(value).lower() if isinstance(value, bool) else value}")
+
+
+def _render_schema_debug(output: TextIO, details: dict) -> None:
+    """Render one sanitized structured-output error to this CLI stream only."""
+    _line(output, "Schema debug (development CLI only):")
+    fields = (
+        ("Diagnostic rule", "diagnostic_rule"), ("Parse stage", "parse_stage"),
+        ("Error class", "error_class"), ("Schema error type", "schema_error_type"),
+        ("Path", "path"), ("Expected", "expected"),
+        ("Received type", "received_type"), ("Missing field", "missing_field"),
+        ("Unexpected field", "unexpected_field"),
+        ("Invalid enum value", "invalid_enum_value"), ("Attempt", "attempt"),
+        ("Received key", "received_key"), ("Required key", "required_key"),
+        ("Earlier attempt also failed", "earlier_attempt_failed"),
+        ("Safe reason", "safe_reason"),
+    )
+    for label, key in fields:
+        value = details.get(key)
+        if value is not None:
+            _line(output, f"  {label}: {str(value).lower() if isinstance(value, bool) else value}")
 
 
 def _resolve_membership(db, *, user: User, organization_id: int | None):
@@ -194,6 +233,10 @@ def _generate_guts(
             )
             if args.debug_validation and exc.validation_debug:
                 _render_validation_debug(output, exc.validation_debug)
+            if args.debug_provider and exc.provider_debug:
+                _render_provider_debug(output, exc.provider_debug)
+            if args.debug_schema and exc.schema_debug:
+                _render_schema_debug(output, exc.schema_debug)
             return status
         render_generation(generation, output=output)
         return 0
@@ -205,6 +248,20 @@ def _generate_guts(
         )
     finally:
         db.close()
+
+
+def _probe_guts(args, *, output: TextIO, probe_factory: Callable = probe_guts_model) -> int:
+    try:
+        result = probe_factory(model=args.model)
+    except GUTSModelError as exc:
+        return _failure(output, category=exc.safe_category, message=exc.safe_message, stage=exc.stage)
+    _line(output, "GUTS model probe (development CLI only)")
+    _line(output, f"Success: {str(result.success).lower()}")
+    _line(output, f"Provider: {result.provider}")
+    _line(output, f"Resolved model: {result.model}")
+    if result.diagnostic:
+        _render_provider_debug(output, result.diagnostic.as_dict())
+    return 0 if result.success else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -224,12 +281,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--debug-validation", action="store_true",
         help="Development CLI only: print the single rejected validation statement to this terminal.",
     )
+    generate.add_argument(
+        "--debug-provider", action="store_true",
+        help="Development CLI only: print sanitized provider failure metadata to this terminal.",
+    )
+    generate.add_argument(
+        "--debug-schema", action="store_true",
+        help="Development CLI only: print sanitized final structured-output schema metadata.",
+    )
+    probe = commands.add_parser(
+        "probe-guts-model",
+        help="Development-only: make one evidence-free structured model compatibility request.",
+    )
+    probe.add_argument("--model", help="Temporary model override for this probe only.")
     return parser
 
 
 def main(
     argv: list[str] | None = None, *, session_factory: Callable = SessionLocal,
     service_factory: Callable = OpportunityKnowledgeBriefService,
+    probe_factory: Callable = probe_guts_model,
     output: TextIO = sys.stdout,
 ) -> int:
     args = build_parser().parse_args(argv)
@@ -238,6 +309,8 @@ def main(
             args, session_factory=session_factory, service_factory=service_factory,
             output=output,
         )
+    if args.command == "probe-guts-model":
+        return _probe_guts(args, output=output, probe_factory=probe_factory)
     return 2
 
 

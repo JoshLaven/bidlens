@@ -17,12 +17,17 @@ The design contract is locked. Sessions 1 through 6 are implemented. The applica
 7. [Service and route architecture](07-service-route-architecture.md)
 8. [Implementation plan](08-implementation-plan.md)
 9. [Presentation contract](09-presentation-contract.md)
+10. [Organizational knowledge contract V2](10-organizational-knowledge-contract.md)
+11. [Structured attribution V2 design](11-structured-attribution-design.md)
+12. [Structured attribution V2 lifecycle](12-attribution-lifecycle.md)
+13. [Prompt architecture](13-prompt-architecture.md)
 
 ## Locked product decisions
 
 - Accuracy outranks completeness.
 - Current state and official evidence outrank internal claims.
 - Emails and notes remain attributed.
+- Organizational knowledge validates faithful provenance, attribution, fidelity, and epistemic status; it does not certify that an attributed internal judgment is objectively correct.
 - Unsupported and causal inference are prohibited unless explicitly established.
 - Previous AI output is never evidence.
 - The briefing is shared at the opportunity level.

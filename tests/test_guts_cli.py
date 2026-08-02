@@ -198,7 +198,8 @@ class GUTSCLITests(unittest.TestCase):
 
     def run_cli(
         self, *, user_id=None, opportunity_id=None, enabled=True,
-        service_factory=None, debug_validation=False,
+        service_factory=None, debug_validation=False, debug_provider=False,
+        debug_schema=False,
     ):
         output = io.StringIO()
         argv = [
@@ -207,6 +208,10 @@ class GUTSCLITests(unittest.TestCase):
         ]
         if debug_validation:
             argv.append("--debug-validation")
+        if debug_provider:
+            argv.append("--debug-provider")
+        if debug_schema:
+            argv.append("--debug-schema")
         with patch("bidlens.cli.config.GUTS_ENABLED", enabled):
             status = main(
                 argv, session_factory=self.Session,
@@ -251,9 +256,15 @@ class GUTSCLITests(unittest.TestCase):
             self.assertIn("Category: shortlist_required", output)
 
     def test_provider_failure_prints_only_safe_metadata_and_generation_id(self):
+        provider_debug = {
+            "provider": "openai", "model": "gpt-test", "subtype": "model_not_found",
+            "http_status": 404, "provider_code": "model_not_found", "provider_type": None,
+            "parameter": "model", "request_id": "req_safe_123", "retryable": False,
+            "safe_explanation": "The configured model was not found by the provider.",
+        }
         error = GUTSModelError(
             "model_provider_error", "The GUTS model provider could not complete the request.",
-            retryable=True,
+            retryable=False, provider_debug=provider_debug,
         )
         status, output = self.run_cli(service_factory=self.factory(error=error))
         self.assertNotEqual(status, 0)
@@ -262,6 +273,22 @@ class GUTSCLITests(unittest.TestCase):
         self.assertIn("Generation ID:", output)
         self.assertNotIn("PRIVATE SOURCE BODY", output)
         self.assertNotIn("PRIVATE-NOTE-CONTENT", output)
+        self.assertNotIn("Provider debug", output)
+        status, output = self.run_cli(
+            service_factory=self.factory(error=error), debug_provider=True,
+        )
+        self.assertNotEqual(status, 0)
+        self.assertIn("Provider debug (development CLI only)", output)
+        self.assertIn("Subtype: model_not_found", output)
+        self.assertIn("Configured model: gpt-test", output)
+        self.assertNotIn("PRIVATE SOURCE BODY", output)
+        with self.Session() as db:
+            generation = db.query(OpportunityKnowledgeBriefGeneration).order_by(
+                OpportunityKnowledgeBriefGeneration.id.desc()
+            ).first()
+            self.assertEqual(generation.status, "failed")
+            self.assertIsNone(generation.output_json)
+            self.assertNotIn("provider_debug", str(generation.safe_error_message))
 
     def test_validation_debug_disabled_does_not_print_rejected_prose(self):
         client = InvalidAttributionModelClient(self.opportunity_id, self.note_id)
@@ -270,6 +297,47 @@ class GUTSCLITests(unittest.TestCase):
         self.assertIn("An attributed claim did not preserve attribution.", output)
         self.assertNotIn("PRIVATE REJECTED PROSE", output)
         self.assertNotIn("Validation debug", output)
+
+    def test_schema_debug_is_opt_in_safe_and_not_persisted(self):
+        schema_debug = {
+            "diagnostic_rule": "structured_output_schema", "parse_stage": "output_parse",
+            "error_class": "PydanticValidationError", "schema_error_type": "invalid_enum",
+            "path": "sections[1].statements[0].confidence",
+            "expected": "one of: attributed, supported, uncertain", "received_type": "string",
+            "missing_field": None, "unexpected_field": None, "invalid_enum_value": "certain",
+            "received_key": "org_1", "required_key": "headline",
+            "attempt": "corrective_retry", "earlier_attempt_failed": True,
+            "safe_reason": "A controlled enum field contained an invalid value.",
+        }
+        error = GUTSModelError(
+            "model_schema_invalid", "The model returned an invalid structured briefing.",
+            retryable=False, stage="output_parse", schema_debug=schema_debug,
+        )
+        status, output = self.run_cli(service_factory=self.factory(error=error))
+        self.assertNotEqual(status, 0)
+        self.assertNotIn("Schema debug", output)
+        status, output = self.run_cli(
+            service_factory=self.factory(error=error), debug_schema=True,
+        )
+        self.assertNotEqual(status, 0)
+        for expected in (
+            "Schema debug (development CLI only)",
+            "Diagnostic rule: structured_output_schema", "Parse stage: output_parse",
+            "Schema error type: invalid_enum",
+            "Path: sections[1].statements[0].confidence", "Invalid enum value: certain",
+            "Received key: org_1", "Required key: headline",
+            "Attempt: corrective_retry", "Earlier attempt also failed: true",
+        ):
+            self.assertIn(expected, output)
+        for excluded in ("PRIVATE SOURCE BODY", "PRIVATE-NOTE-CONTENT", "IGNORE INSTRUCTIONS"):
+            self.assertNotIn(excluded, output)
+        with self.Session() as db:
+            generation = db.query(OpportunityKnowledgeBriefGeneration).order_by(
+                OpportunityKnowledgeBriefGeneration.id.desc()
+            ).first()
+            self.assertEqual(generation.status, "failed")
+            self.assertIsNone(generation.output_json)
+            self.assertEqual(len(generation.statements), 0)
 
     def test_validation_debug_prints_only_rejected_statement_and_is_not_persisted(self):
         client = InvalidAttributionModelClient(self.opportunity_id, self.note_id)

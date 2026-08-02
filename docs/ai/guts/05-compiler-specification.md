@@ -11,10 +11,12 @@
 5. Deduplicate exact content, detect structured conflicts, apply the final total budget, and order sources.
 6. Build, validate, version, canonically serialize, and SHA-256 hash the input manifest using the completed Session 4 services.
 7. Make one structured model request, with at most one corrective validation retry inside the same attempt.
-8. Validate schema, citation resolution, attribution, and safety.
+8. Validate schema, citation resolution, attribution, epistemic-status preservation, and safety. Current and official claims use strict factual grounding. Organizational claims use provenance and faithful-attribution rules without certifying the underlying internal judgment as objectively correct.
 9. Atomically save sources, statements, citation links, validated output, usage, and timings.
 
 The source snapshot begins after the pending attempt transitions to running and completes after the bounded collectors finish. Manifest metadata is committed before the model call. No transaction remains open across source retrieval, parsing, the model request, or the corrective retry.
+
+The V2 structured-attribution design will add actor/source correspondence validation for new attributed output while retaining this lifecycle and all current/official grounding. Historical V1 generations remain compatible; see [Structured Attribution V2 Design](11-structured-attribution-design.md).
 
 ## Minimum evidence
 

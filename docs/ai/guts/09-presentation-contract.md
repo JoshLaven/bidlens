@@ -50,7 +50,7 @@ Every section should prioritize brevity over completeness.
 
 Internal discussions belong to people.
 
-When organizational knowledge originates from notes or communications, preserve that attribution whenever practical.
+When organizational knowledge originates from notes or communications, preserve its actor or explicit internal-source framing. The presentation must not turn attributed judgment into objective fact or broader organizational consensus.
 
 Prefer:
 
@@ -122,7 +122,11 @@ Examples:
 - Staffing suggestions
 - Partner conversations
 
-Maintain attribution whenever possible.
+Maintain attribution.
+
+Internal Activity presents faithful organizational memory. BidLens does not certify that an attributed recommendation, concern, opinion, assessment, or plan is objectively correct; it preserves who communicated the represented idea and its epistemic status.
+
+Under the V2 design, presentation continues rendering canonical prose unchanged and may carry structured attribution for authorized future drill-down. It must also support historical V1 statements with no attribution metadata. See [Structured Attribution V2 Design](11-structured-attribution-design.md).
 
 **Maximum:** Three concise bullets.
 

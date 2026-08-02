@@ -4,6 +4,8 @@ import logging
 import unittest
 from types import SimpleNamespace
 
+import httpx
+import openai
 from pydantic import ValidationError
 
 from bidlens import config
@@ -14,7 +16,7 @@ from bidlens.services.opportunity_knowledge_brief.contracts import (
 )
 from bidlens.services.opportunity_knowledge_brief.model_client import (
     GUTSModelCallResult, GUTSModelClient, GUTSModelError,
-    generate_validated_briefing,
+    generate_validated_briefing, supports_temperature,
 )
 from bidlens.services.opportunity_knowledge_brief.output_schema import guts_output_schema
 from bidlens.services.opportunity_knowledge_brief.output_validation import GUTSOutputValidator, GUTSValidationError, _source_map
@@ -238,6 +240,10 @@ class PromptAndSchemaTests(unittest.TestCase):
         allowed = ("source:one", "source:two")
         constrained = guts_output_schema(allowed_source_ids=allowed)
         self.assertEqual(
+            constrained["properties"]["headline"]["properties"]["statement_key"]["enum"],
+            ["headline"],
+        )
+        self.assertEqual(
             constrained["properties"]["headline"]["properties"]["source_ids"]["items"]["enum"],
             list(allowed),
         )
@@ -280,6 +286,23 @@ class ValidatorTests(unittest.TestCase):
         ])
         self.assertEqual(validated.briefing.summary[0].placement_type, "summary")
 
+    def test_headline_key_is_reserved_and_application_validator_remains_strict(self):
+        self.validator.validate(valid_output(), self.manifest)
+        expected_feedback = (
+            "The headline must use the exact reserved statement_key 'headline'; "
+            "no alternate, shortened, numbered, or generated key is allowed."
+        )
+        for key in ("headline_1", "summary", "org_1", "current_state_1"):
+            output = valid_output().model_copy(update={
+                "headline": valid_output().headline.model_copy(update={"statement_key": key}),
+            })
+            with self.subTest(key=key), self.assertRaises(GUTSValidationError) as captured:
+                self.validator.validate(output, self.manifest)
+            error = captured.exception
+            self.assertEqual(error.validator_rule, "headline_key")
+            self.assertEqual(error.statement_key, key)
+            self.assertEqual(error.feedback, expected_feedback)
+
     def test_valid_supported_attributed_historical_uncertain_and_multiple_sources(self):
         validated = self.validator.validate(valid_output(), self.manifest)
         self.assertEqual(validated.briefing.sections[0].statements[0].source_ids, ("official:1", field("response_deadline").source_id))
@@ -305,6 +328,43 @@ class ValidatorTests(unittest.TestCase):
             })
             with self.subTest(text=text):
                 self.validator.validate(output, self.manifest)
+
+    def test_generation_25_named_actor_evaluations_preserve_attribution(self):
+        valid_phrases = (
+            "Josh Laven initially assessed the opportunity as squarely in the organization’s wheelhouse, while noting he had not yet dug into the evaluation requirements.",
+            "Josh assessed the opportunity as a strong fit.",
+            "Josh viewed the requirement as manageable.",
+            "Josh believed the team had relevant experience.",
+            "Josh observed that the evaluation requirements were unusually rigorous.",
+        )
+        for index, text in enumerate(valid_phrases):
+            output = valid_output().model_copy(update={
+                "summary_statements": (
+                    statement(f"evaluation-{index}", text, "attributed", ["email:1"]),
+                ),
+                "sections": (),
+            })
+            with self.subTest(text=text):
+                self.validator.validate(output, self.manifest)
+
+    def test_evaluative_attribution_does_not_allow_anonymous_or_single_source_consensus(self):
+        invalid_phrases = (
+            "The opportunity is squarely in the organization’s wheelhouse.",
+            "The organization views this as a strong fit.",
+            "The team concluded this is worth pursuing.",
+            "This is a strong opportunity for the organization.",
+            "The organization has sufficient experience.",
+        )
+        for index, text in enumerate(invalid_phrases):
+            output = valid_output().model_copy(update={
+                "summary_statements": (
+                    statement(f"unsupported-evaluation-{index}", text, "attributed", ["email:1"]),
+                ),
+                "sections": (),
+            })
+            with self.subTest(text=text), self.assertRaises(GUTSValidationError) as captured:
+                self.validator.validate(output, self.manifest)
+            self.assertEqual(captured.exception.validator_rule, "attribution_preservation")
 
     def test_generation_15_generalized_plan_language_remains_rejected(self):
         invalid_phrases = (
@@ -891,6 +951,37 @@ def call_result(output, tokens=(10, 5, 15), model_ms=2.0):
 
 
 class RetryAndProviderTests(unittest.TestCase):
+    def test_headline_key_failure_gets_exact_safe_feedback_and_one_retry(self):
+        invalid = valid_output().model_copy(update={
+            "headline": valid_output().headline.model_copy(update={"statement_key": "headline_1"}),
+        })
+        client = FakeModelClient(call_result(invalid), call_result(valid_output()))
+        result = generate_validated_briefing(manifest(), client=client)
+        self.assertEqual(result.validation_retry_count, 1)
+        self.assertEqual(len(client.calls), 2)
+        feedback = client.calls[1][1]
+        self.assertEqual(feedback, (
+            "The headline must use the exact reserved statement_key 'headline'; "
+            "no alternate, shortened, numbered, or generated key is allowed."
+        ))
+        self.assertNotIn("Evaluation services remain active", feedback)
+
+    def test_final_headline_key_failure_has_only_safe_key_diagnostic(self):
+        invalid = valid_output().model_copy(update={
+            "headline": valid_output().headline.model_copy(update={"statement_key": "org_1"}),
+        })
+        client = FakeModelClient(call_result(invalid), call_result(invalid))
+        with self.assertRaises(GUTSModelError) as captured:
+            generate_validated_briefing(manifest(), client=client)
+        self.assertEqual(len(client.calls), 2)
+        diagnostic = captured.exception.schema_debug
+        self.assertEqual(diagnostic["diagnostic_rule"], "headline_key")
+        self.assertEqual(diagnostic["received_key"], "org_1")
+        self.assertEqual(diagnostic["required_key"], "headline")
+        self.assertEqual(diagnostic["attempt"], "corrective_retry")
+        self.assertTrue(diagnostic["earlier_attempt_failed"])
+        self.assertNotIn("Evaluation services remain active", str(diagnostic))
+
     def test_invalid_first_valid_second_retries_once_and_aggregates_usage(self):
         invalid = valid_output().model_copy(update={
             "headline": valid_output().headline.model_copy(update={"source_ids": ("missing",)})
@@ -1110,12 +1201,37 @@ class RetryAndProviderTests(unittest.TestCase):
         enum = self.request["text"]["format"]["schema"]["properties"]["headline"]["properties"]["source_ids"]["items"]["enum"]
         self.assertEqual(enum, list(manifest().allowed_source_ids()))
 
+    def test_gpt_5_5_omits_temperature_without_changing_generation_request(self):
+        calls = []
+        response = SimpleNamespace(
+            output_text=valid_output().model_dump_json(), usage=SimpleNamespace(
+                input_tokens=11, output_tokens=7, total_tokens=18,
+            ),
+        )
+        api = SimpleNamespace(responses=SimpleNamespace(
+            create=lambda **kwargs: calls.append(kwargs) or response,
+        ))
+        GUTSModelClient(client=api, model="gpt-5.5").generate(manifest())
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("temperature", calls[0])
+        for field in (
+            "model", "instructions", "input", "text", "max_output_tokens", "metadata",
+        ):
+            self.assertIn(field, calls[0])
+        self.assertEqual(calls[0]["model"], "gpt-5.5")
+        self.assertFalse(supports_temperature("gpt-5.5"))
+        self.assertFalse(supports_temperature("gpt-5.5-2026-08-01"))
+        self.assertTrue(supports_temperature("gpt-4o-mini"))
+
     def test_provider_errors_empty_and_malformed_are_safe_and_not_logged(self):
-        class TimeoutFailure(Exception): pass
-        class RateLimitFailure(Exception): pass
+        request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+        response = httpx.Response(429, request=request)
         for response_or_error, category in (
-            (TimeoutFailure("PRIVATE MANIFEST"), "model_timeout"),
-            (RateLimitFailure("PRIVATE MANIFEST"), "model_provider_error"),
+            (openai.APITimeoutError(request=request), "model_timeout"),
+            (openai.RateLimitError(
+                "PRIVATE MANIFEST", response=response,
+                body={"code": "rate_limit_exceeded", "message": "PRIVATE MANIFEST"},
+            ), "model_provider_error"),
             (SimpleNamespace(output_text="", usage=None), "model_schema_invalid"),
             (SimpleNamespace(output_text="{bad", usage=None), "model_schema_invalid"),
         ):
@@ -1128,6 +1244,26 @@ class RetryAndProviderTests(unittest.TestCase):
                     GUTSModelClient(client=api).generate(manifest())
             self.assertEqual(error.exception.safe_category, category)
             self.assertNotIn("PRIVATE MANIFEST", "\n".join(captured.output))
+
+    def test_schema_failure_retries_once_and_retains_only_final_safe_diagnostic(self):
+        calls = []
+        private_raw = '{"summary_statements":[],"sections":[],"private":"PRIVATE PROSE"}'
+
+        def create(**kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(output_text=private_raw, usage=None)
+
+        api = SimpleNamespace(responses=SimpleNamespace(create=create))
+        with self.assertRaises(GUTSModelError) as captured:
+            generate_validated_briefing(manifest(), client=GUTSModelClient(client=api))
+        self.assertEqual(len(calls), 2)
+        error = captured.exception
+        self.assertEqual(error.safe_category, "model_schema_invalid")
+        self.assertEqual(error.schema_debug["attempt"], "corrective_retry")
+        self.assertTrue(error.schema_debug["earlier_attempt_failed"])
+        self.assertEqual(error.schema_debug["schema_error_type"], "missing_required_field")
+        self.assertEqual(error.schema_debug["path"], "headline")
+        self.assertNotIn("PRIVATE PROSE", str(error.schema_debug))
 
 
 if __name__ == "__main__":

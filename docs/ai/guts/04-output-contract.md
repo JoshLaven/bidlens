@@ -28,6 +28,7 @@ Sections are limited to current state, official updates, organizational knowledg
 - Every citation resolves to an included source.
 - Output contains no uncited prose.
 - Internal claims remain attributed.
+- Organizational claims preserve provenance, actor or explicit source framing, material meaning, and epistemic status. BidLens validates the faithful attributed representation, not whether the speaker's opinion or assessment is objectively correct.
 - Unsupported or unsafe output fails validation and is not stored as canonical output.
 
 Warnings may report missing sources, partial generation, conflicts, truncation, or incomplete reproducibility.
@@ -40,6 +41,8 @@ Citation compatibility:
 
 - `supported` requires current-state or official evidence.
 - `attributed` requires organizational evidence and attribution-preserving language.
+- The V1 runtime currently recognizes attribution through deterministic prose patterns. The V2 organizational-knowledge direction is structured attribution verified against cited source-author metadata; see [GUTS Organizational Knowledge Contract V2](10-organizational-knowledge-contract.md).
+- The locked V2 shape, validation matrix, persistence compatibility, and versioning plan are defined in [Structured Attribution V2 Design](11-structured-attribution-design.md). Phase B will require structured attribution on new attributed output while preserving historical V1 prose-only generations.
 - `uncertain` requires an involved known-conflict source or evidence explicitly expressing uncertainty.
 - Current State uses current/official citations.
 - Official Updates uses official or material historical citations.
