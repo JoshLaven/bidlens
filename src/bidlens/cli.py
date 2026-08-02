@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 from typing import Callable, TextIO
+
+from sqlalchemy import inspect, text
 
 from . import config
 from .database import SessionLocal
-from .models import OrganizationMembership, User
+from .models import OpportunityKnowledgeBriefGeneration, OrganizationMembership, User
 from .services.opportunity_knowledge_brief import (
     GUTSServiceError, OpportunityKnowledgeBriefService,
 )
@@ -22,10 +25,117 @@ SECTION_ORDER = (
     "important_history", "uncertainties",
 )
 PLACEMENT_ORDER = {"headline": 0, "summary": 1, "section": 2}
+GUTS_GENERATION_TABLE = OpportunityKnowledgeBriefGeneration.__tablename__
+_BIDLENS_IDENTITY_TABLES = frozenset({"alembic_version", "opportunities", "users"})
 
 
 def _line(output: TextIO, value: str = "") -> None:
     print(value, file=output)
+
+
+def _database_identity(bind) -> dict[str, object]:
+    """Return a credential-free identity for the session's actual database bind."""
+    url = getattr(bind, "url", None)
+    if url is None:
+        return {"backend": "other", "host": None, "port": None, "database": None}
+    backend = str(url.get_backend_name() or "other").lower()
+    if backend == "sqlite":
+        database = url.database or ":memory:"
+        if database != ":memory:":
+            database = Path(database).name
+        return {"backend": "sqlite", "host": None, "port": None, "database": database}
+    if backend == "postgresql":
+        return {
+            "backend": "postgresql", "host": url.host,
+            "port": url.port or 5432, "database": url.database,
+        }
+    return {
+        "backend": "other", "host": url.host,
+        "port": url.port, "database": url.database,
+    }
+
+
+def _safe_scalar(value: object, *, limit: int = 80) -> str:
+    rendered = str(value or "unknown").replace("\n", " ").replace("\r", " ")
+    return rendered[:limit]
+
+
+def _database_preflight(
+    *, session_factory: Callable = SessionLocal, output: TextIO,
+) -> int:
+    """Print safe, read-only database identity and GUTS lifecycle metadata."""
+    db = None
+    try:
+        db = session_factory()
+        bind = db.get_bind()
+        identity = _database_identity(bind)
+        _line(output, "BidLens database preflight (read-only)")
+        _line(output, f"backend={identity['backend']}")
+        _line(output, f"host={identity['host'] or 'local'}")
+        _line(output, f"port={identity['port'] or 'default'}")
+        _line(output, f"database={identity['database'] or 'unknown'}")
+
+        if identity["backend"] not in {"sqlite", "postgresql"} or not identity["database"]:
+            _line(output, "warning=unsafe or unrecognized database configuration")
+            return 1
+        if identity["backend"] == "sqlite":
+            _line(output, "warning=SQLite is a local development database, not Railway production PostgreSQL")
+
+        connection = db.connection()
+        if identity["backend"] == "postgresql":
+            connection.execute(text("SET TRANSACTION READ ONLY"))
+        table_names = set(inspect(connection).get_table_names())
+        identifiable = bool(table_names & _BIDLENS_IDENTITY_TABLES) or GUTS_GENERATION_TABLE in table_names
+        if not identifiable:
+            _line(output, "guts_generation_table=false")
+            _line(output, "alembic_revision=unavailable")
+            _line(output, "warning=database does not appear to contain a BidLens schema")
+            return 1
+
+        revision = "unavailable"
+        if "alembic_version" in table_names:
+            revision = _safe_scalar(connection.execute(text(
+                "SELECT version_num FROM alembic_version LIMIT 1"
+            )).scalar_one_or_none())
+        _line(output, f"alembic_revision={revision}")
+
+        if GUTS_GENERATION_TABLE not in table_names:
+            _line(output, "guts_generation_table=false")
+            _line(output, "maximum_generation_id=unavailable")
+            _line(output, "warning=GUTS generation table does not exist")
+            return 0
+
+        _line(output, "guts_generation_table=true")
+        maximum_id = connection.execute(text(
+            f"SELECT MAX(id) FROM {GUTS_GENERATION_TABLE}"
+        )).scalar_one_or_none()
+        _line(output, f"maximum_generation_id={maximum_id if maximum_id is not None else 'none'}")
+        rows = connection.execute(text(
+            f"SELECT id, opportunity_id, organization_id, status, created_at "
+            f"FROM {GUTS_GENERATION_TABLE} ORDER BY id DESC LIMIT 5"
+        )).mappings().all()
+        _line(output, "recent_generations:")
+        if not rows:
+            _line(output, "  none")
+        for row in rows:
+            created_at = row["created_at"]
+            created = created_at.isoformat() if hasattr(created_at, "isoformat") else _safe_scalar(created_at)
+            _line(
+                output,
+                "  " + " ".join((
+                    f"id={row['id']}", f"opportunity_id={row['opportunity_id']}",
+                    f"organization_id={row['organization_id']}",
+                    f"status={_safe_scalar(row['status'])}", f"created_at={created}",
+                )),
+            )
+        return 0
+    except Exception:
+        _line(output, "BidLens database preflight (read-only)")
+        _line(output, "warning=database configuration is missing or the database could not be reached")
+        return 1
+    finally:
+        if db is not None:
+            db.close()
 
 
 def _failure(
@@ -294,6 +404,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Development-only: make one evidence-free structured model compatibility request.",
     )
     probe.add_argument("--model", help="Temporary model override for this probe only.")
+    commands.add_parser(
+        "database-preflight",
+        help="Read-only: identify the resolved database before GUTS production debugging.",
+    )
     return parser
 
 
@@ -311,6 +425,8 @@ def main(
         )
     if args.command == "probe-guts-model":
         return _probe_guts(args, output=output, probe_factory=probe_factory)
+    if args.command == "database-preflight":
+        return _database_preflight(session_factory=session_factory, output=output)
     return 2
 
 

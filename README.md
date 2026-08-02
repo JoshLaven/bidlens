@@ -128,6 +128,7 @@ python -m uvicorn src.bidlens.main:app --host 127.0.0.1 --port 8000
 ```
 
 `.env.railway.local` is ignored by git and should never be committed.
+It is a convenience only, not an authoritative production configuration: saved Railway public URLs can become stale after credential rotation. Obtain current values from the linked Railway service and run `python -m bidlens.cli database-preflight` before production database debugging.
 
 ## Disposable PostgreSQL Validation
 

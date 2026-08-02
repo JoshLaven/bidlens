@@ -61,3 +61,18 @@ GUTS_ENABLED=true PYTHONPATH=src .venv/bin/python -m bidlens.cli generate-guts \
 ```
 
 Use `--organization-id` when the user belongs to more than one organization. The command preserves normal opportunity authorization and the caller's personal `PURSUE` requirement. It prints persisted briefing statements, safe operational metadata, and citation labels; it never prints source bodies, manifests, prompts, provider responses, storage keys, credentials, or private URLs.
+
+## Production Database Debugging
+
+Local BidLens development uses SQLite by default. Production GUTS debugging must explicitly target the currently linked Railway PostgreSQL service; never assume a local shell, Codex session, or saved connection string points there. Railway's private and public hostnames can identify the same PostgreSQL database: deployed services normally use the private `DATABASE_URL`, while local Railway CLI commands need the current `DATABASE_PUBLIC_URL`.
+
+Before creating or diagnosing a production generation, obtain variables from the currently linked Railway service and run the read-only preflight:
+
+```bash
+railway run -s Postgres sh -c \
+  'DATABASE_URL="$DATABASE_PUBLIC_URL" PYTHONPATH=src .venv/bin/python -m bidlens.cli database-preflight'
+```
+
+Confirm the reported backend, host, database name, Alembic revision, and latest generation IDs match the intended environment. Then run `generate-guts` through the same Railway scope and `DATABASE_URL` assignment. Saved public connection strings, including `.env.railway.local`, may become stale after password rotation and must not be treated as the production source of truth.
+
+Never paste database credentials or full connection URLs into documentation, logs, Codex prompts, or chat.
