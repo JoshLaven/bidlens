@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 import unittest
 
 from pydantic import ValidationError
@@ -10,11 +11,13 @@ from bidlens.services.opportunity_knowledge_brief.contracts import (
     ModelOutputStatement, SalesforceLinkState, StatementAttribution,
 )
 from bidlens.services.opportunity_knowledge_brief.output_schema import guts_output_schema
+from bidlens.services.opportunity_knowledge_brief.model_client import _validation_feedback
 from bidlens.services.opportunity_knowledge_brief.output_validation import (
     GUTSOutputValidator, GUTSValidationError,
 )
 from bidlens.services.opportunity_knowledge_brief.prompt import (
-    GUTS_V8_SYSTEM_INSTRUCTIONS, GUTS_V9_SYSTEM_INSTRUCTIONS, resolve_prompt,
+    GUTS_V8_SYSTEM_INSTRUCTIONS, GUTS_V9_SYSTEM_INSTRUCTIONS, manifest_input,
+    resolve_prompt,
 )
 
 
@@ -150,7 +153,52 @@ class AttributionSchemaAndPromptTests(unittest.TestCase):
         self.assertEqual(v9.output_schema_version, "guts-output-v2")
         self.assertEqual(v9.instructions, GUTS_V9_SYSTEM_INSTRUCTIONS)
         self.assertIn("structured attribution", v9.instructions)
+        self.assertIn("source_attribution attached to the eligible cited", v9.instructions)
+        self.assertIn("Do not substitute another person with the same display name", v9.instructions)
         self.assertTrue(v9.instructions.startswith(GUTS_V8_SYSTEM_INSTRUCTIONS))
+
+    def test_runtime_input_attaches_exact_attribution_to_each_source(self):
+        base = manifest()
+        same_name = source(
+            "email:other-pat", "email", "A different Pat shared other context.",
+            EvidenceAuthor(display_name="Pat Lee", address="other-pat@example.test"),
+        )
+        expanded = base.model_copy(update={
+            "evidence": base.evidence.model_copy(update={
+                "sources": (*base.evidence.sources, same_name),
+            }),
+        })
+
+        payload = json.loads(manifest_input(expanded, prompt=resolve_prompt("guts-v9")))
+        contract = payload["attribution_contract"]["source_attributions"]
+        self.assertEqual(contract["email:pat"], {
+            "type": "person", "actors": [{
+                "user_id": None, "display_name": "Pat Lee", "email": "pat@example.test",
+            }],
+        })
+        self.assertEqual(contract["email:other-pat"], {
+            "type": "person", "actors": [{
+                "user_id": None, "display_name": "Pat Lee",
+                "email": "other-pat@example.test",
+            }],
+        })
+        self.assertEqual(contract["note:alex"]["actors"][0]["user_id"], 2)
+        self.assertEqual(contract["note:authorless"], {
+            "type": "internal_source", "actors": [],
+        })
+        source_rows = {
+            item["source_id"]: item
+            for item in payload["evidence"]["evidence"]["sources"]
+        }
+        self.assertEqual(source_rows["email:pat"]["source_attribution"], contract["email:pat"])
+        self.assertEqual(
+            source_rows["email:other-pat"]["source_attribution"],
+            contract["email:other-pat"],
+        )
+        self.assertNotEqual(
+            source_rows["email:pat"]["source_attribution"],
+            source_rows["email:other-pat"]["source_attribution"],
+        )
 
     def test_v2_schema_requires_strict_attribution_and_retains_existing_constraints(self):
         schema = guts_output_schema(
@@ -245,6 +293,63 @@ class AttributionValidationTests(unittest.TestCase):
         with self.assertRaises(GUTSValidationError) as raised:
             self.validator.validate(output(statement), expanded)
         self.assertEqual(raised.exception.validator_rule, "ambiguous_actor_identity")
+
+    def test_same_display_name_must_copy_actor_from_the_cited_source(self):
+        base = manifest()
+        other_pat = source(
+            "email:other-pat", "email", "A different Pat recommended another approach.",
+            EvidenceAuthor(display_name="Pat Lee", address="other-pat@example.test"),
+        )
+        expanded = base.model_copy(update={
+            "evidence": base.evidence.model_copy(update={
+                "sources": (*base.evidence.sources, other_pat),
+            }),
+        })
+        exact = organizational(
+            "Pat Lee raised a staffing concern.", ["email:pat"],
+            attribution(actor(None, "Pat Lee", "pat@example.test")),
+        )
+        self.validator.validate(output(exact), expanded)
+
+        wrong_source_actor = exact.model_copy(update={
+            "attribution": attribution(actor(
+                None, "Pat Lee", "other-pat@example.test",
+            )),
+        })
+        with self.assertRaises(GUTSValidationError) as raised:
+            self.validator.validate(output(wrong_source_actor), expanded)
+        self.assertEqual(raised.exception.validator_rule, "actor_source_mismatch")
+        feedback = _validation_feedback(raised.exception)
+        self.assertIn("Copy attribution only from source_attribution", feedback)
+        self.assertIn("cited source IDs", feedback)
+        self.assertIn("same display name", feedback)
+        self.assertNotIn("pat@example.test", feedback)
+        self.assertNotIn("other-pat@example.test", feedback)
+
+    def test_multiple_cited_sources_support_each_distinct_same_name_actor(self):
+        base = manifest()
+        other_pat = source(
+            "email:other-pat", "email", "A different Pat shared complementary context.",
+            EvidenceAuthor(display_name="Pat Lee", address="other-pat@example.test"),
+        )
+        expanded = base.model_copy(update={
+            "evidence": base.evidence.model_copy(update={
+                "sources": (*base.evidence.sources, other_pat),
+            }),
+        })
+        statement = organizational(
+            "Pat Lee and another Pat Lee shared complementary context.",
+            ["email:pat", "email:other-pat"],
+            attribution(
+                actor(None, "Pat Lee", "pat@example.test"),
+                actor(None, "Pat Lee", "other-pat@example.test"),
+            ),
+        )
+        validated = self.validator.validate(output(statement), expanded)
+        self.assertEqual(
+            validated.briefing.sections[0].statements[0].attribution,
+            statement.attribution,
+        )
 
     def test_internal_source_authorless_passes_but_resolvable_source_fails(self):
         internal = StatementAttribution(type="internal_source", actors=())

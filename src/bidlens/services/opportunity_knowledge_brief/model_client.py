@@ -579,6 +579,7 @@ def _safe_feedback(value: str) -> str:
             and payload.get("instruction") in {
                 "Name the person who made the recommendation, plan, concern, or observation; do not generalize one person's statement into organizational consensus; use concise actor-attributed wording.",
                 "Multiple communication actors contributed to this statement; split distinct ideas into separate statements, preserve each actor's attribution, and avoid anonymous passive constructions.",
+                "Copy attribution only from source_attribution attached to the cited source IDs; do not substitute another actor with the same display name.",
             }
             and payload.get("safe_example") == "A named person recommended the approach."
             and isinstance(payload.get("multiple_actors"), bool)
@@ -610,6 +611,8 @@ def _validation_feedback(exc: GUTSValidationError) -> str:
         }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     if exc.statement_key and exc.statement_confidence and exc.cited_source_kinds:
         instruction = (
+            "Copy attribution only from source_attribution attached to the cited source IDs; do not substitute another actor with the same display name."
+            if exc.validator_rule == "actor_source_mismatch" else
             "Multiple communication actors contributed to this statement; split distinct ideas into separate statements, preserve each actor's attribution, and avoid anonymous passive constructions."
             if exc.multiple_cited_actors else
             "Name the person who made the recommendation, plan, concern, or observation; do not generalize one person's statement into organizational consensus; use concise actor-attributed wording."
