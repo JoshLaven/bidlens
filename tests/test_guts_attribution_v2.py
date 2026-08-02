@@ -210,7 +210,7 @@ class AttributionSchemaAndPromptTests(unittest.TestCase):
         statement = schema["properties"]["summary_statements"]["items"]
         self.assertIn("attribution", statement["required"])
         self.assertEqual(statement["properties"]["source_ids"]["items"]["enum"], ["note:alex"])
-        self.assertEqual(schema["properties"]["headline"]["properties"]["statement_key"]["enum"], ["headline"])
+        self.assertNotIn("statement_key", schema["properties"]["headline"]["properties"])
         variants = statement["properties"]["attribution"]["anyOf"]
         self.assertEqual(variants[0], {"type": "null"})
         self.assertFalse(variants[1]["additionalProperties"])

@@ -12,15 +12,18 @@ from bidlens import config
 from bidlens.services.opportunity_knowledge_brief.contracts import (
     CurrentOpportunityState, CurrentStateField, EvidenceAuthor, EvidenceSelection,
     EvidenceSelectionStatistics, EvidenceSource, GUTSManifest, GenerationConstraints,
-    KnownConflict, ModelBriefingOutput, ModelOutputSection, ModelOutputStatement, SalesforceLinkState,
-    AttributionActor, StatementAttribution,
+    KnownConflict, ModelBriefingOutput, ModelOutputSection, ModelOutputStatement,
+    ProviderBriefingOutputV2, SalesforceLinkState, AttributionActor, StatementAttribution,
 )
 from bidlens.services.opportunity_knowledge_brief.model_client import (
     GUTSModelCallResult, GUTSModelClient, GUTSModelError,
     generate_validated_briefing, supports_temperature,
 )
 from bidlens.services.opportunity_knowledge_brief.output_schema import guts_output_schema
-from bidlens.services.opportunity_knowledge_brief.output_validation import GUTSOutputValidator, GUTSValidationError, _source_map
+from bidlens.services.opportunity_knowledge_brief.output_normalization import assign_v2_statement_keys
+from bidlens.services.opportunity_knowledge_brief.output_validation import (
+    GUTSOutputValidator, GUTSStatementKeyInvariantError, GUTSValidationError, _source_map,
+)
 from bidlens.services.opportunity_knowledge_brief.prompt import PROMPT_VERSION, SYSTEM_INSTRUCTIONS, manifest_input, resolve_prompt
 
 
@@ -160,6 +163,17 @@ def valid_output():
     )
 
 
+def provider_v2_json(output=None):
+    payload = (output or valid_output()).model_dump(mode="json")
+    payload["headline"].pop("statement_key")
+    for item in payload["summary_statements"]:
+        item.pop("statement_key")
+    for section in payload["sections"]:
+        for item in section["statements"]:
+            item.pop("statement_key")
+    return json.dumps(payload)
+
+
 class PromptAndSchemaTests(unittest.TestCase):
     def test_versioned_prompt_encodes_product_contract_without_runtime_data(self):
         self.assertEqual(resolve_prompt().version, config.GUTS_PROMPT_VERSION)
@@ -257,6 +271,54 @@ class PromptAndSchemaTests(unittest.TestCase):
             list(allowed),
         )
 
+    def test_v2_provider_schema_excludes_application_owned_statement_keys(self):
+        schema = guts_output_schema(output_schema_version="guts-output-v2")
+        statement_shapes = (
+            schema["properties"]["headline"],
+            schema["properties"]["summary_statements"]["items"],
+            schema["properties"]["sections"]["items"]["properties"]["statements"]["items"],
+        )
+        for statement_schema in statement_shapes:
+            self.assertNotIn("statement_key", statement_schema["properties"])
+            self.assertNotIn("statement_key", statement_schema["required"])
+            self.assertFalse(statement_schema["additionalProperties"])
+
+        payload = json.loads(provider_v2_json())
+        payload["summary_statements"][0]["statement_key"] = "model-owned"
+        with self.assertRaises(ValidationError):
+            ProviderBriefingOutputV2.model_validate(payload)
+
+    def test_v2_key_assignment_is_deterministic_ordered_and_text_independent(self):
+        parsed = ProviderBriefingOutputV2.model_validate_json(provider_v2_json())
+        first = assign_v2_statement_keys(parsed)
+        second = assign_v2_statement_keys(parsed)
+        self.assertEqual(first, second)
+        self.assertEqual(first.headline.statement_key, "headline")
+        self.assertEqual(
+            [item.statement_key for item in first.summary_statements], ["summary_1"],
+        )
+        section_keys = {
+            section.section_type: [item.statement_key for item in section.statements]
+            for section in first.sections
+        }
+        self.assertEqual(section_keys["important_history"], ["important_history_1"])
+        self.assertEqual(section_keys["organizational_knowledge"], ["organizational_knowledge_1"])
+        self.assertEqual(section_keys["official_updates"], ["official_updates_1"])
+        self.assertEqual(section_keys["uncertainties"], ["uncertainties_1"])
+        all_keys = [first.headline.statement_key, *(
+            statement.statement_key for statement in first.summary_statements
+        ), *(
+            statement.statement_key for section in first.sections for statement in section.statements
+        )]
+        self.assertEqual(len(all_keys), len(set(all_keys)))
+
+        changed = parsed.model_copy(update={
+            "headline": parsed.headline.model_copy(update={"text": "Different provider prose."}),
+        })
+        self.assertEqual(
+            assign_v2_statement_keys(changed).headline.statement_key, first.headline.statement_key,
+        )
+
     def test_contract_rejects_unknown_fields_and_empty_citations(self):
         payload = json.loads(valid_output().model_dump_json())
         payload["warnings"] = []
@@ -273,6 +335,20 @@ class PromptAndSchemaTests(unittest.TestCase):
 
 
 class ValidatorTests(unittest.TestCase):
+    def test_v2_key_uniqueness_remains_an_internal_defensive_invariant(self):
+        duplicate = valid_output().model_copy(update={
+            "summary_statements": (
+                valid_output().summary_statements[0].model_copy(update={"statement_key": "headline"}),
+            ),
+        })
+        with self.assertLogs(
+            "bidlens.services.opportunity_knowledge_brief.output_validation", level=logging.ERROR,
+        ) as captured, self.assertRaises(GUTSStatementKeyInvariantError) as error:
+            GUTSOutputValidator(output_schema_version="guts-output-v2").validate(duplicate, manifest())
+        self.assertEqual(error.exception.safe_category, "unexpected_error")
+        self.assertEqual(error.exception.validator_rule, "deterministic_statement_key_uniqueness")
+        self.assertNotIn("Evaluation services remain active", "\n".join(captured.output))
+
     def setUp(self):
         self.validator = GUTSOutputValidator()
         self.manifest = manifest()
@@ -1224,8 +1300,8 @@ class RetryAndProviderTests(unittest.TestCase):
             "headline": valid_output().headline.model_copy(update={"source_ids": ("deadline",)})
         })
         responses = iter((
-            SimpleNamespace(output_text=invalid.model_dump_json(), usage=None),
-            SimpleNamespace(output_text=valid_output().model_dump_json(), usage=None),
+            SimpleNamespace(output_text=provider_v2_json(invalid), usage=None),
+            SimpleNamespace(output_text=provider_v2_json(), usage=None),
         ))
         requests = []
         def create(**kwargs):
@@ -1245,7 +1321,7 @@ class RetryAndProviderTests(unittest.TestCase):
         self.assertNotIn(private_source_text, "\n".join(captured.output))
 
     def test_provider_request_configuration_usage_and_separate_manifest(self):
-        response = SimpleNamespace(output_text=valid_output().model_dump_json(), usage=SimpleNamespace(input_tokens=11, output_tokens=7, total_tokens=18))
+        response = SimpleNamespace(output_text=provider_v2_json(), usage=SimpleNamespace(input_tokens=11, output_tokens=7, total_tokens=18))
         api = SimpleNamespace(responses=SimpleNamespace(create=lambda **kwargs: setattr(self, "request", kwargs) or response))
         result = GUTSModelClient(client=api, model="configured-model").generate(manifest())
         self.assertEqual(result.total_tokens, 18)
@@ -1261,7 +1337,7 @@ class RetryAndProviderTests(unittest.TestCase):
     def test_gpt_5_5_omits_temperature_without_changing_generation_request(self):
         calls = []
         response = SimpleNamespace(
-            output_text=valid_output().model_dump_json(), usage=SimpleNamespace(
+            output_text=provider_v2_json(), usage=SimpleNamespace(
                 input_tokens=11, output_tokens=7, total_tokens=18,
             ),
         )

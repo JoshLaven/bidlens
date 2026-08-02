@@ -68,7 +68,9 @@ from .model_client import (
     GUTSModelCallResult, GUTSModelClient, GUTSModelError,
     GUTSValidatedGenerationResult, generate_validated_briefing,
 )
-from .output_validation import GUTSOutputValidator, GUTSValidationError
+from .output_validation import (
+    GUTSOutputValidator, GUTSStatementKeyInvariantError, GUTSValidationError,
+)
 from .compiler import GUTSCompilerError, OpportunityKnowledgeBriefCompiler, has_minimum_evidence
 from .service import GUTSServiceError, OpportunityKnowledgeBriefService
 
@@ -145,6 +147,7 @@ __all__ = [
     "GUTSValidatedGenerationResult",
     "generate_validated_briefing",
     "GUTSOutputValidator",
+    "GUTSStatementKeyInvariantError",
     "GUTSValidationError",
     "GUTSCompilerError",
     "OpportunityKnowledgeBriefCompiler",

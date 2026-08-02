@@ -87,7 +87,7 @@ Display name alone is not durable identity proof. It may establish only an exact
 
 ## 3. Provider Output Contract
 
-V2 adds required `attribution` to every headline, summary, and section statement in the strict provider schema. The field is required structurally and accepts either `null` or the exact attribution object above.
+V2 adds required `attribution` to every headline, summary, and section statement in the strict provider schema. The field is required structurally and accepts either `null` or the exact attribution object above. V2 provider statements do not expose `statement_key`; BidLens assigns the canonical key deterministically after provider parsing and before validation. Historical V1 keys remain unchanged.
 
 - `confidence="attributed"` requires non-null `person` or `internal_source` attribution.
 - `confidence="supported"` requires `attribution=null`.

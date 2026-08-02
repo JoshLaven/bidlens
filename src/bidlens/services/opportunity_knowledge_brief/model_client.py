@@ -12,7 +12,10 @@ from typing import Any, Protocol
 from pydantic import ValidationError
 
 from ... import config
-from .contracts import GUTSManifest, ModelBriefingOutput, ValidatedBriefingOutput
+from .contracts import (
+    GUTSManifest, ModelBriefingOutput, ProviderBriefingOutputV2, ValidatedBriefingOutput,
+)
+from .output_normalization import assign_v2_statement_keys
 from .output_schema import guts_output_schema, model_probe_output_schema
 from .output_validation import GUTSOutputValidator, GUTSValidationError
 from .prompt import GUTSPromptConfigurationError, manifest_input, resolve_prompt
@@ -713,7 +716,11 @@ class GUTSModelClient:
                     },
                 )
             try:
-                output = ModelBriefingOutput.model_validate_json(raw)
+                if self.prompt.output_schema_version == "guts-output-v2":
+                    provider_output = ProviderBriefingOutputV2.model_validate_json(raw)
+                    output = assign_v2_statement_keys(provider_output)
+                else:
+                    output = ModelBriefingOutput.model_validate_json(raw)
             except (ValidationError, ValueError, TypeError) as exc:
                 logger.warning(
                     "guts_model_call_failed provider=%s model=%s category=model_schema_invalid model_ms=%s retry=%s",

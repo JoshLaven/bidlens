@@ -1,10 +1,10 @@
 # Output Contract
 
-Canonical output is validated structured JSON. Rendering is application-controlled. The configured `GUTS_PROMPT_VERSION` defaults to `guts-v8`; this version retains the structured citation contract and preserves distinct actor provenance when multiple communications contribute different organizational ideas. Output continues to use `GUTS_OUTPUT_SCHEMA_VERSION`.
+Canonical output is validated structured JSON. Rendering is application-controlled. The configured `GUTS_PROMPT_VERSION` defaults to `guts-v9`; this version retains the structured citation contract and preserves distinct actor provenance when multiple communications contribute different organizational ideas. Output continues to use `GUTS_OUTPUT_SCHEMA_VERSION`.
 
 ## Provider output
 
-The strict provider object contains only `headline`, non-empty `summary_statements`, and `sections`. Statements contain `statement_key`, plain `text`, controlled `importance` and `confidence`, and a non-empty `source_ids` array. Sections contain only a controlled `section_type` and non-empty statements. The provider cannot return titles, placement, position, warnings, statistics, HTML, Markdown, or metadata. BidLens assigns placement, section display title, and position after validation.
+The strict provider object contains only `headline`, non-empty `summary_statements`, and `sections`. In V2, provider statements contain plain `text`, controlled `importance` and `confidence`, a non-empty `source_ids` array, and required nullable attribution; they neither accept nor generate `statement_key`. Sections contain only a controlled `section_type` and non-empty statements. Immediately after provider parsing, BidLens assigns application-owned deterministic keys from placement and one-based position (`headline`, `summary_1`, and `<section_type>_1`) before semantic validation. The provider cannot return titles, placement, position, warnings, statistics, HTML, Markdown, or metadata. Historical V1 provider and persisted keys remain unchanged.
 
 ## Statements
 
@@ -23,7 +23,7 @@ Sections are limited to current state, official updates, organizational knowledg
 
 ## Validation invariants
 
-- Source IDs and statement keys are unique within a generation.
+- Source IDs and canonical application-owned statement keys are unique within a generation.
 - Every statement has at least one citation.
 - Every citation resolves to an included source.
 - Output contains no uncited prose.
@@ -54,4 +54,4 @@ The validator rejects unknown/duplicate/missing citations, section/source mismat
 
 ## Corrective retry
 
-Exactly one corrective retry is allowed for schema, citation, atomicity, length, section, or safety validation failures. It receives the unchanged manifest and outer prompt plus one short allowlisted validator instruction. Raw output, exceptions, source text, prompts, and stack traces are never included in feedback. A second invalid result fails safely. There is no deterministic prose fallback.
+Exactly one corrective retry is allowed for schema, citation, atomicity, length, section, or safety validation failures. It receives the unchanged manifest and outer prompt plus one short allowlisted validator instruction. A V2 deterministic-key invariant failure is an internal application defect and never triggers provider retry. Raw output, exceptions, source text, prompts, and stack traces are never included in feedback. A second invalid result fails safely. There is no deterministic prose fallback.

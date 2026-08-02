@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import logging
 import re
 from typing import Iterable
 
@@ -106,6 +107,7 @@ DATE_PATTERN = re.compile(
     r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}\b",
     re.I,
 )
+logger = logging.getLogger(__name__)
 
 
 class GUTSValidationError(RuntimeError):
@@ -144,6 +146,20 @@ class GUTSValidationError(RuntimeError):
         self.allowed_source_classes = allowed_source_classes
         self.required_source_classes = required_source_classes
         self.multiple_cited_actors = multiple_cited_actors
+
+
+class GUTSStatementKeyInvariantError(RuntimeError):
+    """Application-owned V2 key assignment violated its uniqueness invariant."""
+
+    stage = "output_validation"
+    safe_category = "unexpected_error"
+    safe_message = "The briefing could not be generated."
+
+    def __init__(self, *, statement_key: str, statement_placement: str):
+        super().__init__(self.safe_message)
+        self.statement_key = statement_key
+        self.statement_placement = statement_placement
+        self.validator_rule = "deterministic_statement_key_uniqueness"
 
 
 @dataclass(frozen=True)
@@ -286,6 +302,17 @@ class GUTSOutputValidator:
         if any(not key.strip() for key in keys):
             self._fail("model_schema_invalid", "A statement key was blank.", "Return a non-blank statement_key for every statement.")
         if len(keys) != len(set(keys)):
+            if self.output_schema_version == "guts-output-v2":
+                duplicate_index = next(index for index, key in enumerate(keys) if key in keys[:index])
+                duplicate_key = keys[duplicate_index]
+                duplicate_placement = statement_contexts[duplicate_index][1]
+                logger.error(
+                    "guts_statement_key_invariant_failed validator_rule=%s placement=%s generated_key=%s",
+                    "deterministic_statement_key_uniqueness", duplicate_placement, duplicate_key,
+                )
+                raise GUTSStatementKeyInvariantError(
+                    statement_key=duplicate_key, statement_placement=duplicate_placement,
+                )
             self._fail("model_schema_invalid", "Statement keys were duplicated.", "Use a unique statement_key for every statement.")
         total_text = " ".join(statement.text for statement in statements)
         if len(total_text) > self.max_total_characters or len(total_text.split()) > 500:

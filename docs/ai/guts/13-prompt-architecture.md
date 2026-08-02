@@ -85,6 +85,8 @@ The registered definition also declares its compatible output-schema version so 
 - presentation mapping; or
 - UI rendering.
 
+For `guts-output-v2`, statement keys are not prompt content or provider output. BidLens assigns them deterministically after strict provider parsing and before semantic validation. Because `guts-v9` never instructed the model to generate keys, this application-owned normalization does not change its static prompt text or require a new prompt version. V1 provider and persisted keys retain their historical behavior.
+
 Those components retain their own explicit contracts and versions.
 
 ## Provider request elements that are not prompt prose

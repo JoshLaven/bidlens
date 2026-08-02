@@ -382,6 +382,23 @@ class ModelOutputStatement(GUTSContract):
         return value
 
 
+class ProviderOutputStatementV2(GUTSContract):
+    """Keyless statement shape returned by the V2 model provider."""
+
+    text: str
+    importance: ImportanceValue
+    confidence: ConfidenceValue
+    source_ids: tuple[str, ...]
+    attribution: StatementAttribution | None
+
+    @field_validator("source_ids")
+    @classmethod
+    def require_output_citations(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value:
+            raise ValueError("Statements require citations")
+        return value
+
+
 class ModelOutputSection(GUTSContract):
     section_type: SectionValue
     statements: tuple[ModelOutputStatement, ...]
@@ -391,6 +408,17 @@ class ModelBriefingOutput(GUTSContract):
     headline: ModelOutputStatement
     summary_statements: tuple[ModelOutputStatement, ...]
     sections: tuple[ModelOutputSection, ...]
+
+
+class ProviderOutputSectionV2(GUTSContract):
+    section_type: SectionValue
+    statements: tuple[ProviderOutputStatementV2, ...]
+
+
+class ProviderBriefingOutputV2(GUTSContract):
+    headline: ProviderOutputStatementV2
+    summary_statements: tuple[ProviderOutputStatementV2, ...]
+    sections: tuple[ProviderOutputSectionV2, ...]
 
 
 class ValidatedModelBriefing(GUTSContract):

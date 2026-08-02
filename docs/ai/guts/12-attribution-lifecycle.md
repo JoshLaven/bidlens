@@ -54,8 +54,8 @@ Opportunity Detail UI   Internal Activity statement + date + citation affordance
 | Evidence collection | Convert eligible records into canonical evidence. | Scoped records and author membership data. | `EvidenceSource` with stable ID, text, timestamp, and author snapshot. | No AI synthesis; deterministic normalization; unresolved people are not invented. | Collector code may establish source provenance and identity correspondence, but not whether the opinion is correct. |
 | Manifest | Freeze the evidence selected for one generation. | Current state and collected evidence. | Versioned, hashable manifest. | Unique source IDs; organization/workspace/opportunity scope; immutable generation-time values. | A valid manifest proves which evidence was supplied, not that untrusted content is factual. |
 | Prompt assembly | Give the model the evidence and exact output obligations. | Model-visible manifest, citation contract, output schema. | One bounded provider request. | Citable IDs are explicit; source authors remain associated with their evidence; untrusted text cannot redefine instructions. | The model receives private evidence but is never trusted to authorize, persist, or render. |
-| Structured output | Return candidate synthesis in machine-readable form. | Prompted evidence and strict provider schema. | Candidate headline, statements, citations, confidence, and V2 attribution. | Attribution is required and nullable on every statement; citations remain separate. | Schema-valid provider output is still untrusted until application validation. |
-| Compiler | Coordinate conversion into canonical application objects. | Provider output and the same manifest. | Candidate canonical briefing. | Preserve model text and declared metadata exactly; do not repair or infer identity. | Compiler orchestration does not confer semantic trust. |
+| Structured output | Return candidate synthesis in machine-readable form. | Prompted evidence and strict provider schema. | Candidate headline, statements, citations, confidence, and V2 attribution without model-generated keys. | Attribution is required and nullable on every statement; citations remain separate. | Schema-valid provider output is still untrusted until application validation. |
+| Compiler | Coordinate conversion into canonical application objects. | Provider output and the same manifest. | Candidate canonical briefing with deterministic application-owned keys. | Preserve model text and declared metadata exactly; assign keys only from placement and position; do not repair or infer identity. | Compiler orchestration does not confer semantic trust. |
 | Validator | Decide whether the candidate obeys GUTS contracts. | Candidate briefing and manifest. | Validated briefing or safe failure. | Exact citations; actor/source correspondence; epistemic fidelity; strict official grounding. | This is the application trust gate for synthesized output. |
 | Persistence | Durably record the validated generation. | Validated briefing, selected sources, citation links, generation metadata. | Append-only rows and canonical output. | Atomic write; exact validated attribution; failed output is not persisted as a successful briefing. | Persistence trusts only validator-approved canonical data. |
 | Presentation mapper | Select and format canonical statements for the product contract. | Authorized persisted generation. | Presentation view models. | No new claims, rewriting, attribution reconstruction, or source reclassification. | The mapper may organize trusted data but may not synthesize it. |
@@ -198,7 +198,6 @@ Phase B (`guts-output-v2`, prompt `guts-v9`) adds required nullable `attribution
 ```json
 {
   "headline": {
-    "statement_key": "headline",
     "text": "The opportunity remains under active organizational review.",
     "importance": "high",
     "confidence": "supported",
@@ -211,7 +210,6 @@ Phase B (`guts-output-v2`, prompt `guts-v9`) adds required nullable `attribution
       "section_type": "organizational_knowledge",
       "statements": [
         {
-          "statement_key": "organizational_knowledge-1",
           "text": "Josh Laven recommended contacting Westat as a potential subcontractor.",
           "importance": "high",
           "confidence": "attributed",
@@ -239,7 +237,7 @@ Structured attribution is necessary because prose alone cannot safely answer whe
 
 ## Stage 6 — Compiler
 
-The compiler coordinates provider invocation, conversion, validation, and persistence. For the example it converts the provider section entry into the canonical statement position and section metadata expected by the application.
+The compiler coordinates provider invocation, conversion, validation, and persistence. For the example it converts the provider section entry into the canonical statement position and section metadata expected by the application, assigning `headline` and `organizational_knowledge_1` before semantic validation.
 
 The compiler preserves:
 
@@ -321,7 +319,7 @@ The example becomes a conceptual statement row:
 ```json
 {
   "generation_id": 42,
-  "statement_key": "organizational_knowledge-1",
+  "statement_key": "organizational_knowledge_1",
   "placement_type": "section",
   "section_type": "organizational_knowledge",
   "position": 0,

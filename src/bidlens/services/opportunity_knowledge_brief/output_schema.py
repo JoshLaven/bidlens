@@ -79,7 +79,6 @@ def _statement_schema(
             # OpenAI strict Structured Outputs supports only a subset of JSON
             # Schema string constraints. Non-empty and length checks therefore
             # remain deterministic application validation concerns.
-            "statement_key": {"type": "string"},
             "text": {"type": "string"},
             "importance": {"type": "string", "enum": ["high", "normal"]},
             "confidence": {"type": "string", "enum": ["supported", "attributed", "uncertain"]},
@@ -88,7 +87,10 @@ def _statement_schema(
                 "minItems": 1, "maxItems": 20,
             },
         }
-    required = ["statement_key", "text", "importance", "confidence", "source_ids"]
+    required = ["text", "importance", "confidence", "source_ids"]
+    if output_schema_version == "guts-output-v1":
+        properties = {"statement_key": {"type": "string"}, **properties}
+        required.insert(0, "statement_key")
     if output_schema_version == "guts-output-v2":
         properties["attribution"] = _attribution_schema(allowed_actors=allowed_actors)
         required.append("attribution")
@@ -109,7 +111,8 @@ def guts_output_schema(
         allowed_actors=allowed_actors,
     )
     headline = deepcopy(statement)
-    headline["properties"]["statement_key"] = {"type": "string", "enum": ["headline"]}
+    if output_schema_version == "guts-output-v1":
+        headline["properties"]["statement_key"] = {"type": "string", "enum": ["headline"]}
     headline["properties"]["importance"] = {"type": "string", "enum": ["high"]}
     return strict_object_schema(
         properties={

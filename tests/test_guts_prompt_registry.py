@@ -51,14 +51,16 @@ class FakeResponses:
         self.requests.append(request)
         output = {
             "headline": {
-                "statement_key": "headline", "text": "The opportunity remains active.",
+                "text": "The opportunity remains active.",
                 "importance": "high", "confidence": "supported",
                 "source_ids": ["current_state:opportunity:1:source_stage"],
+                "attribution": None,
             },
             "summary_statements": [{
-                "statement_key": "summary-1", "text": "The opportunity remains active.",
+                "text": "The opportunity remains active.",
                 "importance": "normal", "confidence": "supported",
                 "source_ids": ["current_state:opportunity:1:source_stage"],
+                "attribution": None,
             }],
             "sections": [],
         }
