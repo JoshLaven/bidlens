@@ -13,8 +13,6 @@ from .constants import Importance, PlacementType, SectionType
 
 
 OVERALL_STATUS_LIMIT = 2
-RECENT_DEVELOPMENTS_LIMIT = 3
-INTERNAL_ACTIVITY_LIMIT = 3
 
 
 @dataclass(frozen=True)
@@ -211,33 +209,22 @@ def build_guts_presentation(
         if statement.placement_type == PlacementType.SECTION
         and statement.section_type == SectionType.IMPORTANT_HISTORY
     ]
-    history.sort(
-        key=lambda statement: (
-            -_source_timestamp(statement),
-            0 if statement.importance == Importance.HIGH else 1,
-            _canonical_key(statement),
-        )
-    )
+    history.sort(key=lambda statement: (-_source_timestamp(statement), _canonical_key(statement)))
     internal = [
         statement for statement in statements
         if statement.placement_type == PlacementType.SECTION
         and statement.section_type == SectionType.ORGANIZATIONAL_KNOWLEDGE
     ]
-    internal.sort(
-        key=lambda statement: (
-            0 if statement.importance == Importance.HIGH else 1,
-            _canonical_key(statement),
-        )
-    )
+    internal.sort(key=_canonical_key)
 
     return GUTSPresentation(
-        overall_status=_select_overall(statements),
+        overall_status=(),
         recent_developments=tuple(
             _present_statement(statement)
-            for statement in history[:RECENT_DEVELOPMENTS_LIMIT]
+            for statement in history
         ),
         internal_activity=tuple(
             _present_statement(statement)
-            for statement in internal[:INTERNAL_ACTIVITY_LIMIT]
+            for statement in internal
         ),
     )

@@ -59,26 +59,24 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
     def test_get_up_to_speed_replaces_the_legacy_brief_presentation(self):
         self.assertIn('class="detail-description-section guts-card"', self.template)
         self.assertIn('id="guts-heading">Get Up To Speed', self.template)
-        self.assertIn("A holistic summary of this opportunity.", self.template)
+        self.assertIn(
+            "A holistic summary of this opportunity based on the latest communications and notes.",
+            self.template,
+        )
         self.assertIn("AI Brief", self.template)
         self.assertNotIn(">Opportunity Brief<", self.template)
         self.assertNotIn(">Generate AI Brief<", self.template)
 
-    def test_get_up_to_speed_has_only_v1_orientation_sections_and_empty_states(self):
-        for heading in (
-            "Overall Status",
-            "Recent Developments",
-            "Internal Activity",
-        ):
+    def test_get_up_to_speed_prioritizes_dynamic_organizational_intelligence(self):
+        for heading in ("Internal Activity", "Recent Developments"):
             self.assertIn(heading, self.template)
-        for excluded_heading in ("Risks / Watch Items", "Suggested Next Steps"):
+        for excluded_heading in ("Overall Status", "Risks / Watch Items", "Suggested Next Steps"):
             self.assertNotIn(excluded_heading, self.template)
-        for empty_state in (
-            "No status summary is available yet.",
-            "No recent developments identified.",
-            "No recent internal activity.",
-        ):
+        for empty_state in ("No recent developments identified.", "No recent internal activity."):
             self.assertIn(empty_state, self.template)
+        self.assertLess(self.template.index("Internal Activity"), self.template.index("Recent Developments"))
+        self.assertIn('class="guts-internal-scroll"', self.template)
+        self.assertIn("guts_presentation.internal_activity|length", self.template)
 
     def test_get_up_to_speed_preserves_existing_generation_handler(self):
         self.assertEqual(self.template.count('id="generate-brief-button"'), 1)
@@ -90,7 +88,6 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
 
     def test_get_up_to_speed_renders_canonical_statements_one_to_one(self):
         for collection in (
-            "overall_status",
             "recent_developments",
             "internal_activity",
         ):

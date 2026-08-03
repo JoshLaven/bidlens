@@ -102,7 +102,7 @@
                   <h2 id="guts-heading">Get Up To Speed</h2>
                   <span class="overview-ai-label">AI Brief</span>
                 </div>
-                <p>A holistic summary of this opportunity.</p>
+                <p>A holistic summary of this opportunity based on the latest communications and notes.</p>
               </div>
             </div>
             <div class="guts-card-actions">
@@ -121,23 +121,19 @@
           </header>
           <div id="brief-generate-status" class="muted guts-generate-status" style="display:none;"></div>
           <div class="guts-section-grid">
-            <section class="guts-section guts-section--status" aria-labelledby="guts-status-heading">
-              <h3 id="guts-status-heading"><span aria-hidden="true">&#9678;</span> Overall Status</h3>
-              {% if guts_presentation.overall_status %}
-                {% for statement in guts_presentation.overall_status %}<p data-guts-statement-id="{{ statement.persisted_statement_id }}" data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</p>{% endfor %}
-              {% else %}<p class="guts-empty">No status summary is available yet.</p>{% endif %}
-            </section>
-            <section class="guts-section" aria-labelledby="guts-recent-heading">
-              <h3 id="guts-recent-heading"><span aria-hidden="true">&#9993;</span> Recent Developments</h3>
-              {% if guts_presentation.recent_developments %}
-                <ul>{% for statement in guts_presentation.recent_developments %}<li data-guts-statement-id="{{ statement.persisted_statement_id }}" data-guts-statement-key="{{ statement.statement_key }}">{{ statement.text }}</li>{% endfor %}</ul>
-              {% else %}<p class="guts-empty">No recent developments identified.</p>{% endif %}
-            </section>
-            <section class="guts-section" aria-labelledby="guts-internal-heading">
-              <h3 id="guts-internal-heading"><span aria-hidden="true">&#9786;</span> Internal Activity</h3>
+            <section class="guts-section guts-section--internal" aria-labelledby="guts-internal-heading">
+              <h3 id="guts-internal-heading"><span aria-hidden="true">&#9786;</span> Internal Activity{% if guts_presentation.internal_activity %}<span class="guts-section-count">{{ guts_presentation.internal_activity|length }}</span>{% endif %}</h3>
               {% if guts_presentation.internal_activity %}
-                <ul>{% for statement in guts_presentation.internal_activity %}<li data-guts-statement-id="{{ statement.persisted_statement_id }}" data-guts-statement-key="{{ statement.statement_key }}"><span>{{ statement.text }}</span>{% if statement.display_date %}<time class="guts-activity-date"> · {{ statement.display_date }}</time>{% endif %}</li>{% endfor %}</ul>
+                <div class="guts-internal-scroll" tabindex="0" aria-label="Internal activity">
+                  <ul>{% for statement in guts_presentation.internal_activity %}<li data-guts-statement-id="{{ statement.persisted_statement_id }}" data-guts-statement-key="{{ statement.statement_key }}"><span>{{ statement.text }}</span>{% if statement.display_date %}<time class="guts-activity-date">{{ statement.display_date }}</time>{% endif %}</li>{% endfor %}</ul>
+                </div>
               {% else %}<p class="guts-empty">No recent internal activity.</p>{% endif %}
+            </section>
+            <section class="guts-section guts-section--recent" aria-labelledby="guts-recent-heading">
+              <h3 id="guts-recent-heading"><span aria-hidden="true">&#9993;</span> Recent Developments{% if guts_presentation.recent_developments %}<span class="guts-section-count">{{ guts_presentation.recent_developments|length }}</span>{% endif %}</h3>
+              {% if guts_presentation.recent_developments %}
+                <ul>{% for statement in guts_presentation.recent_developments %}<li data-guts-statement-id="{{ statement.persisted_statement_id }}" data-guts-statement-key="{{ statement.statement_key }}">{% if statement.display_date %}<time class="guts-activity-date">{{ statement.display_date }}</time>{% endif %}<span>{{ statement.text }}</span></li>{% endfor %}</ul>
+              {% else %}<p class="guts-empty">No recent developments identified.</p>{% endif %}
             </section>
           </div>
         </section>

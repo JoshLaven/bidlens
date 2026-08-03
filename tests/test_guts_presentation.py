@@ -59,21 +59,17 @@ class GUTSPresentationTests(unittest.TestCase):
 
         result = build_guts_presentation(SimpleNamespace(statements=rows))
 
-        self.assertEqual(
-            [item.text for item in result.overall_status],
-            ["The deadline is August 31.", "The opportunity remains active."],
-        )
+        self.assertEqual(result.overall_status, ())
         self.assertEqual(result.recent_developments[0].text, "Amendment 3 was released.")
         self.assertEqual(result.internal_activity[0].text, "Josh recommended contacting Westat.")
         self.assertFalse(hasattr(result, "risks_watch_items"))
         self.assertFalse(hasattr(result, "suggested_next_steps"))
-        self.assertEqual(result.overall_status[1].persisted_statement_id, 41)
         self.assertEqual(result.internal_activity[0].statement_key, "org-1")
         self.assertEqual(result.internal_activity[0].citations[0].source_id, "source:org-1")
         self.assertEqual(result.internal_activity[0].confidence, "supported")
         self.assertEqual(result.internal_activity[0].display_date, "Jul 31")
 
-    def test_overall_status_prefers_distinct_stage_and_deadline_and_caps_at_two(self):
+    def test_overall_status_is_not_exposed_by_the_dynamic_brief(self):
         rows = [
             statement("title", "Evaluation Services.", placement="headline", source_id="current_state:opportunity:1:title"),
             statement("description", "The agency seeks broad program support.", placement="summary", position=4, source_id="current_state:opportunity:1:description"),
@@ -82,11 +78,9 @@ class GUTSPresentationTests(unittest.TestCase):
             statement("type", "This is a request for proposals.", section="current_state", position=3, source_id="current_state:opportunity:1:opportunity_type"),
         ]
         result = build_guts_presentation(SimpleNamespace(statements=rows))
-        self.assertEqual([item.statement_key for item in result.overall_status], ["deadline", "stage"])
-        self.assertEqual(len(result.overall_status), 2)
-        self.assertNotIn("description", [item.statement_key for item in result.overall_status])
+        self.assertEqual(result.overall_status, ())
 
-    def test_recent_developments_uses_only_history_newest_first_and_caps_at_three(self):
+    def test_recent_developments_uses_all_history_newest_first(self):
         rows = [
             statement("static-official", "The award ceiling is $2 million.", section="official_updates"),
             *[
@@ -100,11 +94,11 @@ class GUTSPresentationTests(unittest.TestCase):
         result = build_guts_presentation(SimpleNamespace(statements=rows))
         self.assertEqual(
             [item.statement_key for item in result.recent_developments],
-            ["history-4", "history-3", "history-2"],
+            ["history-4", "history-3", "history-2", "history-1"],
         )
         self.assertNotIn("static-official", [item.statement_key for item in result.recent_developments])
 
-    def test_internal_activity_prefers_importance_then_canonical_order_and_caps_at_three(self):
+    def test_internal_activity_preserves_all_canonical_statements_without_ranking(self):
         rows = [
             statement("normal-1", "Josh noted prior experience.", section="organizational_knowledge", position=1),
             statement("high-2", "Kendall recommended a partner.", section="organizational_knowledge", position=2, importance="high"),
@@ -114,11 +108,31 @@ class GUTSPresentationTests(unittest.TestCase):
         result = build_guts_presentation(SimpleNamespace(statements=rows))
         self.assertEqual(
             [item.statement_key for item in result.internal_activity],
-            ["high-2", "high-3", "normal-1"],
+            ["normal-1", "high-2", "high-3", "normal-4"],
         )
         self.assertEqual(
             [item.text for item in result.internal_activity],
-            ["Kendall recommended a partner.", "Tom raised a staffing question.", "Josh noted prior experience."],
+            [
+                "Josh noted prior experience.",
+                "Kendall recommended a partner.",
+                "Tom raised a staffing question.",
+                "Ana shared research.",
+            ],
+        )
+
+    def test_long_internal_activity_is_not_truncated(self):
+        rows = [
+            statement(
+                f"org-{index}", f"Person {index} shared organizational context.",
+                section="organizational_knowledge", position=index,
+            )
+            for index in range(1, 13)
+        ]
+        result = build_guts_presentation(SimpleNamespace(statements=rows))
+        self.assertEqual(len(result.internal_activity), 12)
+        self.assertEqual(
+            [item.statement_key for item in result.internal_activity],
+            [f"org-{index}" for index in range(1, 13)],
         )
 
     def test_internal_activity_uses_latest_existing_evidence_date_with_consistent_format(self):
