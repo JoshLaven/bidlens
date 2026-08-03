@@ -1,0 +1,34 @@
+{% macro team_summary_card(opportunity, summary, is_stale, csrf_value, back_context, return_tab, request) -%}
+<details open class="detail-memory-card communication-summary-card team-summary-card communication-accordion" aria-labelledby="team-summary-heading-{{ return_tab }}">
+  <summary class="detail-memory-card-header communication-accordion-summary">
+    <div>
+      <h2 id="team-summary-heading-{{ return_tab }}">Team Summary</h2>
+      {% if summary and summary.status == 'ready' %}
+        <p class="detail-panel-meta">Generated {{ summary.generated_at.strftime('%b %-d, %Y at %-I:%M %p') if summary.generated_at else 'recently' }} · {{ summary.message_count_included }}{% if summary.message_count_included != summary.message_count_available %} of {{ summary.message_count_available }}{% endif %} message{% if summary.message_count_available != 1 %}s{% endif %} and {{ summary.note_count_included }}{% if summary.note_count_included != summary.note_count_available %} of {{ summary.note_count_available }}{% endif %} note{% if summary.note_count_available != 1 %}s{% endif %} included</p>
+      {% endif %}
+    </div>
+    <form method="POST" action="/opportunity/{{ opportunity.id }}/communication-summary" class="communication-summary-action" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+      <input type="hidden" name="csrf_token" value="{{ csrf_value }}">
+      <input type="hidden" name="return_to_context" value="{{ back_context }}">
+      <input type="hidden" name="return_tab" value="{{ return_tab }}">
+      <button type="submit" class="btn btn-sm btn-primary">{% if summary and summary.status == 'ready' %}Update Team Summary{% else %}Generate Team Summary{% endif %}</button>
+    </form>
+    <span class="communication-accordion-chevron" aria-hidden="true"></span>
+  </summary>
+  <div class="communication-accordion-body">
+    {% if request.query_params.get('summary') and request.query_params.get('summary') != 'generated' %}
+      <div class="alert alert-warning">
+        {% if request.query_params.get('summary') in ['no_evidence', 'no_messages'] %}There are no communications or notes to summarize.
+        {% elif request.query_params.get('summary') == 'missing_configuration' %}AI Team Summaries are not configured.
+        {% else %}The Team Summary could not be generated. Please try again.{% endif %}
+      </div>
+    {% endif %}
+    {% if summary and summary.status == 'ready' %}
+      {% if is_stale %}<div class="alert alert-warning">New or changed organizational evidence is available. Update this Team Summary to include it.</div>{% endif %}
+      <div class="communication-summary-narrative prewrap">{{ summary.current_status }}</div>
+    {% else %}
+      <p>Generate a concise narrative from the communications and notes stored for this opportunity.</p>
+    {% endif %}
+  </div>
+</details>
+{%- endmacro %}

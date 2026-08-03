@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime
 import hashlib
-import re
-import unicodedata
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
@@ -20,43 +18,17 @@ from ...models import (
     User,
     Workspace,
 )
-from ..communication_summary import clean_message_body
+from ..communication_content import clean_message_body, non_substantive_message_reason
+from ..organizational_evidence import normalize_evidence_text
 from .contracts import EvidenceAuthor, EvidenceCollectionResult, EvidenceSource
 from .attribution import normalize_display_name, normalize_email
 
 
 MIN_MEANINGFUL_CHARACTERS = 2
-ACKNOWLEDGMENT_ONLY = frozenset({
-    "acknowledged", "got it", "noted", "received", "thank you", "thanks", "thanks!",
-})
-AUTOMATED_SUBJECT_PATTERNS = (
-    re.compile(r"\b(out of office|automatic reply|auto(?:matic)? response)\b", re.I),
-    re.compile(r"\b(delivery (?:status )?notification|undeliverable|non-delivery report|mail delivery failed)\b", re.I),
-    re.compile(r"\b(subscription|unsubscribe|system notification)\b", re.I),
-)
-AUTOMATED_BODY_PATTERNS = (
-    re.compile(r"\bi am (?:currently )?out of (?:the )?office\b", re.I),
-    re.compile(r"\bdelivery (?:to .* )?(?:has failed|was unsuccessful)\b", re.I),
-    re.compile(r"\bthis is an automated (?:message|notification|response)\b", re.I),
-)
-SIGNATURE_ONLY_PATTERN = re.compile(
-    r"^(?:best|best regards|kind regards|regards|sincerely),?\s+[\w.' -]{1,100}$", re.I,
-)
 
 
 class EvidenceCollectorScopeError(ValueError):
     """Raised when a collector is invoked with inconsistent tenancy scope."""
-
-
-def normalize_evidence_text(value: str | None) -> str:
-    """Normalize selected evidence without interpreting its meaning."""
-    normalized = unicodedata.normalize("NFKC", value or "")
-    normalized = "".join(
-        character for character in normalized
-        if character in "\n\t" or unicodedata.category(character) != "Cc"
-    )
-    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in normalized.replace("\r", "\n").split("\n")]
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
 def _bounded(value: str, maximum: int) -> tuple[str, bool]:
@@ -268,21 +240,12 @@ class CommunicationEvidenceCollector:
                 continue
             seen_identifiers.add(identity)
             cleaned = normalize_evidence_text(clean_message_body(row.body, row.body_content_type))
-            if not cleaned:
-                omitted["empty_original_content"] += 1
-                continue
-            if SIGNATURE_ONLY_PATTERN.fullmatch(cleaned):
-                omitted["signature_only"] += 1
-                continue
-            folded = cleaned.casefold().strip(" .,!?:;")
-            if folded in ACKNOWLEDGMENT_ONLY:
-                omitted["acknowledgment_only"] += 1
-                continue
             subject = normalize_evidence_text(row.subject)
-            if any(pattern.search(subject) for pattern in AUTOMATED_SUBJECT_PATTERNS) or any(
-                pattern.search(cleaned) for pattern in AUTOMATED_BODY_PATTERNS
-            ):
-                omitted["automated_message"] += 1
+            non_substantive_reason = non_substantive_message_reason(
+                cleaned_body=cleaned, subject=subject,
+            )
+            if non_substantive_reason:
+                omitted[non_substantive_reason] += 1
                 continue
             body_digest = _hash(cleaned)
             if body_digest in seen_content:

@@ -1986,7 +1986,7 @@ async def opportunity_detail(
         organization_id=_user_org_id(user),
         opportunity_id=opportunity.id,
     )
-    guts_presentation = build_guts_presentation(guts_generation)
+    recent_developments = build_guts_presentation(guts_generation).recent_developments
 
     user_opp = db.query(UserOpportunity).filter(
         UserOpportunity.user_id == user.id,
@@ -2133,8 +2133,7 @@ async def opportunity_detail(
         ),
         "teammate_interest_users": teammate_interest_users,
         "active_page": None,
-        "guts_generation": guts_generation,
-        "guts_presentation": guts_presentation,
+        "recent_developments": recent_developments,
         "resolved_description": resolved_description,
         "grants_gov_metadata": grants_gov_metadata,
         "grants_gov_documents": grants_gov_documents,
@@ -2161,6 +2160,7 @@ async def generate_opportunity_communication_summary(
     opp_id: int,
     csrf_token: str = Form(""),
     return_to_context: str = Form("feed"),
+    return_tab: str = Form("communication"),
     db: Session = Depends(get_db),
 ):
     request_started = perf_counter()
@@ -2188,11 +2188,12 @@ async def generate_opportunity_communication_summary(
         db.rollback()
         outcome = exc.code
     request_timings["generation_service_ms"] = round((perf_counter() - generation_started) * 1000, 2)
+    safe_return_tab = return_tab if return_tab in {"overview", "communication"} else "communication"
     response = RedirectResponse(
         url=_redirect_with_query(
             f"/opportunity/{opp_id}",
             return_to=opportunity_back_context(return_to_context),
-            tab="communication",
+            tab=safe_return_tab,
             summary=outcome,
         ),
         status_code=303,

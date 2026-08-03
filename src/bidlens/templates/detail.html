@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_team_summary.html" import team_summary_card %}
 {% from "_back_navigation.html" import back_navigation %}
 {% block title %}{{ opportunity.title }} - BidLens{% endblock %}
 
@@ -106,33 +107,41 @@
               </div>
             </div>
             <div class="guts-card-actions">
-              {% if guts_generation and guts_generation.completed_at %}
-                <span class="guts-generated-at">Generated {{ guts_generation.completed_at.strftime("%b %-d, %Y at %-I:%M %p") }}</span>
+              {% if communication_summary and communication_summary.status == 'ready' %}
+                <span class="guts-generated-at">Generated {{ communication_summary.generated_at.strftime('%b %-d, %Y at %-I:%M %p') if communication_summary.generated_at else 'recently' }}</span>
                 <span class="guts-refresh-icon" aria-hidden="true">&#8635;</span>
               {% endif %}
-              <button class="btn btn-sm guts-regenerate-button"
-                      id="generate-brief-button"
-                      data-default-label="{{ 'Regenerate' if guts_generation else 'Generate' }}"
-                      type="button"
-                      onclick="generateBrief('{{ opportunity.id }}')">
-                {{ 'Regenerate' if guts_generation else 'Generate' }}
-              </button>
+              <form method="POST" action="/opportunity/{{ opportunity.id }}/communication-summary" class="communication-summary-action">
+                <input type="hidden" name="csrf_token" value="{{ communication_summary_csrf_token }}">
+                <input type="hidden" name="return_to_context" value="{{ back_context }}">
+                <input type="hidden" name="return_tab" value="overview">
+                <button type="submit" class="btn btn-sm guts-regenerate-button">{% if communication_summary and communication_summary.status == 'ready' %}Regenerate{% else %}Generate{% endif %}</button>
+              </form>
             </div>
           </header>
-          <div id="brief-generate-status" class="muted guts-generate-status" style="display:none;"></div>
+          {% if request.query_params.get('summary') and request.query_params.get('summary') != 'generated' %}
+            <div class="alert alert-warning guts-generate-status">
+              {% if request.query_params.get('summary') in ['no_evidence', 'no_messages'] %}There are no communications or notes to summarize.
+              {% elif request.query_params.get('summary') == 'missing_configuration' %}AI Team Summaries are not configured.
+              {% else %}The Team Summary could not be generated. Please try again.{% endif %}
+            </div>
+          {% endif %}
+          {% if communication_summary_stale %}
+            <div class="alert alert-warning guts-generate-status">New or changed organizational evidence is available. Regenerate to include it.</div>
+          {% endif %}
           <div class="guts-section-grid">
-            <section class="guts-section guts-section--internal" aria-labelledby="guts-internal-heading">
-              <h3 id="guts-internal-heading"><span aria-hidden="true">&#9786;</span> Internal Activity{% if guts_presentation.internal_activity %}<span class="guts-section-count">{{ guts_presentation.internal_activity|length }}</span>{% endif %}</h3>
-              {% if guts_presentation.internal_activity %}
-                <div class="guts-internal-scroll" tabindex="0" aria-label="Internal activity">
-                  <ul>{% for statement in guts_presentation.internal_activity %}<li data-guts-statement-id="{{ statement.persisted_statement_id }}" data-guts-statement-key="{{ statement.statement_key }}"><span>{{ statement.text }}</span>{% if statement.display_date %}<time class="guts-activity-date">{{ statement.display_date }}</time>{% endif %}</li>{% endfor %}</ul>
-                </div>
-              {% else %}<p class="guts-empty">No recent internal activity.</p>{% endif %}
+            <section class="guts-section guts-section--team-summary" aria-labelledby="overview-team-summary-heading">
+              <h3 id="overview-team-summary-heading"><span aria-hidden="true">&#9786;</span> Team Summary</h3>
+              {% if communication_summary and communication_summary.status == 'ready' %}
+                <p class="prewrap">{{ communication_summary.current_status }}</p>
+              {% else %}
+                <p class="guts-empty">No Team Summary has been generated yet.</p>
+              {% endif %}
             </section>
             <section class="guts-section guts-section--recent" aria-labelledby="guts-recent-heading">
-              <h3 id="guts-recent-heading"><span aria-hidden="true">&#9993;</span> Recent Developments{% if guts_presentation.recent_developments %}<span class="guts-section-count">{{ guts_presentation.recent_developments|length }}</span>{% endif %}</h3>
-              {% if guts_presentation.recent_developments %}
-                <ul>{% for statement in guts_presentation.recent_developments %}<li data-guts-statement-id="{{ statement.persisted_statement_id }}" data-guts-statement-key="{{ statement.statement_key }}">{% if statement.display_date %}<time class="guts-activity-date">{{ statement.display_date }}</time>{% endif %}<span>{{ statement.text }}</span></li>{% endfor %}</ul>
+              <h3 id="guts-recent-heading"><span aria-hidden="true">&#9993;</span> Recent Developments{% if recent_developments %}<span class="guts-section-count">{{ recent_developments|length }}</span>{% endif %}</h3>
+              {% if recent_developments %}
+                <ul>{% for statement in recent_developments %}<li data-guts-statement-id="{{ statement.persisted_statement_id }}" data-guts-statement-key="{{ statement.statement_key }}">{% if statement.display_date %}<time class="guts-activity-date">{{ statement.display_date }}</time>{% endif %}<span>{{ statement.text }}</span></li>{% endfor %}</ul>
               {% else %}<p class="guts-empty">No recent developments identified.</p>{% endif %}
             </section>
           </div>
@@ -255,39 +264,7 @@
         {% endif %}
 
         <section class="detail-memory-section communication-workspace" aria-label="Opportunity communication history">
-          <details open class="detail-memory-card communication-summary-card communication-accordion" aria-labelledby="communication-summary-heading">
-            <summary class="detail-memory-card-header communication-accordion-summary">
-              <div>
-                <h2 id="communication-summary-heading">AI Summary</h2>
-                {% if communication_summary and communication_summary.status == 'ready' %}
-                  <p class="detail-panel-meta">Generated {{ communication_summary.generated_at.strftime('%b %-d, %Y at %-I:%M %p') if communication_summary.generated_at else 'recently' }} · {% if communication_summary.message_count_included == communication_summary.message_count_available %}{{ communication_summary.message_count_included }} message{% if communication_summary.message_count_included != 1 %}s{% endif %} included{% else %}{{ communication_summary.message_count_included }} of {{ communication_summary.message_count_available }} messages included{% endif %}</p>
-                {% endif %}
-              </div>
-              <form method="POST" action="/opportunity/{{ opportunity.id }}/communication-summary" class="communication-summary-action" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
-                <input type="hidden" name="csrf_token" value="{{ communication_summary_csrf_token }}">
-                <input type="hidden" name="return_to_context" value="{{ back_context }}">
-                <button type="submit" class="btn btn-sm btn-primary">{% if communication_summary and communication_summary.status == 'ready' %}Update Summary{% else %}Generate Summary{% endif %}</button>
-              </form>
-              <span class="communication-accordion-chevron" aria-hidden="true"></span>
-            </summary>
-            <div class="communication-accordion-body">
-              {% if request.query_params.get('summary') and request.query_params.get('summary') != 'generated' %}
-                <div class="alert alert-warning">
-                  {% if request.query_params.get('summary') == 'no_messages' %}There are no communication messages to summarize.
-                  {% elif request.query_params.get('summary') == 'missing_configuration' %}AI communication summaries are not configured.
-                  {% else %}The summary could not be generated. Please try again.{% endif %}
-                </div>
-              {% endif %}
-              {% if communication_summary and communication_summary.status == 'ready' %}
-                {% if communication_summary_stale %}
-                  <div class="alert alert-warning">New communication has arrived since this summary was generated.</div>
-                {% endif %}
-                <div class="communication-summary-narrative prewrap">{{ communication_summary.current_status }}</div>
-              {% else %}
-                <p>Generate a concise summary of the communication history currently stored for this opportunity.</p>
-              {% endif %}
-            </div>
-          </details>
+          {{ team_summary_card(opportunity, communication_summary, communication_summary_stale, communication_summary_csrf_token, back_context, 'communication', request) }}
           <section class="communication-timeline" aria-labelledby="communication-timeline-heading">
             <div class="communication-timeline-header">
               <div>
@@ -656,73 +633,5 @@ function toggleOverviewDescription(button) {
   button.textContent = willExpand ? 'Show less' : 'Read more';
 }
 
-let briefGenerationInFlight = false;
-
-async function generateBrief(oppId) {
-  if (briefGenerationInFlight) {
-    console.info(`[BidLens] Generate brief already in progress for opportunity ${oppId}`);
-    return;
-  }
-
-  const button = document.getElementById('generate-brief-button');
-  const status = document.getElementById('brief-generate-status');
-  const defaultButtonLabel = button?.dataset.defaultLabel || 'Generate Brief';
-  briefGenerationInFlight = true;
-
-  if (button) {
-    button.disabled = true;
-    button.textContent = 'Generating...';
-  }
-  if (status) {
-    status.style.display = 'block';
-    status.textContent = 'Generating summary...';
-  }
-
-  console.info(`[BidLens] Starting brief generation for opportunity ${oppId}`);
-
-  try {
-    const response = await fetch(`/api/opps/${oppId}/generate-guts`, { method: "POST" });
-    if (!response.ok) {
-      let message = "Unable to generate brief right now.";
-      try {
-        const payload = await response.json();
-        if (payload && payload.detail) {
-          message = typeof payload.detail === 'string'
-            ? payload.detail
-            : payload.detail.message || message;
-        }
-      } catch (error) {
-        // Fall through to the default message.
-      }
-
-      if (button) {
-        button.disabled = false;
-        button.textContent = defaultButtonLabel;
-      }
-      if (status) {
-        status.textContent = message;
-      }
-      briefGenerationInFlight = false;
-      window.alert(message);
-      return;
-    }
-
-    console.info(`[BidLens] Brief generation finished for opportunity ${oppId}; reloading once`);
-    if (status) {
-      status.textContent = 'Summary ready. Refreshing...';
-    }
-    window.location.reload();
-  } catch (error) {
-    if (button) {
-      button.disabled = false;
-      button.textContent = defaultButtonLabel;
-    }
-    if (status) {
-      status.textContent = 'Unable to generate brief right now.';
-    }
-    briefGenerationInFlight = false;
-    window.alert('Unable to generate brief right now.');
-  }
-}
 </script>
 {% endblock %}

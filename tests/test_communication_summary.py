@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from bidlens.database import Base
-from bidlens.models import Opportunity, OpportunityCommunicationMessage, OpportunityConversation, Organization, User, Workspace
+from bidlens.models import Opportunity, OpportunityCommunicationMessage, OpportunityConversation, OpportunityNote, Organization, User, Workspace
 from bidlens.services.communication_summary import (
     CommunicationSummaryError,
     CommunicationSummaryResult,
@@ -24,8 +24,9 @@ from bidlens.routes import opportunities as opportunity_routes
 
 
 class FakeGenerator:
-    def __init__(self, fail=False): self.fail = fail
+    def __init__(self, fail=False): self.fail = fail; self.input_data = None
     def generate_summary(self, input_data):
+        self.input_data = input_data
         if self.fail:
             raise CommunicationSummaryError("timeout", "safe")
         return CommunicationSummaryResult("Awaiting reply", ["Proposal sent"], ["Is Friday acceptable?"], "Follow up Friday", "external_party", "test", "test-model", {}, {"openai_api_request": 10.0})
@@ -111,6 +112,57 @@ class CommunicationSummaryTests(unittest.TestCase):
         self.assertEqual(refreshed.current_status, "Awaiting reply")
         self.assertEqual(refreshed.last_error, "timeout")
 
+    def test_mixed_communications_and_notes_use_one_persisted_team_summary(self):
+        self._message(self.conv1, 1, body="Josh recommended Westat as a partner.")
+        self.db.add(OpportunityNote(
+            opportunity_id=self.opp.id, org_id=self.org.id, user_id=self.user.id,
+            body="Maria should review the evaluation approach.",
+        )); self.db.flush()
+        generator = FakeGenerator()
+        row = generate_and_save_summary(
+            self.db, workspace=self.workspace, opportunity=self.opp,
+            user=self.user, generator=generator,
+        )
+        self.assertEqual(row.message_count_included, 1)
+        self.assertEqual(row.note_count_included, 1)
+        self.assertIn("Josh recommended Westat", generator.input_data.text)
+        self.assertIn("Maria should review", generator.input_data.text)
+        self.assertEqual(row.input_contract_version, "team-summary-evidence-v1")
+        self.assertTrue(row.evidence_fingerprint)
+
+    def test_notes_only_are_summarized_and_no_evidence_is_rejected(self):
+        self.db.add(OpportunityNote(
+            opportunity_id=self.opp.id, org_id=self.org.id, user_id=self.user.id,
+            body="Kendall raised a staffing concern.",
+        )); self.db.flush()
+        row = generate_and_save_summary(
+            self.db, workspace=self.workspace, opportunity=self.opp,
+            user=self.user, generator=FakeGenerator(),
+        )
+        self.assertEqual((row.message_count_included, row.note_count_included), (0, 1))
+        with self.assertRaisesRegex(CommunicationSummaryError, "no communications or notes"):
+            generate_and_save_summary(
+                self.db, workspace=self.workspace, opportunity=self.other_opp,
+                user=self.user, generator=FakeGenerator(),
+            )
+
+    def test_legacy_prompt_and_contract_changes_are_stale_but_model_changes_are_not(self):
+        self._message(self.conv1, 1)
+        row = generate_and_save_summary(
+            self.db, workspace=self.workspace, opportunity=self.opp,
+            user=self.user, generator=FakeGenerator(),
+        )
+        row.model = "a-different-model"
+        self.db.commit()
+        self.assertFalse(summary_is_stale(self.db, row))
+        row.prompt_version = "legacy"
+        self.db.commit()
+        self.assertTrue(summary_is_stale(self.db, row))
+        row.prompt_version = "team-summary-v1"
+        row.input_contract_version = "legacy"
+        self.db.commit()
+        self.assertTrue(summary_is_stale(self.db, row))
+
     def test_csrf_is_bound_to_user_and_opportunity(self):
         token = csrf_token(self.user.id, self.opp.id)
         self.assertTrue(validate_csrf_token(token, self.user.id, self.opp.id))
@@ -118,27 +170,27 @@ class CommunicationSummaryTests(unittest.TestCase):
         self.assertFalse(validate_csrf_token("bad", self.user.id, self.opp.id))
 
     def test_prompt_requests_natural_prose_without_forced_sections(self):
-        self.assertIn("fewest words necessary", SYSTEM_INSTRUCTIONS)
-        self.assertIn("Prefer one sentence", SYSTEM_INSTRUCTIONS)
-        self.assertIn("Begin directly with what happened", SYSTEM_INSTRUCTIONS)
-        self.assertIn("Do not editorialize or add interpretation", SYSTEM_INSTRUCTIONS)
-        self.assertIn("or next steps", SYSTEM_INSTRUCTIONS)
-        self.assertIn("editorialize", SYSTEM_INSTRUCTIONS)
+        self.assertIn("communications and notes", SYSTEM_INSTRUCTIONS)
+        self.assertIn("Integrate the sources", SYSTEM_INSTRUCTIONS)
+        self.assertIn("Preserve actor attribution", SYSTEM_INSTRUCTIONS)
+        self.assertIn("Josh noted that the deadline had moved", SYSTEM_INSTRUCTIONS)
+        self.assertIn("Do not restate solicitation", SYSTEM_INSTRUCTIONS)
         for forced_heading in ("Current status", "Key updates", "Open questions", "Next action", "Waiting on"):
             self.assertNotIn(forced_heading, SYSTEM_INSTRUCTIONS)
 
     def test_template_has_header_actions_unified_conversation_and_metadata(self):
-        with open("src/bidlens/templates/detail.html", encoding="utf-8") as source:
-            html = source.read()
-        header_start = html.index('class="detail-memory-card-header communication-accordion-summary"')
-        header_end = html.index("</summary>", header_start)
-        action_position = html.index('class="communication-summary-action"')
-        self.assertLess(action_position, html.index("{% if request.query_params.get('summary')"))
-        self.assertIn("Update Summary", html)
-        self.assertIn("Generate Summary", html)
-        self.assertIn("messages included", html)
-        self.assertIn("message_count_included == communication_summary.message_count_available", html)
-        self.assertIn("of {{ communication_summary.message_count_available }} messages included", html)
+        with open("src/bidlens/templates/detail.html", encoding="utf-8") as source: html = source.read()
+        with open("src/bidlens/templates/_team_summary.html", encoding="utf-8") as source: summary = source.read()
+        header_start = summary.index('class="detail-memory-card-header communication-accordion-summary"')
+        header_end = summary.index("</summary>", header_start)
+        action_position = summary.index('class="communication-summary-action"')
+        self.assertIn("Update Team Summary", summary)
+        self.assertIn("Generate Team Summary", summary)
+        self.assertIn("message", summary)
+        self.assertIn("note", summary)
+        self.assertEqual(html.count("team_summary_card("), 1)
+        self.assertEqual(html.count("{{ communication_summary.current_status }}"), 1)
+        self.assertIn("{{ summary.current_status }}", summary)
         self.assertIn('<h2 id="communication-timeline-heading">Timeline</h2>', html)
         self.assertIn("{{ communication_messages|length }} message", html)
         self.assertIn("<dt>From</dt>", html)
@@ -157,19 +209,18 @@ class CommunicationSummaryTests(unittest.TestCase):
         self.assertNotIn("From:", collapsed_email)
         self.assertNotIn("direction_label", collapsed_email)
         self.assertNotIn("Date: {{ message", html)
-        self.assertIn("<details open class=\"detail-memory-card communication-summary-card communication-accordion\"", html)
+        self.assertIn("<details open class=\"detail-memory-card communication-summary-card team-summary-card communication-accordion\"", summary)
         self.assertIn("<details class=\"communication-email-accordion\"", html)
         self.assertIn("detail-folder-workspace", html)
         self.assertIn("opportunity_sidebar('workspace-team-interest-tooltip')", html)
         self.assertIn('class="detail-section detail-tab-panel detail-tab-panel--plain"', html)
         self.assertNotIn('<details open class="accordion detail-section detail-tab-panel" id="detail-panel-communication"', html)
         self.assertNotIn('<span class="detail-memory-count">{{ communication_messages|length }}</span>', html)
-        self.assertIn('onclick="event.stopPropagation()"', html)
+        self.assertIn('onclick="event.stopPropagation()"', summary)
         self.assertNotIn("Communication Timeline", html)
         self.assertNotIn("Email record", html)
         self.assertNotIn("for event in recent_activity", html)
-        self.assertGreater(action_position, header_start)
-        self.assertLess(action_position, header_end)
+        self.assertGreater(action_position, header_start); self.assertLess(action_position, header_end)
         with open("src/bidlens/static/css/styles.css", encoding="utf-8") as source:
             css = source.read()
         self.assertIn(".detail-tab-panel--plain", css)
@@ -219,6 +270,22 @@ class CommunicationSummaryRedirectTests(unittest.IsolatedAsyncioTestCase):
         response = await self._request(failure=CommunicationSummaryError("timeout", "safe"))
         self.assertEqual(response.status_code, 303)
         self.assertEqual(response.headers["location"], "/opportunity/42?return_to=shortlist&tab=communication&summary=timeout")
+
+    async def test_overview_action_returns_to_overview(self):
+        user = SimpleNamespace(id=7)
+        with (
+            patch.object(opportunity_routes, "require_user", return_value=user),
+            patch.object(opportunity_routes, "_authorized_opportunity_for_user", return_value=SimpleNamespace(id=42)),
+            patch.object(opportunity_routes, "validate_communication_summary_csrf_token", return_value=True),
+            patch.object(opportunity_routes, "_workspace_for_user", return_value=SimpleNamespace(id=3)),
+            patch.object(opportunity_routes, "generate_and_save_summary"),
+        ):
+            response = await opportunity_routes.generate_opportunity_communication_summary(
+                request=SimpleNamespace(), opp_id=42, csrf_token="valid",
+                return_to_context="feed", return_tab="overview",
+                db=SimpleNamespace(rollback=lambda: None),
+            )
+        self.assertEqual(response.headers["location"], "/opportunity/42?return_to=feed&tab=overview&summary=generated")
 
 
 if __name__ == "__main__": unittest.main()

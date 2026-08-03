@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from html.parser import HTMLParser
 import json
 import logging
-import re
 from time import perf_counter
 from typing import Any, Protocol
 
@@ -15,7 +13,16 @@ from sqlalchemy import func
 
 from .. import config
 from ..models import Opportunity, OpportunityCommunicationMessage, OpportunityCommunicationSummary, User, Workspace
+from .communication_content import clean_message_body
 from .opportunity_conversations import deduplicate_communication_messages
+from .organizational_evidence import (
+    StoredCommunicationEvidenceCollector, StoredNoteEvidenceCollector,
+    combine_team_summary_evidence,
+)
+from .organizational_evidence_contracts import (
+    OrganizationalEvidenceSelectionPolicy, TeamSummaryEvidenceBundle,
+    TEAM_SUMMARY_INPUT_CONTRACT_VERSION,
+)
 
 logger = logging.getLogger(__name__)
 WAITING_ON_VALUES = {"our_team", "external_party", "both", "nobody", "unclear"}
@@ -27,32 +34,24 @@ class CommunicationSummaryError(RuntimeError):
         self.code = code
 
 
-class _TextExtractor(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.parts: list[str] = []
-        self.hidden_depth = 0
-    def handle_data(self, data: str) -> None:
-        if not self.hidden_depth:
-            self.parts.append(data)
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag.lower() in {"script", "style"}:
-            self.hidden_depth += 1
-        elif not self.hidden_depth and tag.lower() in {"br", "p", "div", "li", "blockquote", "hr"}:
-            self.parts.append("\n")
-    def handle_endtag(self, tag: str) -> None:
-        if tag.lower() in {"script", "style"} and self.hidden_depth:
-            self.hidden_depth -= 1
-        elif not self.hidden_depth and tag.lower() in {"p", "div", "li", "blockquote"}:
-            self.parts.append("\n")
-
-
 @dataclass(frozen=True)
 class PreparedCommunicationInput:
     text: str
     message_count_included: int
     message_count_available: int
     latest_message_timestamp_included: datetime | None
+
+
+@dataclass(frozen=True)
+class PreparedTeamSummaryInput:
+    text: str
+    evidence: TeamSummaryEvidenceBundle
+    message_count_included: int
+    message_count_available: int
+    note_count_included: int
+    note_count_available: int
+    latest_message_timestamp_included: datetime | None
+    latest_note_timestamp_included: datetime | None
 
 
 @dataclass(frozen=True)
@@ -69,42 +68,7 @@ class CommunicationSummaryResult:
 
 
 class CommunicationSummaryGenerator(Protocol):
-    def generate_summary(self, input_data: PreparedCommunicationInput) -> CommunicationSummaryResult: ...
-
-
-def _plain_text(body: str | None, content_type: str | None) -> str:
-    value = body or ""
-    if "html" in (content_type or "").lower() or re.search(r"</?[a-z][^>]*>", value, re.I):
-        parser = _TextExtractor()
-        try:
-            parser.feed(value)
-            value = "".join(parser.parts)
-        except Exception:
-            value = re.sub(r"<[^>]+>", " ", value)
-    return value
-
-
-def clean_message_body(body: str | None, content_type: str | None = None) -> str:
-    lines = _plain_text(body, content_type).replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    kept: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith(">"):
-            break
-        if re.match(r"^On .+ wrote:$", stripped, re.I):
-            break
-        if re.match(r"^-{2,}\s*(Original Message|Forwarded message)\s*-{2,}$", stripped, re.I):
-            break
-        if re.match(r"^(From|Sent|To|Subject):\s+", stripped, re.I) and len(kept) > 0:
-            break
-        if re.match(r"^(Get Outlook for|Sent from my (iPhone|iPad|Android))", stripped, re.I):
-            continue
-        if stripped == "--" or stripped == "-- ":
-            break
-        if kept and re.match(r"^(Best|Best regards|Kind regards|Regards|Sincerely),?$", stripped, re.I):
-            break
-        kept.append(stripped)
-    return re.sub(r"\s+", " ", " ".join(kept)).strip()
+    def generate_summary(self, input_data: PreparedCommunicationInput | PreparedTeamSummaryInput) -> CommunicationSummaryResult: ...
 
 
 def _recipient_addresses(value: Any) -> str:
@@ -207,7 +171,77 @@ def _schema() -> dict[str, Any]:
     }
 
 
-SYSTEM_INSTRUCTIONS = """Summarize only the supplied communication records using the fewest words necessary. Prefer one sentence when one sentence is sufficient; use two or more sentences only when material factual context would otherwise be lost. Begin directly with what happened. Preserve important facts, and include commitments or actions only when explicitly stated. Do not editorialize or add interpretation. Do not infer significance, sentiment, collaboration, status, or next steps. Do not invent owners, deadlines, risks, open questions, decisions, outcomes, or status changes. Do not treat silence as agreement. Avoid introductory narration such as 'the communication records detail,' 'the exchange indicates,' or 'the discussion focused on.' If the record is insufficient, say so briefly. Return only the requested JSON field."""
+TEAM_SUMMARY_SYSTEM_INSTRUCTIONS = """Create one concise executive narrative using only the supplied organizational communications and notes. Answer: What has our team communicated or recorded about this opportunity? Integrate the sources rather than summarizing emails and notes separately. Preserve substantive assessments, concerns, recommendations, partner ideas, routing, stakeholder involvement, internal decisions, planning, meaningful coordination, prior relevant experience, and substantive questions. Preserve actor attribution whenever a person expressed a view, recommendation, plan, concern, or purported official fact. For example, write 'Josh noted that the deadline had moved,' never 'The deadline moved.' Do not convert an individual's view into team consensus or a plan into a completed action. Do not restate solicitation or opportunity facts as objective truth. Do not infer significance, status, next steps, owners, deadlines, risks, decisions, or consensus. Prefer one sentence when sufficient and add sentences only for material, distinct organizational context. Begin directly with what the people involved communicated or recorded; do not editorialize or narrate the summarization process. If the evidence is insufficient, say so briefly. Return only the requested JSON field."""
+
+# Backwards-compatible public name used by existing integrations and tests.
+SYSTEM_INSTRUCTIONS = TEAM_SUMMARY_SYSTEM_INSTRUCTIONS
+
+
+def _selection_policies() -> tuple[OrganizationalEvidenceSelectionPolicy, OrganizationalEvidenceSelectionPolicy]:
+    return (
+        OrganizationalEvidenceSelectionPolicy(
+            maximum_count=config.TEAM_SUMMARY_MAX_MESSAGES,
+            maximum_item_characters=config.TEAM_SUMMARY_MAX_MESSAGE_CHARS,
+            maximum_total_characters=config.TEAM_SUMMARY_MAX_TOTAL_MESSAGE_CHARS,
+        ),
+        OrganizationalEvidenceSelectionPolicy(
+            maximum_count=config.TEAM_SUMMARY_MAX_NOTES,
+            maximum_item_characters=config.TEAM_SUMMARY_MAX_NOTE_CHARS,
+            maximum_total_characters=config.TEAM_SUMMARY_MAX_TOTAL_NOTE_CHARS,
+        ),
+    )
+
+
+def collect_team_summary_evidence(
+    db: Session, *, workspace: Workspace, opportunity: Opportunity,
+) -> TeamSummaryEvidenceBundle:
+    communication_policy, note_policy = _selection_policies()
+    scope = {
+        "opportunity_id": opportunity.id,
+        "organization_id": opportunity.organization_id,
+        "workspace_id": workspace.id,
+    }
+    communications = StoredCommunicationEvidenceCollector(
+        db, policy=communication_policy,
+    ).collect(**scope)
+    notes = StoredNoteEvidenceCollector(db, policy=note_policy).collect(**scope)
+    return combine_team_summary_evidence(
+        **scope, communications=communications, notes=notes,
+        communication_policy=communication_policy, note_policy=note_policy,
+    )
+
+
+def prepare_team_summary_input(bundle: TeamSummaryEvidenceBundle) -> PreparedTeamSummaryInput:
+    blocks: list[str] = []
+    for item in bundle.items:
+        author = item.author.display_name or "Unknown contributor"
+        lines = [
+            f"Source: {item.source_id}",
+            f"Type: {item.source_type}",
+            f"Date: {item.occurred_at.isoformat() if item.occurred_at else 'Unknown'}",
+            f"Author: {author}",
+        ]
+        if item.source_type == "communication":
+            lines.extend((
+                f"Direction: {item.direction or 'unknown'}",
+                f"Recipients: {', '.join(item.recipients) or 'Unknown'}",
+                f"Subject: {item.title or '(No subject)'}",
+            ))
+        lines.append(f"Content: {item.text}")
+        blocks.append("\n".join(lines))
+    latest = lambda source_type: max(
+        (item.occurred_at for item in bundle.items if item.source_type == source_type and item.occurred_at),
+        default=None,
+    )
+    return PreparedTeamSummaryInput(
+        text="\n\n".join(blocks), evidence=bundle,
+        message_count_included=bundle.selected_counts.get("communication", 0),
+        message_count_available=bundle.available_counts.get("communication", 0),
+        note_count_included=bundle.selected_counts.get("note", 0),
+        note_count_available=bundle.available_counts.get("note", 0),
+        latest_message_timestamp_included=latest("communication"),
+        latest_note_timestamp_included=latest("note"),
+    )
 
 
 class OpenAICommunicationSummaryGenerator:
@@ -217,7 +251,7 @@ class OpenAICommunicationSummaryGenerator:
         if not config.AI_SUMMARY_API_KEY or not config.AI_SUMMARY_MODEL:
             raise CommunicationSummaryError("missing_configuration", "AI communication summaries are not configured.")
 
-    def generate_summary(self, input_data: PreparedCommunicationInput) -> CommunicationSummaryResult:
+    def generate_summary(self, input_data: PreparedCommunicationInput | PreparedTeamSummaryInput) -> CommunicationSummaryResult:
         from openai import OpenAI
         provider_started = perf_counter()
         kwargs: dict[str, Any] = {
@@ -280,19 +314,18 @@ class OpenAICommunicationSummaryGenerator:
 
 
 def summary_is_stale(db: Session, summary: OpportunityCommunicationSummary) -> bool:
-    latest = (
-        db.query(OpportunityCommunicationMessage)
-        .filter(
-            OpportunityCommunicationMessage.workspace_id == summary.workspace_id,
-            OpportunityCommunicationMessage.opportunity_id == summary.opportunity_id,
-        )
-        .order_by(func.coalesce(OpportunityCommunicationMessage.provider_timestamp, OpportunityCommunicationMessage.created_at).desc(), OpportunityCommunicationMessage.id.desc())
-        .first()
-    )
-    if not latest or not summary.latest_message_timestamp_included:
-        return False
-    latest_at = latest.provider_timestamp or latest.created_at
-    return bool(latest_at and latest_at > summary.latest_message_timestamp_included)
+    if (
+        not summary.evidence_fingerprint
+        or summary.input_contract_version != TEAM_SUMMARY_INPUT_CONTRACT_VERSION
+        or summary.prompt_version != config.TEAM_SUMMARY_PROMPT_VERSION
+    ):
+        return True
+    workspace = db.get(Workspace, summary.workspace_id)
+    opportunity = db.get(Opportunity, summary.opportunity_id)
+    if workspace is None or opportunity is None:
+        return True
+    current = collect_team_summary_evidence(db, workspace=workspace, opportunity=opportunity)
+    return current.evidence_fingerprint != summary.evidence_fingerprint
 
 
 def generate_and_save_summary(db: Session, *, workspace: Workspace, opportunity: Opportunity, user: User, generator: CommunicationSummaryGenerator | None = None) -> OpportunityCommunicationSummary:
@@ -306,19 +339,21 @@ def generate_and_save_summary(db: Session, *, workspace: Workspace, opportunity:
         "openai_request_count": 0,
     }
     phase_started = perf_counter()
-    messages = select_messages(db, workspace_id=workspace.id, opportunity_id=opportunity.id)
+    bundle = collect_team_summary_evidence(db, workspace=workspace, opportunity=opportunity)
     timings["message_retrieval_ms"] = round((perf_counter() - phase_started) * 1000, 2)
     phase_started = perf_counter()
     existing = db.query(OpportunityCommunicationSummary).filter_by(workspace_id=workspace.id, opportunity_id=opportunity.id).one_or_none()
     timings["summary_lookup_ms"] = round((perf_counter() - phase_started) * 1000, 2)
-    if not messages:
-        raise CommunicationSummaryError("no_messages", "There are no communication messages to summarize.")
+    if not bundle.items:
+        raise CommunicationSummaryError("no_evidence", "There are no communications or notes to summarize.")
     phase_started = perf_counter()
-    prepared = prepare_communication_input(messages, max_chars=config.AI_SUMMARY_MAX_INPUT_CHARS)
+    prepared = prepare_team_summary_input(bundle)
     timings["prompt_construction_ms"] = round((perf_counter() - phase_started) * 1000, 2)
     timings["input_chars"] = len(prepared.text)
     timings["messages_available"] = prepared.message_count_available
     timings["messages_included"] = prepared.message_count_included
+    timings["notes_available"] = prepared.note_count_available
+    timings["notes_included"] = prepared.note_count_included
     try:
         phase_started = perf_counter()
         timings["openai_request_count"] = 1
@@ -337,7 +372,7 @@ def generate_and_save_summary(db: Session, *, workspace: Workspace, opportunity:
         timings["database_save_ms"] = round((perf_counter() - save_started) * 1000, 2)
         timings["total_service_ms"] = round((perf_counter() - total_started) * 1000, 2)
         logger.warning("communication_summary_timing %s", json.dumps({"event": "communication_summary_timing", "outcome": "failed", "workspace_id": workspace.id, "opportunity_id": opportunity.id, "provider": config.AI_SUMMARY_PROVIDER, "error_type": exc.code, **timings}, sort_keys=True))
-        logger.warning("Communication summary failed workspace_id=%s opportunity_id=%s message_count=%s provider=%s duration_ms=%s error_type=%s", workspace.id, opportunity.id, len(messages), config.AI_SUMMARY_PROVIDER, int((datetime.now(timezone.utc)-started).total_seconds()*1000), exc.code)
+        logger.warning("Team summary failed workspace_id=%s opportunity_id=%s evidence_count=%s provider=%s duration_ms=%s error_type=%s", workspace.id, opportunity.id, len(bundle.items), config.AI_SUMMARY_PROVIDER, int((datetime.now(timezone.utc)-started).total_seconds()*1000), exc.code)
         raise
     row = existing or OpportunityCommunicationSummary(workspace_id=workspace.id, organization_id=opportunity.organization_id, opportunity_id=opportunity.id)
     row.status = "ready"
@@ -351,6 +386,12 @@ def generate_and_save_summary(db: Session, *, workspace: Workspace, opportunity:
     row.message_count_included = prepared.message_count_included
     row.message_count_available = prepared.message_count_available
     row.latest_message_timestamp_included = prepared.latest_message_timestamp_included
+    row.note_count_included = prepared.note_count_included
+    row.note_count_available = prepared.note_count_available
+    row.latest_note_timestamp_included = prepared.latest_note_timestamp_included
+    row.evidence_fingerprint = bundle.evidence_fingerprint
+    row.input_contract_version = bundle.contract_version
+    row.prompt_version = config.TEAM_SUMMARY_PROMPT_VERSION
     row.generated_at = datetime.now(timezone.utc)
     row.generated_by_user_id = user.id
     row.last_error = None
@@ -361,7 +402,7 @@ def generate_and_save_summary(db: Session, *, workspace: Workspace, opportunity:
     timings["database_save_ms"] = round((perf_counter() - save_started) * 1000, 2)
     timings["total_service_ms"] = round((perf_counter() - total_started) * 1000, 2)
     logger.info("communication_summary_timing %s", json.dumps({"event": "communication_summary_timing", "outcome": "ready", "workspace_id": workspace.id, "opportunity_id": opportunity.id, "provider": result.provider, "model": result.model, **timings}, sort_keys=True))
-    logger.info("Communication summary generated workspace_id=%s opportunity_id=%s message_count=%s provider=%s model=%s duration_ms=%s usage=%s", workspace.id, opportunity.id, len(messages), result.provider, result.model, int((datetime.now(timezone.utc)-started).total_seconds()*1000), result.usage)
+    logger.info("Team summary generated workspace_id=%s opportunity_id=%s evidence_count=%s provider=%s model=%s duration_ms=%s usage=%s", workspace.id, opportunity.id, len(bundle.items), result.provider, result.model, int((datetime.now(timezone.utc)-started).total_seconds()*1000), result.usage)
     return row
 
 
