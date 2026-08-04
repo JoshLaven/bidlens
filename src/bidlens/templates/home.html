@@ -7,7 +7,7 @@
   <header class="home-brief-header" data-page-header-variant="editorial">
     <span class="home-eyebrow">{{ home.snapshot_date.strftime("%b %d, %Y") }}</span>
     <h1>{{ daily_brief_first_name }}'s Daily Brief</h1>
-    <p>Here's what changed since yesterday.</p>
+    <p>Here's what's waiting for you today.</p>
   </header>
 
   {% if home.snapshot_missing %}
@@ -16,17 +16,6 @@
       <p>Your snapshot has not been generated for today.</p>
     </section>
   {% elif home.has_updates %}
-    {% if home.brief_points %}
-      <section class="home-brief-summary" aria-labelledby="daily-brief-summary">
-        <h2 id="daily-brief-summary" class="sr-only">Briefing summary</h2>
-        <ul>
-          {% for point in home.brief_points %}
-            <li>{{ point }}</li>
-          {% endfor %}
-        </ul>
-      </section>
-    {% endif %}
-
     {% if home.feed_review %}
       <section class="home-brief-feed{% if home.feed_review.complete %} home-brief-feed--complete{% endif %}" aria-label="Feed review status">
         <div class="home-brief-feed-header">
@@ -70,14 +59,27 @@
         </div>
         <div class="home-brief-subsections">
           {% for section in home.shortlist_sections %}
-            <details class="home-brief-detail-section" data-home-shortlist-section="{{ section.key }}" open>
-              <summary>
+            <section class="home-brief-detail-section" data-home-shortlist-section="{{ section.key }}">
+              <header class="home-brief-detail-heading">
+                {% if section.key == "shortlist_deadlines" %}
+                  <span class="home-brief-detail-icon home-brief-detail-icon--deadline" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false"><path d="M7 3v3m10-3v3M4.5 9h15M6 5h12a2 2 0 0 1 2 2v12H4V7a2 2 0 0 1 2-2Z"/></svg>
+                  </span>
+                {% elif section.key == "shortlist_updates" %}
+                  <span class="home-brief-detail-icon home-brief-detail-icon--update" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false"><path d="M20 7v5h-5M4 17v-5h5m10.2-.1A7.5 7.5 0 0 0 6.8 6.7L4 9m16 6-2.8 2.3A7.5 7.5 0 0 1 4.8 12"/></svg>
+                  </span>
+                {% else %}
+                  <span class="home-brief-detail-icon home-brief-detail-icon--team" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false"><path d="M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm6.5-1a2.5 2.5 0 1 0 0-5M3.5 19v-1.5A4.5 4.5 0 0 1 8 13h2a4.5 4.5 0 0 1 4.5 4.5V19m1-6a4 4 0 0 1 4 4v2"/></svg>
+                  </span>
+                {% endif %}
                 <span>{{ section.title }}</span>
                 <strong>{{ section.count }}</strong>
-              </summary>
-              <ul class="home-brief-list">
+              </header>
+              <ul class="home-brief-list" id="home-brief-panel-{{ section.key }}">
                 {% for item in section["items"] %}
-                  <li>
+                  <li data-home-panel-item{% if loop.index > 3 %} hidden{% endif %}>
                     {% if item.destination_url %}
                       <a href="{{ item.destination_url }}">
                         <strong>{{ item.title }}</strong>
@@ -92,7 +94,18 @@
                   </li>
                 {% endfor %}
               </ul>
-            </details>
+              {% if section.count > 3 %}
+                <button
+                  type="button"
+                  class="home-brief-show-more"
+                  data-home-panel-toggle
+                  data-collapsed-label="Show {{ section.count - 3 }} more ↓"
+                  data-expanded-label="Show less ↑"
+                  aria-expanded="false"
+                  aria-controls="home-brief-panel-{{ section.key }}"
+                >Show {{ section.count - 3 }} more ↓</button>
+              {% endif %}
+            </section>
           {% endfor %}
         </div>
       </section>
@@ -104,4 +117,19 @@
     </section>
   {% endif %}
 </div>
+<script>
+document.querySelectorAll('[data-home-panel-toggle]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const panel = button.closest('[data-home-shortlist-section]');
+    const expanded = button.getAttribute('aria-expanded') === 'true';
+    panel.querySelectorAll('[data-home-panel-item]').forEach((item, index) => {
+      if (index >= 3) item.hidden = expanded;
+    });
+    button.setAttribute('aria-expanded', String(!expanded));
+    button.textContent = expanded
+      ? button.dataset.collapsedLabel
+      : button.dataset.expandedLabel;
+  });
+});
+</script>
 {% endblock %}
