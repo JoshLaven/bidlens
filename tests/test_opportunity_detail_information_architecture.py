@@ -51,14 +51,19 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
         self.assertIn("{% if opportunity.salesforce_opportunity_url %}", self.sidebar_template)
         self.assertIn("View Opportunity &#8599;", self.sidebar_template)
         self.assertIn("Not linked", self.sidebar_template)
-        self.assertIn("Link Opportunity &#8594;", self.sidebar_template)
+        self.assertNotIn("Link Opportunity &#8594;", self.sidebar_template)
+        linked_branch = self.sidebar_template[
+            self.sidebar_template.index("{% if opportunity.salesforce_opportunity_url %}"):
+            self.sidebar_template.index("{% else %}", self.sidebar_template.index("{% if opportunity.salesforce_opportunity_url %}"))
+        ]
+        self.assertNotIn(">Salesforce<", linked_branch)
         self.assertIn("linkOverviewSalesforce", self.template)
         self.assertIn('aria-label="Email this opportunity"', self.sidebar_template)
         self.assertIn("openOpportunityEmail", self.template)
         self.assertIn('aria-label="Copy solicitation number"', self.sidebar_template)
 
     def test_overview_restores_team_summary_and_recent_developments_columns(self):
-        self.assertEqual(self.template.count("team_summary_card("), 1)
+        self.assertEqual(self.template.count("team_summary_card("), 0)
         self.assertIn('id="guts-heading">Get Up To Speed', self.template)
         self.assertIn('id="overview-team-summary-heading"', self.template)
         self.assertIn('id="guts-recent-heading"', self.template)
@@ -80,8 +85,10 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
         self.assertIn("overview-description-card", self.template)
         self.assertIn("overview-document-count", self.template)
 
-    def test_communication_uses_summary_and_collapsed_email_accordions(self):
-        self.assertIn("team_summary_card(opportunity", self.template)
+    def test_communication_uses_only_timeline_and_collapsed_email_accordions(self):
+        communication = self.template[self.template.index('data-detail-panel="communication"'):self.template.index('data-detail-panel="notes"')]
+        self.assertNotIn("Team Summary", communication)
+        self.assertIn('id="communication-timeline-heading"', communication)
         self.assertIn('class="communication-email-accordion"', self.template)
         self.assertNotIn('<details open class="communication-email-accordion"', self.template)
         self.assertIn("{{ message.body }}", self.template)
@@ -125,12 +132,35 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
         self.assertLess(folder_start, nav_start)
         self.assertLess(nav_start, content_start)
 
-    def test_persistent_inspector_contains_client_and_metadata(self):
-        self.assertIn("detail-context-row--client", self.sidebar_template)
-        self.assertIn(">Client<", self.sidebar_template)
-        self.assertIn('class="detail-inspector-metadata"', self.template)
-        for label in ("Created", "Source", "Last updated"):
-            self.assertIn(f">{label}<", self.template)
+    def test_persistent_inspector_uses_compact_mockup_hierarchy(self):
+        self.assertNotIn("detail-context-row--client", self.sidebar_template)
+        self.assertNotIn(">Client<", self.sidebar_template)
+        self.assertIn("Interested Teammates", self.sidebar_template)
+        self.assertIn('<span class="detail-spread-label">Team Interest</span>', self.sidebar_template)
+        self.assertIn("<strong>{{ team_interest_label }}</strong>", self.sidebar_template)
+        self.assertNotIn('class="opp-card-team-interest-count"', self.sidebar_template)
+        self.assertNotIn("detail-context-info", self.sidebar_template)
+        self.assertNotIn("detail-interest-participants", self.sidebar_template)
+        self.assertIn('class="detail-inspector-metadata"', self.sidebar_template)
+        source_position = self.sidebar_template.index('detail-context-row--source')
+        solicitation_position = self.sidebar_template.index('detail-context-row--solicitation')
+        metadata_position = self.sidebar_template.index('class="detail-inspector-metadata"')
+        self.assertLess(self.sidebar_template.index("Salesforce"), source_position)
+        self.assertLess(source_position, solicitation_position)
+        self.assertLess(solicitation_position, metadata_position)
+        identity_group = self.sidebar_template[source_position:metadata_position]
+        self.assertIn("View Source &#8599;", identity_group)
+        self.assertNotIn("View on {{ source_label", identity_group)
+        self.assertNotIn('<span class="detail-spread-label">Source</span>', identity_group)
+        self.assertNotIn('<span class="detail-spread-label">Solicitation Number</span>', identity_group)
+        self.assertIn('class="detail-context-icon detail-solicitation-icon"', identity_group)
+        self.assertIn('title="Solicitation Number"', identity_group)
+        self.assertIn('aria-label="Copy solicitation number"', identity_group)
+        metadata = self.sidebar_template[metadata_position:self.sidebar_template.index("</dl>", metadata_position)]
+        self.assertIn(">Created<", metadata)
+        self.assertIn(">Last updated<", metadata)
+        self.assertNotIn(">Source<", metadata)
+        self.assertNotIn('<strong class="detail-rail-identifier">', self.sidebar_template)
 
     def test_history_source_action_is_in_the_card_header(self):
         header_start = self.template.index('class="detail-workspace-card-header"')

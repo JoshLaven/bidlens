@@ -1,14 +1,5 @@
 {% macro opportunity_sidebar(tooltip_id) %}
 <aside class="detail-workspace-column detail-overview-rail detail-communication-rail detail-persistent-rail">
-  <div class="detail-context-row detail-context-row--client">
-    <span class="detail-context-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24"><path d="M3 21h18"></path><path d="M5 21V7l7-4 7 4v14"></path><path d="M9 21v-4h6v4"></path><path d="M9 9h.01M15 9h.01M9 13h.01M15 13h.01"></path></svg>
-    </span>
-    <span class="detail-context-copy">
-      <span class="detail-spread-label">Client</span>
-      <strong>{{ opportunity.agency_display if opportunity.agency_display is defined and opportunity.agency_display else opportunity.agency or 'Not available' }}</strong>
-    </span>
-  </div>
   {% if is_qualified %}
     <div class="detail-context-row detail-context-row--interest">
       <button type="button" class="detail-context-interest" aria-label="{{ team_interest_label }}" aria-describedby="{{ tooltip_id }}">
@@ -18,43 +9,26 @@
         <span>
           <span class="detail-spread-label">Team Interest</span>
           <strong>{{ team_interest_label }}</strong>
-          {% if user_vote == 'PURSUE' or teammate_interest_users %}
-            <span class="detail-interest-participants">
-              {% if user_vote == 'PURSUE' %}<span>You</span>{% endif %}
-              {% for teammate in teammate_interest_users %}<span>{{ teammate }}</span>{% endfor %}
-            </span>
-          {% endif %}
         </span>
       </button>
       <span id="{{ tooltip_id }}" class="opp-card-team-interest-tooltip" role="tooltip">
-        <strong>Interested</strong>
-        {% if user_vote == 'PURSUE' %}<span>You</span>{% endif %}
+        <strong>Interested Teammates</strong>
+        {% if user_vote == 'PURSUE' %}<span>{{ user.name or user.email }}</span>{% endif %}
         {% for teammate in teammate_interest_users %}<span>{{ teammate }}</span>{% endfor %}
-        {% if user_vote != 'PURSUE' and not teammate_interest_users %}<span>No team interest yet</span>{% endif %}
+        {% if user_vote != 'PURSUE' and not teammate_interest_users %}<span>No teammates have expressed interest yet.</span>{% endif %}
       </span>
     </div>
   {% endif %}
-  <div class="detail-context-row detail-context-row--solicitation">
-    <span class="detail-context-icon" aria-hidden="true">#</span>
-    <span class="detail-context-copy">
-      <span class="detail-spread-label">Solicitation Number</span>
-      {% if opportunity.solicitation_number %}
-        <strong class="detail-rail-identifier">{{ opportunity.solicitation_number }}</strong>
-        <button type="button" class="reference-copy-action" data-copy-value="{{ opportunity.solicitation_number }}" aria-label="Copy solicitation number">Copy</button>
-      {% else %}<span class="detail-spread-muted">Not available</span>{% endif %}
-    </span>
-  </div>
   <div class="detail-context-row">
     <span class="detail-context-icon" aria-hidden="true">
       <svg viewBox="0 0 24 24"><path d="M3 21h18"></path><path d="M5 21V7l7-4 7 4v14"></path><path d="M9 21v-4h6v4"></path><path d="M9 9h.01M15 9h.01M9 13h.01M15 13h.01"></path></svg>
     </span>
     <span class="detail-context-copy">
-      <span class="detail-spread-label">Salesforce</span>
       {% if opportunity.salesforce_opportunity_url %}
         <a href="{{ opportunity.salesforce_opportunity_url }}" target="_blank" rel="noreferrer">View Opportunity &#8599;</a>
       {% else %}
+        <span class="detail-spread-label">Salesforce</span>
         <span class="detail-spread-muted">Not linked</span>
-        {% if user.current_role == 'admin' %}<button type="button" class="detail-inline-action detail-salesforce-link-action" data-salesforce-link-action onclick="linkOverviewSalesforce('{{ opportunity.id }}', this)">Link Opportunity &#8594;</button>{% endif %}
       {% endif %}
     </span>
   </div>
@@ -63,5 +37,27 @@
     <span class="detail-spread-label">Email</span>
     <button type="button" class="detail-inline-action detail-rail-email-action" aria-label="Email this opportunity" title="Email this opportunity" onclick='openOpportunityEmail({ id: {{ opportunity.id|tojson }}, path: {{ request.url.path|tojson }} })'><span aria-hidden="true">&#9993;</span><span class="sr-only">Email this opportunity</span></button>
   </div>
+  <div class="detail-context-row detail-context-row--source">
+    <span class="detail-context-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path></svg></span>
+    <span class="detail-context-copy">
+      {% if opportunity.source_url or opportunity.sam_url %}<a class="detail-source-action" href="{{ opportunity.source_url or opportunity.sam_url }}" target="_blank" rel="noreferrer">View Source &#8599;</a>
+      {% else %}<span class="detail-spread-muted">{{ source_label or 'Unknown' }}</span>{% endif %}
+    </span>
+  </div>
+  <div class="detail-context-row detail-context-row--solicitation">
+    <span class="detail-context-icon detail-solicitation-icon" role="img" aria-label="Solicitation Number" title="Solicitation Number">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"></path></svg>
+    </span>
+    <span class="detail-context-copy">
+      {% if opportunity.solicitation_number %}
+        <span class="detail-rail-identifier-row"><span class="detail-rail-identifier">{{ opportunity.solicitation_number }}</span><button type="button" class="reference-copy-action" data-copy-value="{{ opportunity.solicitation_number }}" aria-label="Copy solicitation number">Copy</button></span>
+      {% else %}<span class="detail-spread-muted">Not available</span>{% endif %}
+    </span>
+  </div>
+  <dl class="detail-inspector-metadata" aria-label="Opportunity metadata">
+    {% if opportunity.created_at %}<div><dt>Created</dt><dd>{{ opportunity.created_at.strftime('%b %-d, %Y') }}</dd></div>{% endif %}
+    {% set detail_updated_at = opportunity.updated_at or opportunity.upserted_at %}
+    {% if detail_updated_at %}<div><dt>Last updated</dt><dd>{{ detail_updated_at.strftime('%b %-d, %Y') }}</dd></div>{% endif %}
+  </dl>
 </aside>
 {% endmacro %}

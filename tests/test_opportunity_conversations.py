@@ -337,15 +337,10 @@ class OpportunityConversationFoundationTests(unittest.TestCase):
     def test_detail_template_contains_foundation_sections_and_empty_states(self):
         with open("src/bidlens/templates/detail.html", encoding="utf-8") as template:
             html = template.read()
-        with open("src/bidlens/templates/_team_summary.html", encoding="utf-8") as template:
-            team_summary = template.read()
-
         self.assertIn('id="detail-tab-communication"', html)
         self.assertIn('id="detail-panel-communication"', html)
-        self.assertIn("team_summary_card", html)
-        self.assertIn("Team Summary", team_summary)
+        self.assertIn("Team Summary", html)
         self.assertIn("communication-timeline-count", html)
-        self.assertIn("communication-accordion", team_summary)
         self.assertIn("detail-tab-panel--plain", html)
         self.assertNotIn("AI synthesis", html)
         self.assertNotIn("Email history", html)

@@ -15010,3 +15010,40 @@ details[open] .accordion-summary::after {
   }
 
 }
+
+/* Overview Get Up To Speed redesign (final workspace overrides). */
+.detail-folder-workspace { grid-template-columns: minmax(180px, 200px) minmax(0, 1fr); gap: 18px; }
+.detail-folder-inspector > .detail-persistent-rail { padding: 20px 16px; border-radius: 10px; }
+.detail-folder-inspector .detail-context-row { padding: 17px 0; }
+.detail-folder-inspector .detail-inspector-metadata { gap: 12px; margin: 0; padding: 18px 0 0; border: 0; border-radius: 0; box-shadow: none; }
+.detail-folder-inspector .detail-context-row--source { padding-bottom: 8px; border-bottom: 0; }
+.detail-context-row--solicitation { align-items: flex-start; }
+.detail-folder-inspector .detail-context-row--solicitation { padding-top: 8px; }
+.detail-context-row--solicitation .detail-context-copy { width: 100%; }
+.detail-context-row--source a { font-size: .78rem; }
+.detail-source-action { white-space: nowrap; }
+.detail-rail-identifier-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.detail-overview-rail .detail-rail-identifier { color: var(--gray-600); font-size: .75rem; font-weight: 500; overflow-wrap: anywhere; }
+.guts-refresh-button,
+.guts-view-all { padding: 0; border: 0; background: transparent; color: #6240cf; font: inherit; font-size: .76rem; font-weight: 650; cursor: pointer; }
+.guts-refresh-button:hover,
+.guts-refresh-button:focus-visible,
+.guts-view-all:hover,
+.guts-view-all:focus-visible { color: #4929aa; text-decoration: underline; }
+.guts-section-grid { grid-template-columns: minmax(0, 1.35fr) minmax(260px, .8fr); }
+.overview-team-summary-text { transition: max-height 180ms ease; }
+.overview-team-summary-text.is-collapsed { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 10; }
+.guts-view-all { display: inline-flex; align-items: center; gap: 7px; margin-top: 12px; }
+.guts-section--recent li { grid-template-columns: minmax(0, 1fr) auto; gap: 16px; }
+.guts-section--recent li strong { display: block; font-size: .78rem; line-height: 1.5; }
+.guts-section--recent li small { display: block; margin-top: 3px; color: var(--gray-500); font-size: .7rem; }
+
+@media (max-width: 900px) {
+  .detail-folder-workspace { grid-template-columns: minmax(170px, 190px) minmax(0, 1fr); }
+  .guts-section-grid { grid-template-columns: minmax(0, 1.2fr) minmax(230px, .8fr); }
+}
+
+@media (max-width: 720px) {
+  .detail-folder-workspace,
+  .guts-section-grid { grid-template-columns: 1fr; }
+}

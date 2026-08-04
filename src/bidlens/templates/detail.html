@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_team_summary.html" import team_summary_card %}
 {% from "_back_navigation.html" import back_navigation %}
 {% block title %}{{ opportunity.title }} - BidLens{% endblock %}
 
@@ -69,12 +68,6 @@
     {% set communication_messages = (conversation_context or {}).get('messages', []) %}
     <div class="detail-folder-inspector">
       {{ opportunity_sidebar('workspace-team-interest-tooltip') }}
-      <dl class="detail-inspector-metadata" aria-label="Opportunity metadata">
-        {% if opportunity.created_at %}<div><dt>Created</dt><dd>{{ opportunity.created_at.strftime('%b %-d, %Y') }}</dd></div>{% endif %}
-        <div><dt>Source</dt><dd>{{ source_label or 'Unknown' }}</dd></div>
-        {% set detail_updated_at = opportunity.updated_at or opportunity.upserted_at %}
-        {% if detail_updated_at %}<div><dt>Last updated</dt><dd>{{ detail_updated_at.strftime('%b %-d, %Y') }}</dd></div>{% endif %}
-      </dl>
     </div>
     <div class="detail-folder">
       <nav class="detail-section-nav" aria-label="Opportunity sections" role="tablist">
@@ -115,7 +108,7 @@
                 <input type="hidden" name="csrf_token" value="{{ communication_summary_csrf_token }}">
                 <input type="hidden" name="return_to_context" value="{{ back_context }}">
                 <input type="hidden" name="return_tab" value="overview">
-                <button type="submit" class="btn btn-sm guts-regenerate-button">{% if communication_summary and communication_summary.status == 'ready' %}Regenerate{% else %}Generate{% endif %}</button>
+                <button type="submit" class="guts-refresh-button">{% if communication_summary and communication_summary.status == 'ready' %}Refresh{% else %}Generate{% endif %}</button>
               </form>
             </div>
           </header>
@@ -133,7 +126,10 @@
             <section class="guts-section guts-section--team-summary" aria-labelledby="overview-team-summary-heading">
               <h3 id="overview-team-summary-heading"><span aria-hidden="true">&#9786;</span> Team Summary</h3>
               {% if communication_summary and communication_summary.status == 'ready' %}
-                <p class="prewrap">{{ communication_summary.current_status }}</p>
+                <p id="overview-team-summary-text" class="prewrap overview-team-summary-text{% if communication_summary.current_status|length > 700 %} is-collapsed{% endif %}">{{ communication_summary.current_status }}</p>
+                {% if communication_summary.current_status|length > 700 %}
+                  <button type="button" class="guts-view-all" aria-expanded="false" aria-controls="overview-team-summary-text" onclick="toggleTeamSummary(this)">View full summary <span aria-hidden="true">&#8964;</span></button>
+                {% endif %}
               {% else %}
                 <p class="guts-empty">No Team Summary has been generated yet.</p>
               {% endif %}
@@ -141,7 +137,8 @@
             <section class="guts-section guts-section--recent" aria-labelledby="guts-recent-heading">
               <h3 id="guts-recent-heading"><span aria-hidden="true">&#9993;</span> Recent Developments{% if recent_developments %}<span class="guts-section-count">{{ recent_developments|length }}</span>{% endif %}</h3>
               {% if recent_developments %}
-                <ul>{% for statement in recent_developments %}<li data-guts-statement-id="{{ statement.persisted_statement_id }}" data-guts-statement-key="{{ statement.statement_key }}">{% if statement.display_date %}<time class="guts-activity-date">{{ statement.display_date }}</time>{% endif %}<span>{{ statement.text }}</span></li>{% endfor %}</ul>
+                <ul id="recent-developments-list">{% for statement in recent_developments %}<li{% if loop.index > 3 %} class="guts-development-extra" hidden{% endif %} data-guts-statement-id="{{ statement.persisted_statement_id }}" data-guts-statement-key="{{ statement.statement_key }}"><span><strong>{{ statement.text }}</strong>{% if statement.citations %}<small>Source: {{ statement.citations[0].citation_label.split(' update,')[0] }}</small>{% endif %}</span>{% if statement.display_date %}<time class="guts-activity-date">{{ statement.display_date }}</time>{% endif %}</li>{% endfor %}</ul>
+                {% if recent_developments|length > 3 %}<button type="button" class="guts-view-all" aria-expanded="false" aria-controls="recent-developments-list" onclick="toggleRecentDevelopments(this)">View all developments <span aria-hidden="true">&#8594;</span></button>{% endif %}
               {% else %}<p class="guts-empty">No recent developments identified.</p>{% endif %}
             </section>
           </div>
@@ -264,7 +261,6 @@
         {% endif %}
 
         <section class="detail-memory-section communication-workspace" aria-label="Opportunity communication history">
-          {{ team_summary_card(opportunity, communication_summary, communication_summary_stale, communication_summary_csrf_token, back_context, 'communication', request) }}
           <section class="communication-timeline" aria-labelledby="communication-timeline-heading">
             <div class="communication-timeline-header">
               <div>
@@ -631,6 +627,24 @@ function toggleOverviewDescription(button) {
   description.classList.toggle('is-collapsed', !willExpand);
   button.setAttribute('aria-expanded', willExpand ? 'true' : 'false');
   button.textContent = willExpand ? 'Show less' : 'Read more';
+}
+
+function toggleTeamSummary(button) {
+  const summary = document.getElementById(button.getAttribute('aria-controls'));
+  if (!summary) return;
+  const expanded = button.getAttribute('aria-expanded') === 'true';
+  summary.classList.toggle('is-collapsed', expanded);
+  button.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+  button.firstChild.textContent = expanded ? 'View full summary ' : 'Show less ';
+}
+
+function toggleRecentDevelopments(button) {
+  const expanded = button.getAttribute('aria-expanded') === 'true';
+  document.querySelectorAll('#recent-developments-list .guts-development-extra').forEach((item) => {
+    item.hidden = expanded;
+  });
+  button.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+  button.firstChild.textContent = expanded ? 'View all developments ' : 'Show fewer developments ';
 }
 
 </script>
