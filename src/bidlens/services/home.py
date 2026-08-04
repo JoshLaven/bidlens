@@ -307,6 +307,21 @@ def _plural(count: int, singular: str, plural: str | None = None) -> str:
     return singular if count == 1 else (plural or f"{singular}s")
 
 
+def _snapshot_item_timestamp(raw_item: Any) -> float:
+    if not isinstance(raw_item, dict):
+        return float("-inf")
+    value = raw_item.get("occurred_at")
+    if not value:
+        return float("-inf")
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return float("-inf")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
 def _daily_brief_section_item(section_key: str, raw_item: Any) -> dict[str, str]:
     if section_key in {"my_shortlist", "team_signals", "my_lanes"}:
         return _daily_brief_item(raw_item)
@@ -518,15 +533,24 @@ def get_daily_brief_home_context(
         feed_review = None
     section_defs = [
         ("shortlist_deadlines", "Upcoming Due Dates"),
-        ("team_signals", "Activity"),
-        ("shortlist_updates", "Shortlist Changes"),
+        ("shortlist_updates", "Opportunity Updates"),
+        ("team_signals", "Team Activity"),
         ("connector_issues", "Source Issues"),
     ]
     sections = []
     for key, title in section_defs:
+        raw_items = payload.get(key) or []
+        if key == "team_signals":
+            # Snapshots retain their original contents. Home presents recent
+            # teammate activity newest-first using the persisted timestamps.
+            raw_items = sorted(
+                raw_items,
+                key=_snapshot_item_timestamp,
+                reverse=True,
+            )
         items = [
             _daily_brief_section_item(key, item)
-            for item in (payload.get(key) or [])[:5]
+            for item in raw_items[:5]
         ]
         if not items:
             continue
@@ -540,7 +564,7 @@ def get_daily_brief_home_context(
     section_by_key = {section["key"]: section for section in sections}
     shortlist_sections = [
         section_by_key[key]
-        for key in ("shortlist_deadlines", "team_signals")
+        for key in ("shortlist_deadlines", "shortlist_updates", "team_signals")
         if key in section_by_key
     ]
     return {

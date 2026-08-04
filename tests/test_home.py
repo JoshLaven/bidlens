@@ -324,7 +324,8 @@ class HomeContextTests(unittest.TestCase):
         self.assertEqual([section["key"] for section in context["sections"]], ["shortlist_updates"])
         self.assertEqual(context["sections"][0]["count"], 1)
         self.assertEqual(context["sections"][0]["items"][0]["destination_url"], "/opportunity/123")
-        self.assertEqual(context["shortlist_sections"], [])
+        self.assertEqual([section["key"] for section in context["shortlist_sections"]], ["shortlist_updates"])
+        self.assertEqual(context["shortlist_sections"][0]["title"], "Opportunity Updates")
         self.assertEqual(context["actions"], [])
 
     def test_daily_brief_feed_count_updates_without_regenerating_snapshot(self):
@@ -424,6 +425,73 @@ class HomeContextTests(unittest.TestCase):
         self.assertEqual(before["brief_points"], after_cleared["brief_points"])
         self.assertEqual(before["sections"], after_one_review["sections"])
         self.assertEqual(before["sections"], after_cleared["sections"])
+
+    def test_shortlist_sections_use_fixed_order_and_team_activity_is_newest_first(self):
+        workspace = Workspace(
+            organization_id=self.org.id,
+            name="Ordered Home Workspace",
+            slug="ordered-home-workspace",
+        )
+        self.db.add(workspace)
+        self.db.flush()
+        self.db.add(DailySnapshot(
+            workspace_id=workspace.id,
+            user_id=self.admin.id,
+            snapshot_date=self.now.date(),
+            status="completed",
+            snapshot_json={
+                "summary": {},
+                "shortlist_deadlines": [{
+                    "title": "Deadline opportunity",
+                    "subtitle": "Due tomorrow",
+                    "destination_url": "/opportunity/10",
+                }],
+                "shortlist_updates": [{
+                    "title": "Updated opportunity",
+                    "subtitle": "Updated: Response Deadline",
+                    "destination_url": "/opportunity/20",
+                }],
+                "team_signals": [
+                    {
+                        "title": "Older team signal",
+                        "subtitle": "Alex showed interest",
+                        "destination_url": "/opportunity/30",
+                        "occurred_at": "2026-07-05T09:00:00",
+                    },
+                    {
+                        "title": "Newer team signal",
+                        "subtitle": "Casey showed interest",
+                        "destination_url": "/opportunity/40",
+                        "occurred_at": "2026-07-05T15:00:00",
+                    },
+                ],
+            },
+        ))
+        self.db.commit()
+
+        context = get_daily_brief_home_context(
+            self.db,
+            self.org.id,
+            self.admin.id,
+            now=self.now,
+        )
+
+        self.assertEqual(
+            [section["key"] for section in context["shortlist_sections"]],
+            ["shortlist_deadlines", "shortlist_updates", "team_signals"],
+        )
+        self.assertEqual(
+            [section["title"] for section in context["shortlist_sections"]],
+            ["Upcoming Due Dates", "Opportunity Updates", "Team Activity"],
+        )
+        self.assertEqual(
+            [item["title"] for item in context["shortlist_sections"][2]["items"]],
+            ["Newer team signal", "Older team signal"],
+        )
+        self.assertEqual(
+            context["shortlist_sections"][1]["items"][0]["subtitle"],
+            "Updated: Response Deadline",
+        )
 
     def test_daily_brief_feed_count_matches_default_feed_eligibility(self):
         today = dt.date.today()
@@ -738,7 +806,7 @@ class HomeContextTests(unittest.TestCase):
                     },
                     {
                         "key": "team_signals",
-                        "title": "Activity",
+                        "title": "Team Activity",
                         "count": 1,
                         "items": [
                             {
@@ -763,8 +831,20 @@ class HomeContextTests(unittest.TestCase):
                         ],
                     },
                     {
+                        "key": "shortlist_updates",
+                        "title": "Opportunity Updates",
+                        "count": 1,
+                        "items": [
+                            {
+                                "title": "Stored opportunity",
+                                "subtitle": "Updated: Response Deadline",
+                                "destination_url": "/opportunity/321",
+                            }
+                        ],
+                    },
+                    {
                         "key": "team_signals",
-                        "title": "Activity",
+                        "title": "Team Activity",
                         "count": 1,
                         "items": [
                             {
@@ -789,12 +869,16 @@ class HomeContextTests(unittest.TestCase):
         self.assertEqual(rendered.count("Review Feed"), 1)
         self.assertEqual(rendered.count("Review Shortlist"), 1)
         self.assertIn("Shortlist", rendered)
-        self.assertIn("<details class=\"home-brief-detail-section\" open>", rendered)
+        self.assertIn('data-home-shortlist-section="shortlist_deadlines"', rendered)
+        self.assertIn('data-home-shortlist-section="shortlist_updates"', rendered)
+        self.assertIn('data-home-shortlist-section="team_signals"', rendered)
         self.assertIn("/opportunity/654", rendered)
         self.assertIn("/opportunity/987", rendered)
         self.assertIn("Daily Brief", rendered)
         self.assertIn("Upcoming Due Dates", rendered)
-        self.assertIn("Activity", rendered)
+        self.assertIn("Opportunity Updates", rendered)
+        self.assertIn("Team Activity", rendered)
+        self.assertNotIn(">Activity<", rendered)
         self.assertNotIn(">Yesterday<", rendered)
         self.assertNotIn("Shortlist Deadlines", rendered)
         self.assertNotIn("Team Signals", rendered)

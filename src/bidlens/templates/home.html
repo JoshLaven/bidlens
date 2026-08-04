@@ -70,7 +70,7 @@
         </div>
         <div class="home-brief-subsections">
           {% for section in home.shortlist_sections %}
-            <details class="home-brief-detail-section" open>
+            <details class="home-brief-detail-section" data-home-shortlist-section="{{ section.key }}" open>
               <summary>
                 <span>{{ section.title }}</span>
                 <strong>{{ section.count }}</strong>
