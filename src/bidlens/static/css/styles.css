@@ -13523,35 +13523,14 @@ details[open] .accordion-summary::after {
   overflow-y: auto;
 }
 
-.shortlist-companion-sticky::before {
-  position: absolute;
-  top: min(50%, 280px);
-  left: 0;
-  z-index: 2;
-  width: 3px;
-  height: 72px;
-  border-radius: 0 3px 3px 0;
-  background: rgba(40, 139, 92, 0.68);
-  content: "";
-  opacity: 1;
-  pointer-events: none;
-  transform: translateY(-50%);
-  transition: opacity 170ms ease, transform 170ms ease;
-}
-
-.shortlist-companion-sticky.shortlist-companion-sticky--focus-changing::before {
-  animation: shortlist-companion-focus 170ms ease-out;
-}
-
-@keyframes shortlist-companion-focus {
-  from { opacity: 0.35; }
-  to { opacity: 1; }
-}
-
 .shortlist-activity-rail {
   min-width: 0;
   min-height: 560px;
   color: var(--gray-700);
+}
+
+.shortlist-activity-rail > .side-card-title {
+  margin-bottom: 14px;
 }
 
 .shortlist-companion-stack .calendar-drawer-shell {
@@ -13604,16 +13583,41 @@ details[open] .accordion-summary::after {
   overflow: hidden;
   margin: 0;
   color: var(--gray-500);
-  font-size: 0.84rem;
+  font-size: 0.9rem;
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.shortlist-activity-header::after {
+  display: block;
+  width: 56%;
+  height: 3px;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: rgba(40, 139, 92, 0.68);
+  content: "";
+}
+
+.shortlist-activity-rail--focus-changing .shortlist-activity-header::after {
+  animation: shortlist-activity-divider-focus 170ms ease-out;
+}
+
+@keyframes shortlist-activity-divider-focus {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
 }
 
 .shortlist-activity-section {
   margin-top: 18px;
   padding-top: 16px;
   border-top: 1px solid var(--gray-200);
+}
+
+.shortlist-activity-header + .shortlist-activity-section {
+  margin-top: 18px;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .shortlist-activity-section h3 {

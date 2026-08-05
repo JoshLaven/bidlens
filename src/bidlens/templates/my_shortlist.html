@@ -141,25 +141,25 @@
   const shortlistActivityPayload = JSON.parse(
     document.querySelector('[data-shortlist-activity-payload]')?.textContent || '{}'
   );
-  const shortlistCompanionStack = document.querySelector('.shortlist-companion-sticky');
   const shortlistActivityRail = document.querySelector('[data-shortlist-activity-rail]');
   const shortlistPreviewCards = Array.from(document.querySelectorAll('[data-shortlist-preview-card]'));
-  let shortlistCompanionFocusFrame = null;
+  let selectedShortlistPreviewId = null;
+  let shortlistDividerFocusFrame = null;
 
-  function transitionShortlistCompanionFocus() {
-    if (!shortlistCompanionStack) return;
-    shortlistCompanionStack.classList.remove('shortlist-companion-sticky--focus-changing');
-    if (shortlistCompanionFocusFrame !== null) {
-      window.cancelAnimationFrame(shortlistCompanionFocusFrame);
+  function transitionShortlistActivityDivider() {
+    if (!shortlistActivityRail) return;
+    shortlistActivityRail.classList.remove('shortlist-activity-rail--focus-changing');
+    if (shortlistDividerFocusFrame !== null) {
+      window.cancelAnimationFrame(shortlistDividerFocusFrame);
     }
-    shortlistCompanionFocusFrame = window.requestAnimationFrame(() => {
-      shortlistCompanionStack.classList.add('shortlist-companion-sticky--focus-changing');
-      shortlistCompanionFocusFrame = null;
+    shortlistDividerFocusFrame = window.requestAnimationFrame(() => {
+      shortlistActivityRail.classList.add('shortlist-activity-rail--focus-changing');
+      shortlistDividerFocusFrame = null;
     });
   }
 
-  shortlistCompanionStack?.addEventListener('animationend', () => {
-    shortlistCompanionStack.classList.remove('shortlist-companion-sticky--focus-changing');
+  shortlistActivityRail?.addEventListener('animationend', () => {
+    shortlistActivityRail.classList.remove('shortlist-activity-rail--focus-changing');
   });
 
   function activityDetail(primary, secondary = null) {
@@ -192,6 +192,9 @@
     if (!card || !shortlistActivityRail) return;
     const activity = shortlistActivityPayload[card.dataset.oppId];
     if (!activity) return;
+    const selectionChanged = selectedShortlistPreviewId !== null
+      && selectedShortlistPreviewId !== card.dataset.oppId;
+    selectedShortlistPreviewId = card.dataset.oppId;
 
     shortlistPreviewCards.forEach((candidate) => {
       const selected = candidate === card;
@@ -229,7 +232,7 @@
         ? activityDetail(note.author, [note.date, note.preview].filter(Boolean).join(' · '))
         : activityEmpty('No team notes recorded.')
     );
-    transitionShortlistCompanionFocus();
+    if (selectionChanged) transitionShortlistActivityDivider();
   }
 
   shortlistPreviewCards.forEach((card) => {

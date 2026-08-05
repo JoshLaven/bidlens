@@ -259,14 +259,17 @@ class ShortlistRecentActivityTests(unittest.TestCase):
         self.assertIn("max-height: calc(100vh - 112px)", styles)
         self.assertIn("writing-mode: horizontal-tb", styles)
         self.assertNotIn("rotate(270deg)", styles)
+        self.assertNotIn(".shortlist-companion-sticky::before", styles)
+        self.assertNotIn("transitionShortlistCompanionFocus", shortlist)
         self.assertRegex(
             styles,
-            r"\.shortlist-companion-sticky::before\s*\{[\s\S]*?top: min\(50%, 280px\);[\s\S]*?width: 3px;[\s\S]*?height: 72px;[\s\S]*?background: rgba\(40, 139, 92, 0\.68\);",
+            r"\.shortlist-activity-header::after\s*\{[\s\S]*?width: 56%;[\s\S]*?height: 3px;[\s\S]*?background: rgba\(40, 139, 92, 0\.68\);",
         )
-        self.assertIn("shortlist-companion-focus 170ms ease-out", styles)
-        self.assertIn("transitionShortlistCompanionFocus", shortlist)
-        self.assertIn("shortlist-companion-sticky--focus-changing", shortlist)
-        self.assertIn("font-size: 0.84rem", styles)
+        self.assertIn("shortlist-activity-divider-focus 170ms ease-out", styles)
+        self.assertIn("transitionShortlistActivityDivider", shortlist)
+        self.assertIn("selectedShortlistPreviewId !== card.dataset.oppId", shortlist)
+        self.assertIn("margin-bottom: 14px", styles)
+        self.assertIn("font-size: 0.9rem", styles)
         self.assertIn("text-overflow: ellipsis", styles)
 
 
