@@ -4934,34 +4934,87 @@ h2 {
 
 .personal-settings-page {
     display: grid;
-    gap: 16px;
-    max-width: 880px;
+    gap: 18px;
+    max-width: 760px;
 }
 
 .personal-settings-page--consolidated {
-    gap: 0;
+    gap: 18px;
 }
 
 .personal-settings-page--consolidated > .page-header {
-    margin-bottom: 10px;
+    margin-bottom: 0;
 }
 
 .personal-settings-page--consolidated > .alert {
-    margin: 0 0 8px;
+    margin: -2px 0 2px;
 }
 
 .personal-settings-section {
-    padding: 30px 0;
-    border-top: 1px solid var(--gray-200);
+    padding: 22px 24px;
+}
+
+.personal-settings-card {
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(17, 32, 51, 0.035);
+}
+
+.personal-settings-success {
+    padding: 12px 16px;
+    border: 0;
+    border-radius: 10px;
+    color: #146b4e;
+    background: #dff5eb;
 }
 
 .personal-settings-section-heading {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
     margin-bottom: 22px;
+}
+
+.personal-settings-section-icon {
+    display: inline-flex;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+}
+
+.personal-settings-section-icon svg {
+    width: 17px;
+    height: 17px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+}
+
+.personal-settings-section-icon--account {
+    color: var(--primary);
+    background: #ebf0fe;
+}
+
+.personal-settings-section-icon--daily-brief {
+    color: #a96f18;
+    background: #fbf1df;
+}
+
+.personal-settings-section-icon--lanes {
+    color: #187653;
+    background: #dff5eb;
 }
 
 .personal-settings-section-heading h2 {
     margin: 0 0 5px;
     font-size: 1.1rem;
+    font-weight: 650;
 }
 
 .personal-settings-section-heading p,
@@ -4999,7 +5052,9 @@ h2 {
     display: grid;
     justify-items: start;
     gap: 8px;
-    margin-top: 28px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--gray-200);
 }
 
 .personal-settings-organization-profile h3 {
@@ -5017,7 +5072,9 @@ h2 {
 .personal-settings-preference-form .bidlens-switch-field {
     display: flex;
     justify-content: space-between;
-    width: min(100%, 540px);
+    width: 100%;
+    padding-top: 14px;
+    border-top: 1px solid var(--gray-200);
 }
 
 .personal-settings-preference-form .bidlens-switch-copy small {
@@ -5035,8 +5092,8 @@ h2 {
 
 .my-lanes-settings-list {
     display: grid;
-    gap: 10px;
-    width: min(100%, 540px);
+    gap: 0;
+    width: 100%;
 }
 
 .my-lanes-settings-option {
@@ -5044,13 +5101,13 @@ h2 {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 14px;
-    padding: 13px 2px;
+    padding: 14px 0;
     border-bottom: 1px solid var(--gray-200);
     cursor: pointer;
 }
 
 .my-lanes-settings-option:has(input:checked) {
-    color: var(--primary);
+    color: inherit;
 }
 
 .my-lanes-settings-option input {
@@ -5079,20 +5136,6 @@ h2 {
     transform: translateX(18px);
 }
 
-.my-lanes-settings-state {
-    justify-self: start;
-    padding: 5px 9px;
-    color: var(--gray-600);
-    background: var(--gray-100);
-    border-radius: 999px;
-    font-size: 0.72rem;
-}
-
-.my-lanes-settings-option:has(input:checked) .my-lanes-settings-state {
-    color: var(--primary);
-    background: #eaf3ff;
-}
-
 .my-lanes-settings-copy {
     display: grid;
     gap: 3px;
@@ -5107,18 +5150,6 @@ h2 {
     font-size: 0.82rem;
 }
 
-.my-lanes-settings-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-}
-
-.my-lanes-settings-actions span {
-    color: var(--gray-500);
-    font-size: 0.84rem;
-}
-
 @media (max-width: 640px) {
     .personal-settings-account-list {
         grid-template-columns: 1fr;
@@ -5131,6 +5162,10 @@ h2 {
 
     .personal-settings-preference-form .btn {
         align-self: flex-start;
+    }
+
+    .personal-settings-section {
+        padding: 20px;
     }
 }
 

@@ -85,7 +85,7 @@ class MySettingsTests(unittest.TestCase):
         template = Path("src/bidlens/templates/my_settings.html").read_text()
         for heading in ("Account", "Daily Brief", "My Lanes"):
             self.assertIn(f">{heading}<", template)
-        self.assertNotIn("personal-settings-card", template)
+        self.assertNotIn("settings-launcher", template)
         self.assertNotIn("Notifications", template)
         self.assertNotIn("Future personal notifications", template)
         self.assertIn("daily_brief_email_opted_out", template)
@@ -93,6 +93,16 @@ class MySettingsTests(unittest.TestCase):
         self.assertIn('name="lane_ids"', template)
         self.assertIn('class="bidlens-switch"', template)
         self.assertIn('class="bidlens-switch-knob"', template)
+        self.assertEqual(template.count('onchange="this.form.requestSubmit()"'), 2)
+        self.assertEqual(template.count("personal-settings-card\""), 3)
+        for icon_class in (
+            "personal-settings-section-icon--account",
+            "personal-settings-section-icon--daily-brief",
+            "personal-settings-section-icon--lanes",
+        ):
+            self.assertIn(icon_class, template)
+        for excluded in ("Workspace statistics", "Summary", "badge"):
+            self.assertNotIn(excluded, template)
         self.assertIn(
             'href="/company-profile?org_id={{ organization.id }}" class="btn btn-outline-secondary"',
             template,
@@ -102,7 +112,8 @@ class MySettingsTests(unittest.TestCase):
         styles = Path("src/bidlens/static/css/styles.css").read_text()
         self.assertIn(".personal-settings-preference-form .bidlens-switch-field", styles)
         self.assertIn(".my-lanes-settings-list", styles)
-        self.assertGreaterEqual(styles.count("width: min(100%, 540px);"), 2)
+        self.assertIn(".personal-settings-card", styles)
+        self.assertIn("max-width: 760px;", styles)
 
     def test_lane_save_returns_to_consolidated_page(self):
         with patch.object(settings, "require_user", return_value=self.user):
