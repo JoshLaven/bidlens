@@ -56,7 +56,7 @@
 <script type="application/json" data-shortlist-activity-payload>{{ shortlist_recent_activity|tojson }}</script>
 {% endblock %}
 {% block work_sidebar_content %}
-<div class="shortlist-companion-stack">
+<div class="shortlist-companion-stack shortlist-companion-sticky">
 <div class="side-card shortlist-activity-rail" data-shortlist-activity-rail aria-label="Recent activity">
   <div class="side-card-title">Recent Activity</div>
   <div class="shortlist-activity-empty" data-shortlist-activity-empty {% if opportunities %}hidden{% endif %}>

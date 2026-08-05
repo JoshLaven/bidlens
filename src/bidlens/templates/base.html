@@ -205,7 +205,7 @@
         </div>
 
         {% if show_work_sidebar %}
-          <aside class="layout-side work-sidebar" data-work-sidebar>
+          <aside class="layout-side work-sidebar{% if active_page == 'my_shortlist' %} work-sidebar--shortlist{% endif %}" data-work-sidebar>
             <button
               type="button"
               class="work-sidebar-toggle"

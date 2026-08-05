@@ -206,13 +206,14 @@ class ShortlistRecentActivityTests(unittest.TestCase):
         self.assertIn("data-shortlist-activity-rail", shortlist)
         self.assertIn('class="side-card shortlist-activity-rail"', shortlist)
         self.assertIn('class="side-card-title">Recent Activity</div>', shortlist)
-        self.assertIn('class="shortlist-companion-stack"', shortlist)
+        self.assertIn('class="shortlist-companion-stack shortlist-companion-sticky"', shortlist)
         self.assertIn("mouseenter", shortlist)
         self.assertIn("focusin", shortlist)
         self.assertIn("selectShortlistPreview(shortlistPreviewCards[0])", shortlist)
         self.assertIn("aria-current", shortlist)
         self.assertIn("view == 'my_shortlist'", card)
         self.assertIn("active_page in ['feed', 'my_shortlist']", base)
+        self.assertIn("work-sidebar--shortlist", base)
         self.assertIn("{% block work_sidebar_content %}", base)
         self.assertIn("{% block work_sidebar_content %}", shortlist)
         self.assertIn("data-work-sidebar-toggle", base)
@@ -242,9 +243,12 @@ class ShortlistRecentActivityTests(unittest.TestCase):
         )
         self.assertRegex(
             styles,
-            r"\.shortlist-companion-stack\s*\{[\s\S]*?position: sticky;[\s\S]*?top: 96px;",
+            r"\.shortlist-companion-sticky\s*\{[\s\S]*?position: sticky;[\s\S]*?top: 96px;",
         )
+        self.assertRegex(styles, r"\.work-sidebar--shortlist\s*\{\s*align-self: stretch;")
         self.assertIn("max-height: calc(100vh - 112px)", styles)
+        self.assertIn("writing-mode: horizontal-tb", styles)
+        self.assertNotIn("rotate(270deg)", styles)
 
 
 if __name__ == "__main__":

@@ -13504,7 +13504,11 @@ details[open] .accordion-summary::after {
   outline-offset: 2px;
 }
 
-.shortlist-companion-stack {
+.work-sidebar--shortlist {
+  align-self: stretch;
+}
+
+.shortlist-companion-sticky {
   position: sticky;
   top: 96px;
   max-height: calc(100vh - 112px);
@@ -13520,21 +13524,40 @@ details[open] .accordion-summary::after {
 
 .shortlist-companion-stack .calendar-drawer-shell {
   display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
+  margin-top: 0;
 }
 
 .shortlist-companion-stack .calendar-drawer-tab {
-  position: relative;
+  position: static;
   top: auto;
   right: auto;
-  flex: 0 0 auto;
+  z-index: auto;
+  width: 100%;
+  min-height: 40px;
+  flex-direction: row;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid rgba(176, 191, 208, 0.52);
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: none;
 }
 
-.shortlist-companion-stack .calendar-drawer-shell--open .calendar-drawer-tab {
-  position: fixed;
-  top: 46%;
-  right: var(--calendar-drawer-width);
+.shortlist-companion-stack .calendar-drawer-tab::before {
+  display: none;
+}
+
+.shortlist-companion-stack .calendar-drawer-tab svg {
+  width: 17px;
+  height: 17px;
+}
+
+.shortlist-companion-stack .calendar-drawer-tab span:last-child {
+  color: var(--gray-700);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  writing-mode: horizontal-tb;
 }
 
 .shortlist-activity-empty h2,
@@ -13598,7 +13621,11 @@ details[open] .accordion-summary::after {
 }
 
 @media (max-width: 960px) {
-  .shortlist-companion-stack {
+  .work-sidebar--shortlist {
+    align-self: auto;
+  }
+
+  .shortlist-companion-sticky {
     position: static;
     max-height: none;
     overflow: visible;
@@ -13609,19 +13636,7 @@ details[open] .accordion-summary::after {
   }
 
   .shortlist-companion-stack .calendar-drawer-shell {
-    display: block;
     margin-top: 0;
-  }
-
-  .shortlist-companion-stack .calendar-drawer-tab,
-  .shortlist-companion-stack .calendar-drawer-shell--open .calendar-drawer-tab {
-    position: fixed;
-    top: 46%;
-    right: 0;
-  }
-
-  .shortlist-companion-stack .calendar-drawer-shell--open .calendar-drawer-tab {
-    right: var(--calendar-drawer-width);
   }
 }
 
