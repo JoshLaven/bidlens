@@ -22,6 +22,7 @@
   class="opp-card{% if view != 'archive' %}{% if opp.user_vote == 'PURSUE' %} opp-card--pursue{% elif opp.user_vote == 'PASS' %} opp-card--pass{% endif %}{% endif %}{% if view == 'archive' %} opp-card--archived{% endif %}"
   data-opp-id="{{ opp.id }}"
   data-card-view="{{ view }}"
+  {% if view == 'my_shortlist' %}data-shortlist-preview-card tabindex="0"{% endif %}
   data-shortlist-title="{{ opp.title }}"
   data-response-deadline="{{ opp.response_deadline.isoformat() if opp.response_deadline else '' }}"
   data-shortlist-due-label="{% if opp.response_deadline and opp.days_until_due is defined %}Due {{ opp.response_deadline.strftime('%b') }} {{ opp.response_deadline.day }} ({{ opp.days_until_due }}D){% elif opp.response_deadline %}Due {{ opp.response_deadline.strftime('%b') }} {{ opp.response_deadline.day }}{% else %}No deadline{% endif %}"
@@ -409,27 +410,7 @@
       </div>
 
       <div class="opp-detail-actions">
-        {% if view == 'triage' %}
-          <a href="/opportunity/{{ opp.id }}?return_to={{ return_context }}" class="details-link">Details &rarr;</a>
-        {% elif view == 'user_archive' %}
-          {# Restore is the only archive workflow action. #}
-        {% elif view != 'archive' %}
-          <form method="POST" action="/opportunity/{{ opp.id }}/watch" style="display:inline;">
-            <button class="btn btn-sm {{ 'btn-success' if opp.watched else 'btn-outline-secondary' }}" type="submit" title="{{ 'Unfollow' if opp.watched else 'Follow' }}">
-              {% if opp.watched %}&#9733; Following{% else %}&#9734; Follow{% endif %}
-            </button>
-          </form>
-          {% if view in ['shortlist', 'my_shortlist'] %}
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="showArchiveModal('{{ opp.id }}')" title="Archive">Archive</button>
-          {% endif %}
-        {% else %}
-          {% if opp.watched %}
-            <span class="opp-detail-badge">&#9733; Following</span>
-          {% endif %}
-        {% endif %}
-        {% if view != 'triage' %}
-          <a href="/opportunity/{{ opp.id }}?return_to={{ return_context }}" class="details-link">Details &rarr;</a>
-        {% endif %}
+        <a href="/opportunity/{{ opp.id }}?return_to={{ return_context }}" class="details-link">Details &rarr;</a>
       </div>
 
     </div>

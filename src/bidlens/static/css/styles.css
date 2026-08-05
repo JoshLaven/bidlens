@@ -10007,11 +10007,6 @@ details[open] .accordion-summary::after {
   margin-left: auto;
 }
 
-.opp-detail-badge {
-  font-size: 0.75rem;
-  color: var(--gray-500);
-}
-
 @media (max-width: 720px) {
   .source-config-header {
     display: none;
@@ -13497,6 +13492,81 @@ details[open] .accordion-summary::after {
 .opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"]):is(:hover, :focus-within)::before {
   opacity: 1;
   transform: scaleY(1);
+}
+
+.opp-card[data-card-view="my_shortlist"].opp-card--activity-selected::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+.opp-card[data-shortlist-preview-card]:focus-visible {
+  outline: 2px solid rgba(47, 111, 206, 0.35);
+  outline-offset: 2px;
+}
+
+.shortlist-activity-rail {
+  min-width: 0;
+  color: var(--gray-700);
+}
+
+.shortlist-activity-empty h2,
+.shortlist-activity-header h2 {
+  margin: 0;
+  color: var(--gray-900);
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.shortlist-activity-empty p,
+.shortlist-activity-header p,
+.shortlist-activity-category-empty {
+  margin: 5px 0 0;
+  color: var(--gray-500);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.shortlist-activity-due {
+  margin-top: 8px !important;
+}
+
+.shortlist-activity-header .details-link {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 0.78rem;
+}
+
+.shortlist-activity-section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gray-200);
+}
+
+.shortlist-activity-section h3 {
+  margin: 0 0 9px;
+  color: var(--gray-700);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.shortlist-activity-item {
+  display: grid;
+  gap: 4px;
+}
+
+.shortlist-activity-item strong {
+  color: var(--gray-800);
+  font-size: 0.8rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.shortlist-activity-item span {
+  color: var(--gray-500);
+  font-size: 0.73rem;
+  line-height: 1.45;
 }
 
 .opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"], [data-card-view="user_archive"]) {

@@ -90,6 +90,7 @@ from ..services.opportunity_outcomes import (
 )
 from ..services.platform import pre_live_admin_setup_url
 from ..services.grants_gov_documents import grants_gov_document_metadata
+from ..services.shortlist_activity import shortlist_recent_activity
 from ..services.salesforce import SalesforceService
 from ..services.salesforce_promotion import (
     ensure_opportunity_in_salesforce,
@@ -1670,11 +1671,17 @@ async def my_shortlist(
     rows = query.offset(offset).limit(FEED_PAGE_SIZE).all()
 
     opps = _enrich_opps(rows, db, user)
+    recent_activity = shortlist_recent_activity(
+        db,
+        organization_id=_user_org_id(user),
+        opportunities=opps,
+    )
 
     return templates.TemplateResponse("my_shortlist.html", {
         "request": request,
         "user": user,
         "opportunities": opps,
+        "shortlist_recent_activity": recent_activity,
         "calendar_items": calendar_items,
         "current_tab": tab,
         "active_page": "my_shortlist",

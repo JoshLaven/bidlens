@@ -53,7 +53,36 @@
     <p>Click <strong>Interested</strong> on an opportunity to add it here right away.</p>
 </div>
 {{ queue_pagination('/my-shortlist', page, total_pages, result_count, page_size, sort, direction, q, none, org_id_param, lane_id, stages_value) }}
+<script type="application/json" data-shortlist-activity-payload>{{ shortlist_recent_activity|tojson }}</script>
 {{ calendar_drawer(calendar_items, 'shortlist-calendar', 'Shortlisted Opportunities') }}
+{% endblock %}
+{% block work_sidebar_content %}
+<div class="side-card shortlist-activity-rail" data-shortlist-activity-rail aria-label="Recent activity">
+  <div class="side-card-title">Recent Activity</div>
+  <div class="shortlist-activity-empty" data-shortlist-activity-empty {% if opportunities %}hidden{% endif %}>
+    <p>No shortlisted opportunities to preview.</p>
+  </div>
+  <div data-shortlist-activity-content {% if not opportunities %}hidden{% endif %}>
+    <header class="shortlist-activity-header">
+      <h2 data-activity-title></h2>
+      <p data-activity-agency></p>
+      <p class="shortlist-activity-due" data-activity-due></p>
+      <a class="details-link" data-activity-url href="#">Open Opportunity Folder &rarr;</a>
+    </header>
+    <section class="shortlist-activity-section" aria-labelledby="shortlist-official-heading">
+      <h3 id="shortlist-official-heading">Most Recent Official Update</h3>
+      <div data-activity-official></div>
+    </section>
+    <section class="shortlist-activity-section" aria-labelledby="shortlist-communication-heading">
+      <h3 id="shortlist-communication-heading">Most Recent Communication</h3>
+      <div data-activity-communication></div>
+    </section>
+    <section class="shortlist-activity-section" aria-labelledby="shortlist-note-heading">
+      <h3 id="shortlist-note-heading">Most Recent Note</h3>
+      <div data-activity-note></div>
+    </section>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 {{ super() }}
@@ -108,6 +137,89 @@
     archiveShortlistOpportunities();
   });
   updateShortlistBulkActions();
+
+  const shortlistActivityPayload = JSON.parse(
+    document.querySelector('[data-shortlist-activity-payload]')?.textContent || '{}'
+  );
+  const shortlistActivityRail = document.querySelector('[data-shortlist-activity-rail]');
+  const shortlistPreviewCards = Array.from(document.querySelectorAll('[data-shortlist-preview-card]'));
+
+  function activityDetail(primary, secondary = null) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'shortlist-activity-item';
+    const primaryElement = document.createElement('strong');
+    primaryElement.textContent = primary;
+    wrapper.append(primaryElement);
+    if (secondary) {
+      const secondaryElement = document.createElement('span');
+      secondaryElement.textContent = secondary;
+      wrapper.append(secondaryElement);
+    }
+    return wrapper;
+  }
+
+  function activityEmpty(message) {
+    const element = document.createElement('p');
+    element.className = 'shortlist-activity-category-empty';
+    element.textContent = message;
+    return element;
+  }
+
+  function replaceActivity(targetSelector, content) {
+    const target = shortlistActivityRail?.querySelector(targetSelector);
+    if (target) target.replaceChildren(content);
+  }
+
+  function selectShortlistPreview(card) {
+    if (!card || !shortlistActivityRail) return;
+    const activity = shortlistActivityPayload[card.dataset.oppId];
+    if (!activity) return;
+
+    shortlistPreviewCards.forEach((candidate) => {
+      const selected = candidate === card;
+      candidate.classList.toggle('opp-card--activity-selected', selected);
+      candidate.setAttribute('aria-current', selected ? 'true' : 'false');
+    });
+
+    const opportunity = activity.opportunity;
+    shortlistActivityRail.querySelector('[data-activity-title]').textContent = opportunity.title;
+    shortlistActivityRail.querySelector('[data-activity-agency]').textContent = opportunity.agency || '';
+    shortlistActivityRail.querySelector('[data-activity-due]').textContent = opportunity.due_date
+      ? `Due ${opportunity.due_date}`
+      : 'No response deadline';
+    shortlistActivityRail.querySelector('[data-activity-url]').href = opportunity.url;
+
+    const official = activity.official_update;
+    replaceActivity(
+      '[data-activity-official]',
+      official
+        ? activityDetail(official.label, [official.date, official.source].filter(Boolean).join(' · '))
+        : activityEmpty('No official updates recorded.')
+    );
+    const communication = activity.communication;
+    replaceActivity(
+      '[data-activity-communication]',
+      communication
+        ? activityDetail(
+            `${communication.type} · ${communication.person}`,
+            [communication.date, communication.preview].filter(Boolean).join(' · ')
+          )
+        : activityEmpty('No communications recorded.')
+    );
+    const note = activity.note;
+    replaceActivity(
+      '[data-activity-note]',
+      note
+        ? activityDetail(note.author, [note.date, note.preview].filter(Boolean).join(' · '))
+        : activityEmpty('No team notes recorded.')
+    );
+  }
+
+  shortlistPreviewCards.forEach((card) => {
+    card.addEventListener('mouseenter', () => selectShortlistPreview(card));
+    card.addEventListener('focusin', () => selectShortlistPreview(card));
+  });
+  selectShortlistPreview(shortlistPreviewCards[0]);
 </script>
 {% endblock %}
 {% include "_archive_modal.html" %}

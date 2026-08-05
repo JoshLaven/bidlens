@@ -194,7 +194,8 @@
         </aside>
       {% endif %}
       <main>
-      {% set show_work_sidebar = user and active_page == 'feed' %}
+      {% set show_work_sidebar = user and active_page in ['feed', 'my_shortlist'] %}
+      {% set work_sidebar_name = 'Recent Activity' if active_page == 'my_shortlist' else 'My Shortlist' %}
       <div class="container layout{% if not show_work_sidebar %} layout--configuration{% endif %}"{% if show_work_sidebar %} data-work-layout{% endif %}>
         <div class="layout-main">
           {% if message %}
@@ -209,7 +210,7 @@
               type="button"
               class="work-sidebar-toggle"
               data-work-sidebar-toggle
-              aria-label="Collapse My Shortlist sidebar"
+              aria-label="Collapse {{ work_sidebar_name }} sidebar"
               aria-expanded="true"
               title="Collapse sidebar"
             >
@@ -222,6 +223,7 @@
               </span>
             </button>
             <div class="work-sidebar-content">
+              {% block work_sidebar_content %}
               <div class="side-card">
                 <div class="side-card-title"><a href="/my-shortlist{{ nav_org_q }}" class="side-card-link">My Shortlist</a></div>
                 <div id="sidebar-my-shortlisted-body">
@@ -245,6 +247,7 @@
                 {% endif %}
                 </div>
               </div>
+              {% endblock %}
             </div>
           </aside>
         {% endif %}
@@ -334,11 +337,12 @@
       const storageKey = 'bidlens.workSidebarCollapsed';
 
       function applyState(collapsed) {
+        const sidebarName = {{ work_sidebar_name|default('companion')|tojson }};
         document.documentElement.classList.toggle('work-sidebar-is-collapsed', collapsed);
         toggle.setAttribute('aria-expanded', String(!collapsed));
         toggle.setAttribute(
           'aria-label',
-          collapsed ? 'Expand My Shortlist sidebar' : 'Collapse My Shortlist sidebar'
+          `${collapsed ? 'Expand' : 'Collapse'} ${sidebarName} sidebar`
         );
         toggle.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
       }

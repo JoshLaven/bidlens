@@ -75,6 +75,13 @@ class OpportunityCardMetadataTests(unittest.TestCase):
         )
         self.assertNotIn("<span class=\"opp-detail-value\">RFP</span>", html)
 
+    def test_expanded_footer_contains_details_without_legacy_actions(self):
+        footer = self.details.split('<div class="opp-detail-actions">', 1)[1].split("</div>", 1)[0]
+        self.assertIn("Details &rarr;", footer)
+        self.assertNotIn("Follow", footer)
+        self.assertNotIn("showArchiveModal", footer)
+        self.assertNotIn('/watch', footer)
+
     def test_lane_is_rendered_only_inline_without_redundant_matched_lanes_section(self):
         html = self._render_card(
             "Lane opportunity",
