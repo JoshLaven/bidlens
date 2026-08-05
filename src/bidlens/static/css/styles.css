@@ -12109,7 +12109,7 @@ details[open] .accordion-summary::after {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 102px;
+  min-width: 50px;
   padding: 7px 15px;
   border-radius: 999px;
   background: #fff;

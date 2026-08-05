@@ -23,7 +23,7 @@ VIEW_BY_OPTIONS = {
     "account_type": "Account Type",
     "naics": "NAICS",
 }
-METRIC_OPTIONS = {"count": "Count", "conversion": "Conversion %"}
+METRIC_OPTIONS = {"count": "Count", "conversion": "%"}
 SORT_COLUMNS = {"dimension", "imported", "qualified", "shortlisted"}
 PAGE_SIZE = 10
 
