@@ -206,6 +206,7 @@ class ShortlistRecentActivityTests(unittest.TestCase):
         self.assertIn("data-shortlist-activity-rail", shortlist)
         self.assertIn('class="side-card shortlist-activity-rail"', shortlist)
         self.assertIn('class="side-card-title">Recent Activity</div>', shortlist)
+        self.assertIn('class="shortlist-companion-stack"', shortlist)
         self.assertIn("mouseenter", shortlist)
         self.assertIn("focusin", shortlist)
         self.assertIn("selectShortlistPreview(shortlistPreviewCards[0])", shortlist)
@@ -234,12 +235,16 @@ class ShortlistRecentActivityTests(unittest.TestCase):
         self.assertIn('class="side-card-title"><a href="/my-shortlist', base)
         self.assertIn("calendar_drawer(calendar_items", shortlist)
         self.assertIn("data-calendar-drawer-toggle", Path("src/bidlens/templates/_calendar_drawer.html").read_text())
-        self.assertIn("positionShortlistCalendarTab", shortlist)
-        self.assertIn("shortlistActivityRail.getBoundingClientRect().bottom", shortlist)
-        self.assertIn("Math.max(stickyTop", shortlist)
-        self.assertIn("work-sidebar-is-collapsed", shortlist)
-        self.assertIn("--shortlist-calendar-sticky-top: 96px", styles)
-        self.assertIn("--shortlist-calendar-gap: 12px", styles)
+        self.assertNotIn("positionShortlistCalendarTab", shortlist)
+        self.assertRegex(
+            shortlist,
+            r"shortlist-companion-stack[\s\S]*shortlist-activity-rail[\s\S]*calendar_drawer",
+        )
+        self.assertRegex(
+            styles,
+            r"\.shortlist-companion-stack\s*\{[\s\S]*?position: sticky;[\s\S]*?top: 96px;",
+        )
+        self.assertIn("max-height: calc(100vh - 112px)", styles)
 
 
 if __name__ == "__main__":

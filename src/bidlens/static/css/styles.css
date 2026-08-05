@@ -13504,12 +13504,37 @@ details[open] .accordion-summary::after {
   outline-offset: 2px;
 }
 
+.shortlist-companion-stack {
+  position: sticky;
+  top: 96px;
+  max-height: calc(100vh - 112px);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .shortlist-activity-rail {
-  --shortlist-calendar-sticky-top: 96px;
-  --shortlist-calendar-gap: 12px;
   min-width: 0;
   min-height: 560px;
   color: var(--gray-700);
+}
+
+.shortlist-companion-stack .calendar-drawer-shell {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.shortlist-companion-stack .calendar-drawer-tab {
+  position: relative;
+  top: auto;
+  right: auto;
+  flex: 0 0 auto;
+}
+
+.shortlist-companion-stack .calendar-drawer-shell--open .calendar-drawer-tab {
+  position: fixed;
+  top: 46%;
+  right: var(--calendar-drawer-width);
 }
 
 .shortlist-activity-empty h2,
@@ -13573,8 +13598,30 @@ details[open] .accordion-summary::after {
 }
 
 @media (max-width: 960px) {
+  .shortlist-companion-stack {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
   .shortlist-activity-rail {
     min-height: 0;
+  }
+
+  .shortlist-companion-stack .calendar-drawer-shell {
+    display: block;
+    margin-top: 0;
+  }
+
+  .shortlist-companion-stack .calendar-drawer-tab,
+  .shortlist-companion-stack .calendar-drawer-shell--open .calendar-drawer-tab {
+    position: fixed;
+    top: 46%;
+    right: 0;
+  }
+
+  .shortlist-companion-stack .calendar-drawer-shell--open .calendar-drawer-tab {
+    right: var(--calendar-drawer-width);
   }
 }
 
