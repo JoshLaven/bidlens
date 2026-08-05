@@ -31,6 +31,10 @@ from .services.pursuit_lanes import refresh_opportunity_lane_matches
 SOURCE = "grants_gov"
 logger = logging.getLogger(__name__)
 
+_GRANTS_FORECAST_VALUES = {"forecast", "forecasted", "forecasted opportunity"}
+_GRANTS_RFI_VALUES = {"rfi", "request for information"}
+_GRANTS_RFP_VALUES = {"rfp", "request for proposal", "request for proposals"}
+
 
 def _clean(value: Any) -> str | None:
     if value is None:
@@ -96,6 +100,28 @@ def _parse_date(value: Any) -> dt.date | None:
         return dt.datetime.fromisoformat(text.replace("Z", "+00:00")).date()
     except ValueError:
         return None
+
+
+def _grants_opportunity_type(record: dict[str, Any]) -> tuple[str, str | None]:
+    """Map Grants.gov's structured document/status fields without inventing RFP."""
+    document_type = _clean(
+        _first_value(record, "docType", "documentType", "document_type", "postingType", "posting_type")
+    )
+    source_status = _clean(
+        _first_value(record, "oppStatus", "opportunityStatus", "opportunity_status", "ost", "status")
+    )
+    normalized_values = {
+        value.casefold() for value in (document_type, source_status) if value
+    }
+    if normalized_values & _GRANTS_FORECAST_VALUES:
+        return "Forecast", source_status or document_type
+    if normalized_values & _GRANTS_RFI_VALUES:
+        return "RFI", source_status or document_type
+    if normalized_values & _GRANTS_RFP_VALUES:
+        return "RFP", source_status or document_type
+    if "synopsis" in normalized_values or "posted" in normalized_values:
+        return "Funding Opportunity", source_status or document_type
+    return "Grant", source_status or document_type
 
 
 def _extract_records(payload: Any) -> list[dict[str, Any]]:
@@ -381,6 +407,7 @@ def normalize_grants_gov_record(record: dict[str, Any]) -> tuple[dict[str, Any] 
     if not agency:
         return None, "missing agency"
 
+    opportunity_type, source_stage = _grants_opportunity_type(record)
     date_fallback = posted_date or response_deadline or dt.date.today()
     return {
         "source": SOURCE,
@@ -392,7 +419,8 @@ def normalize_grants_gov_record(record: dict[str, Any]) -> tuple[dict[str, Any] 
         "govwin_staging_id": None,
         "title": title,
         "agency": agency,
-        "opportunity_type": "Grant",
+        "opportunity_type": opportunity_type,
+        "source_stage": source_stage,
         "posted_date": posted_date or date_fallback,
         "response_deadline": response_deadline or date_fallback,
         "naics": None,
@@ -502,6 +530,8 @@ def enrich_grants_gov_opportunity_detail(db: Session, opportunity: Opportunity) 
         "source_url",
         "posted_date",
         "response_deadline",
+        "opportunity_type",
+        "source_stage",
     )
     monitor_result = apply_source_update(
         db,

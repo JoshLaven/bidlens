@@ -66,6 +66,15 @@ class OpportunityCardMetadataTests(unittest.TestCase):
         self.assertNotIn("opportunity-type-pill", self.collapsed)
         self.assertNotIn("source-pill", self.collapsed)
 
+    def test_missing_canonical_stage_is_not_rendered_as_rfp(self):
+        html = self._render_card(
+            "Unclassified Grants.gov opportunity",
+            view="user_archive",
+            source="grants_gov",
+            normalized_opportunity_type=None,
+        )
+        self.assertNotIn("<span class=\"opp-detail-value\">RFP</span>", html)
+
     def test_lane_is_rendered_only_inline_without_redundant_matched_lanes_section(self):
         html = self._render_card(
             "Lane opportunity",

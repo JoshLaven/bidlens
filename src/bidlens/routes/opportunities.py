@@ -398,15 +398,23 @@ def _stage_conditions():
     )
     normalized_raw_type = func.lower(func.coalesce(Opportunity.opportunity_type, ""))
     is_govwin = source.in_(("govwin_export", "govwin_api"))
+    is_grants = source.in_(("grants_gov", "grants.gov"))
     is_forecast = or_(
         and_(is_govwin, raw_source_stage == "forecast pre-rfp"),
         normalized_raw_type == "forecast",
+        and_(is_grants, raw_source_stage.in_(("forecast", "forecasted", "forecasted opportunity"))),
     )
     is_rfi = or_(
         and_(is_govwin, raw_source_stage == "pre-rfp"),
         *(normalized_raw_type.like(f"%{indicator}%") for indicator in RFI_TYPE_INDICATORS),
     )
-    return is_forecast, is_rfi
+    is_unclassified_grants = and_(
+        is_grants,
+        ~is_forecast,
+        ~is_rfi,
+        ~normalized_raw_type.in_(("rfp", "request for proposal", "request for proposals")),
+    )
+    return is_forecast, is_rfi, is_unclassified_grants
 
 
 def _normalize_stage_filters(stages=None) -> tuple[str, ...]:
@@ -434,11 +442,11 @@ def _apply_stage_filter(query, stages=None):
         return query
     if not selected:
         return query.filter(Opportunity.id.is_(None))
-    is_forecast, is_rfi = _stage_conditions()
+    is_forecast, is_rfi, is_unclassified_grants = _stage_conditions()
     stage_conditions = {
         "Forecast": is_forecast,
         "RFI": and_(is_rfi, ~is_forecast),
-        "RFP": and_(~is_forecast, ~is_rfi),
+        "RFP": and_(~is_forecast, ~is_rfi, ~is_unclassified_grants),
     }
     return query.filter(or_(*(stage_conditions[stage] for stage in selected)))
 

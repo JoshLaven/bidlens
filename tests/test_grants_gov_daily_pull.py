@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from bidlens.database import Base
 from bidlens.grants_gov_client import GrantsGovApiError, search_recent_opportunities
-from bidlens.ingest_grants_gov import ingest_grants_gov
+from bidlens.ingest_grants_gov import ingest_grants_gov, normalize_grants_gov_record
 from bidlens.models import Opportunity, OpportunityHistoryEvent, Organization
 from bidlens.routes import opportunities
 from bidlens.services.opportunity_history import (
@@ -38,6 +38,37 @@ class GrantsGovDailyPullTests(unittest.TestCase):
             "closeDate": "08/05/2026",
             "oppStatus": "posted",
         }
+
+    def test_forecast_payload_uses_structured_document_type(self):
+        normalized, reason = normalize_grants_gov_record({
+            "id": "363396",
+            "opportunityNumber": "RUS-PART-2026",
+            "opportunityTitle": "Forecasted rural partnership opportunity",
+            "agencyName": "Rural Utilities Service",
+            "openDate": "08/01/2026",
+            "closeDate": "09/01/2026",
+            "docType": "forecast",
+            "oppStatus": "forecasted",
+            "ost": "FORECASTED",
+            "forecast": {"version": 1},
+        })
+
+        self.assertIsNone(reason)
+        self.assertEqual(normalized["opportunity_type"], "Forecast")
+        self.assertEqual(normalized["source_stage"], "forecasted")
+
+    def test_unknown_grants_type_does_not_become_rfp(self):
+        normalized, reason = normalize_grants_gov_record({
+            "id": "unknown-type",
+            "title": "Unclassified grant",
+            "agencyName": "Test Agency",
+            "openDate": "08/01/2026",
+        })
+
+        self.assertIsNone(reason)
+        self.assertEqual(normalized["opportunity_type"], "Grant")
+        self.assertIsNone(normalized["source_stage"])
+        self.assertIsNone(opportunities._normalized_opportunity_type(Opportunity(**normalized)))
 
     @patch("bidlens.grants_gov_client._post_search")
     def test_search_uses_seven_day_posted_date_window_and_record_offset(self, post_search):
@@ -162,6 +193,27 @@ class GrantsGovDailyPullTests(unittest.TestCase):
         self.assertEqual(second["updated"], 1)
         self.assertEqual(self.db.query(Opportunity).count(), 1)
         self.assertEqual(self.db.query(Opportunity).one().title, "Revised title")
+
+    @patch("bidlens.ingest_grants_gov.fetch_opportunity_detail", return_value={})
+    @patch("bidlens.ingest_grants_gov.search_recent_opportunities")
+    def test_reimport_corrects_existing_grant_to_forecast(self, search, _fetch_detail):
+        search.return_value = {
+            "data": {"hitCount": 1, "oppHits": [self._record("forecast-update", "Forecast grant")]}
+        }
+        ingest_grants_gov(self.db, organization_id=self.org.id)
+        existing = self.db.query(Opportunity).one()
+        self.assertEqual(existing.opportunity_type, "Funding Opportunity")
+
+        forecast = self._record("forecast-update", "Forecast grant")
+        forecast.update({"docType": "forecast", "oppStatus": "forecasted"})
+        search.return_value = {"data": {"hitCount": 1, "oppHits": [forecast]}}
+        result = ingest_grants_gov(self.db, organization_id=self.org.id)
+
+        self.db.refresh(existing)
+        self.assertEqual(result["updated"], 1)
+        self.assertEqual(existing.opportunity_type, "Forecast")
+        self.assertEqual(existing.source_stage, "forecasted")
+        self.assertEqual(self.db.query(Opportunity).count(), 1)
 
     @patch("bidlens.ingest_grants_gov.fetch_opportunity_detail")
     @patch("bidlens.ingest_grants_gov.search_recent_opportunities")

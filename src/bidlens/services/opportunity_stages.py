@@ -38,7 +38,7 @@ def normalize_display_stage(
     source: str | None,
     opportunity_type: str | None,
     source_stage: str | None = None,
-) -> str:
+) -> str | None:
     """Return BidLens' compact discovery stage without changing source fidelity."""
     source_value = clean_stage(source).casefold()
     raw_stage = clean_stage(source_stage) or clean_stage(opportunity_type)
@@ -48,6 +48,19 @@ def normalize_display_stage(
             return mapped
 
     normalized_type = clean_stage(opportunity_type).casefold()
+    normalized_source_stage = clean_stage(source_stage).casefold()
+    if source_value in {"grants_gov", "grants.gov"}:
+        source_values = {normalized_type, normalized_source_stage}
+        if source_values & {"forecast", "forecasted", "forecasted opportunity"}:
+            return "Forecast"
+        if any(indicator in value for value in source_values for indicator in RFI_TYPE_INDICATORS):
+            return "RFI"
+        if source_values & {"rfp", "request for proposal", "request for proposals"}:
+            return "RFP"
+        # Grants.gov's posted synopsis/funding-opportunity concepts are not an
+        # RFP. Until BidLens has a broader stage taxonomy, leave them unclassified.
+        return None
+
     if normalized_type == "forecast":
         return "Forecast"
     if any(indicator in normalized_type for indicator in RFI_TYPE_INDICATORS):

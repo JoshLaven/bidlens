@@ -4969,6 +4969,11 @@ h2 {
     background: #dff5eb;
 }
 
+.personal-settings-success--error {
+    color: #8a2f2f;
+    background: #fdeaea;
+}
+
 .personal-settings-section-heading {
     display: flex;
     align-items: flex-start;

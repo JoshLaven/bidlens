@@ -47,11 +47,11 @@ class MySettingsTests(unittest.TestCase):
         self.engine.dispose()
 
     @staticmethod
-    def _request(query=""):
+    def _request(query="", *, headers=None):
         return SimpleNamespace(
             url=SimpleNamespace(query=query),
             query_params={key: value for key, value in [part.split("=", 1) for part in query.split("&") if "=" in part]},
-            headers={},
+            headers=headers or {},
         )
 
     def test_page_supplies_account_daily_brief_and_lane_context(self):
@@ -81,6 +81,18 @@ class MySettingsTests(unittest.TestCase):
             ))
             self.assertFalse(self.user.daily_brief_email_opted_out)
 
+    def test_daily_brief_async_save_returns_json_without_redirect(self):
+        request = self._request(headers={"x-requested-with": "fetch"})
+        with patch.object(settings, "require_user", return_value=self.user):
+            response = asyncio.run(settings.save_daily_brief_settings(
+                request, daily_brief_email_enabled=None, db=self.db
+            ))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("location", response.headers)
+        self.assertIn(b'"ok":true', response.body)
+        self.assertTrue(self.user.daily_brief_email_opted_out)
+
     def test_template_is_consolidated_and_contains_no_launcher_cards_or_placeholders(self):
         template = Path("src/bidlens/templates/my_settings.html").read_text()
         for heading in ("Account", "Daily Brief", "My Lanes"):
@@ -93,7 +105,10 @@ class MySettingsTests(unittest.TestCase):
         self.assertIn('name="lane_ids"', template)
         self.assertIn('class="bidlens-switch"', template)
         self.assertIn('class="bidlens-switch-knob"', template)
-        self.assertEqual(template.count('onchange="this.form.requestSubmit()"'), 2)
+        self.assertEqual(template.count("data-async-settings-form"), 3)
+        self.assertIn("await fetch(form.action", template)
+        self.assertIn("const formData = new FormData(form);", template)
+        self.assertIn("changedInput.checked = previousChecked", template)
         self.assertEqual(template.count("personal-settings-card\""), 3)
         for icon_class in (
             "personal-settings-section-icon--account",
@@ -121,6 +136,17 @@ class MySettingsTests(unittest.TestCase):
                 self._request(), lane_ids=[self.lane.id], db=self.db
             ))
         self.assertEqual(response.headers["location"], "/my-settings?saved=lanes")
+
+    def test_lane_async_save_returns_json_without_redirect(self):
+        request = self._request(headers={"x-requested-with": "fetch"})
+        with patch.object(settings, "require_user", return_value=self.user):
+            response = asyncio.run(settings.save_my_lanes_settings(
+                request, lane_ids=[self.lane.id], db=self.db
+            ))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("location", response.headers)
+        self.assertIn(b'"lane_ids":[1]', response.body)
 
 
 if __name__ == "__main__":

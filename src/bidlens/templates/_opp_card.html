@@ -14,7 +14,7 @@
 {% set source_label = 'SAM' if source_value == 'sam' else 'GovWin' if source_value == 'govwin_export' else 'Grants.gov' if source_value == 'grants_gov' else source_value %}
 {% set source_link_url = opp.source_url or opp.sam_url %}
 {% set source_link_label = 'View on SAM.gov' if source_value == 'sam' else 'View on Grants.gov' if source_value == 'grants_gov' else 'View on GovWin' if source_value == 'govwin_export' else 'View Source' %}
-{% set opportunity_type_label = opp.normalized_opportunity_type or 'RFP' %}
+{% set opportunity_type_label = opp.normalized_opportunity_type %}
 {% set primary_pursuit_lane = pursuit_lanes[0] if pursuit_lanes else none %}
 {% set return_context = 'shortlist' if view in ['shortlist', 'my_shortlist'] else 'archive' if view in ['archive', 'user_archive'] else 'triage' if view == 'triage' else 'feed' %}
 <div
@@ -294,10 +294,10 @@
             </div>
           {% endif %}
 
-          <div class="opp-detail-row">
+          {% if opp.normalized_opportunity_type %}<div class="opp-detail-row">
             <span class="opp-detail-label">Type</span>
-            <span class="opp-detail-value">{{ opp.normalized_opportunity_type or 'RFP' }}</span>
-          </div>
+            <span class="opp-detail-value">{{ opp.normalized_opportunity_type }}</span>
+          </div>{% endif %}
 
           {% if salesforce_url %}
             <div class="opp-detail-row">

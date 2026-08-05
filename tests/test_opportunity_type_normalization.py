@@ -25,7 +25,9 @@ class OpportunityTypeNormalizationTests(unittest.TestCase):
             ("sam", "Sources Sought", None, "RFI"),
             ("sam", "Special Notice", None, "RFI"),
             ("sam", "Presolicitation", None, "RFI"),
-            ("grants_gov", "Funding Opportunity", None, "RFP"),
+            ("grants_gov", "Funding Opportunity", "posted", None),
+            ("grants_gov", "Forecast", "forecasted", "Forecast"),
+            ("grants_gov", "Grant", None, None),
             ("sam", "Unmapped Notice", None, "RFP"),
         ]
 
@@ -54,6 +56,8 @@ class OpportunityTypeNormalizationTests(unittest.TestCase):
                 ("rfp", "govwin_export", "RFP", "Post-RFP"),
                 ("sam-rfi", "sam", "Sources Sought", None),
                 ("sam-rfp", "sam", "Solicitation", None),
+                ("grants-forecast", "grants_gov", "Forecast", "forecasted"),
+                ("grants-unclassified", "grants_gov", "Funding Opportunity", "posted"),
                 ("excluded", "govwin_export", "Source Selection", "Source Selection"),
             ]
             for index, (record_id, source, raw_type, source_stage) in enumerate(cases, start=1):
@@ -75,7 +79,7 @@ class OpportunityTypeNormalizationTests(unittest.TestCase):
             base = _exclude_inactive_govwin_stages(db.query(Opportunity))
             self.assertEqual(
                 {row.source_record_id for row in _apply_stage_filter(base, "Forecast").all()},
-                {"forecast"},
+                {"forecast", "grants-forecast"},
             )
             self.assertEqual(
                 {row.source_record_id for row in _apply_stage_filter(base, "RFI").all()},
@@ -86,11 +90,15 @@ class OpportunityTypeNormalizationTests(unittest.TestCase):
                     row.source_record_id
                     for row in _apply_stage_filter(base, "Forecast,RFI").all()
                 },
-                {"forecast", "rfi", "sam-rfi"},
+                {"forecast", "grants-forecast", "rfi", "sam-rfi"},
             )
             self.assertEqual(
                 {row.source_record_id for row in _apply_stage_filter(base, "RFP").all()},
                 {"rfp", "sam-rfp"},
+            )
+            self.assertNotIn(
+                "grants-unclassified",
+                {row.source_record_id for row in _apply_stage_filter(base, "RFP").all()},
             )
             self.assertNotIn(
                 "excluded",

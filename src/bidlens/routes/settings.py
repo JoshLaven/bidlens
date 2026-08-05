@@ -122,10 +122,18 @@ async def save_daily_brief_settings(
 ):
     user = require_user(request, db)
     if not user:
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "error": "Please sign in again."}, status_code=401)
         return RedirectResponse(url="/login", status_code=303)
 
     user.daily_brief_email_opted_out = daily_brief_email_enabled != "1"
     db.commit()
+    if _wants_json(request):
+        return JSONResponse({
+            "ok": True,
+            "message": "Daily Brief preference updated.",
+            "daily_brief_email_enabled": not user.daily_brief_email_opted_out,
+        })
     return RedirectResponse(
         url=_my_settings_redirect_url(request, saved="daily-brief"),
         status_code=303,
@@ -149,6 +157,8 @@ async def my_account_settings_page(
 ):
     user = require_user(request, db)
     if not user:
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "error": "Please sign in again."}, status_code=401)
         return RedirectResponse(url="/login", status_code=303)
     return _settings_placeholder_response(
         request,
@@ -229,6 +239,8 @@ async def save_my_lanes_settings(
 ):
     user = require_user(request, db)
     if not user:
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "error": "Please sign in again."}, status_code=401)
         return RedirectResponse(url="/login", status_code=303)
 
     set_user_my_lanes(
@@ -238,6 +250,13 @@ async def save_my_lanes_settings(
         lane_ids=lane_ids,
     )
     db.commit()
+
+    if _wants_json(request):
+        return JSONResponse({
+            "ok": True,
+            "message": "My Lanes updated.",
+            "lane_ids": sorted(lane_ids),
+        })
 
     return RedirectResponse(url=_my_lanes_redirect_url(request), status_code=303)
 
