@@ -184,6 +184,7 @@ class OpportunityPublisherTests(unittest.TestCase):
         self.assertEqual(first.opportunity_id, replay.opportunity_id)
         self.assertEqual(self.db.query(Opportunity).count(), 1)
         self.assertEqual(self.db.query(Vote).filter(Vote.vote == "PURSUE").count(), 1)
+        self.assertIsNotNone(self.db.query(Vote).filter(Vote.vote == "PURSUE").one().shortlisted_at)
         self.assertIsNone(build_feed_query(
             self.db, organization_id=self.org.id, user_id=self.user.id, include_watched=False
         ).filter(Opportunity.id == first.opportunity_id).one_or_none())

@@ -72,6 +72,7 @@ class QueuePaginationTests(unittest.TestCase):
             _feed_query(self.db, self.user, "solicitations"),
             sort="imported",
             direction="desc",
+            organization_id=self.org.id,
         )
         result_count = query.count()
         page, total_pages, offset = _pagination_values(

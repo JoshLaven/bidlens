@@ -154,16 +154,8 @@ def push_opportunity_to_crm(
     if opp.qualification_status != "qualified":
         raise ValueError("Opportunity must be qualified before users can act on it")
 
-    interest_row = (
-        db.query(Vote)
-        .filter(and_(Vote.org_id == org_id, Vote.opp_id == opp_id, Vote.user_id == user_id))
-        .first()
-    )
-    if not interest_row:
-        interest_row = Vote(org_id=org_id, opp_id=opp_id, user_id=user_id, vote="PURSUE")
-        db.add(interest_row)
-    else:
-        interest_row.vote = "PURSUE"
+    user = db.query(User).filter(User.id == user_id).one()
+    ensure_user_shortlisted(db, opportunity=opp, user=user)
 
     if not opp.crm_pushed:
         opp.crm_pushed = True

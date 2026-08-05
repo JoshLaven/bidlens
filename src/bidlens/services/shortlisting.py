@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session
 
 from ..models import Opportunity, User, Vote
@@ -10,6 +12,7 @@ def ensure_user_shortlisted(
     *,
     opportunity: Opportunity,
     user: User,
+    now: datetime | None = None,
 ) -> bool:
     """Idempotently add an opportunity to the user's My Shortlist.
 
@@ -27,8 +30,10 @@ def ensure_user_shortlisted(
     )
     if row and row.vote == "PURSUE":
         return False
+    entered_at = now or datetime.now(timezone.utc)
     if row:
         row.vote = "PURSUE"
+        row.shortlisted_at = entered_at
     else:
         db.add(
             Vote(
@@ -36,6 +41,7 @@ def ensure_user_shortlisted(
                 opp_id=opportunity.id,
                 user_id=user.id,
                 vote="PURSUE",
+                shortlisted_at=entered_at,
             )
         )
     db.flush()

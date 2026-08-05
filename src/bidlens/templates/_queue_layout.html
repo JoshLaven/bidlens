@@ -198,7 +198,7 @@
   </script>
 {% endmacro %}
 
-{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none, my_lanes=none, show_filters=true, feed_sort_options=false, source_options=none, selected_sources=none, show_tabs=true, admin_filter_bar=false) %}
+{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none, my_lanes=none, show_filters=true, feed_sort_options=false, source_options=none, selected_sources=none, show_tabs=true, admin_filter_bar=false, shortlist_sort_options=false) %}
   {% set show_filter_controls = show_filters and (selected_stages is not none or active_lanes or my_lanes or source_options) %}
   <div class="queue-toolbar{% if not show_filter_controls %} queue-toolbar--sort-only{% endif %}" aria-label="Queue organization controls">
     <div class="queue-toolbar-column queue-toolbar-column--sort">
@@ -226,6 +226,10 @@
         <select id="{{ id_prefix }}-sort" name="sort" onchange="this.form.submit()">
           <option value="imported" {{ 'selected' if sort == 'imported' else '' }}>Imported</option>
           <option value="due" {{ 'selected' if sort == 'due' else '' }}>Due Date</option>
+          {% if shortlist_sort_options %}
+            <option value="shortlisted" {{ 'selected' if sort == 'shortlisted' else '' }}>Date Shortlisted</option>
+          {% endif %}
+          <option value="lane" {{ 'selected' if sort == 'lane' else '' }}>Lane</option>
           {% if not feed_sort_options %}
             <option value="agency" {{ 'selected' if sort == 'agency' else '' }}>Agency</option>
             <option value="title" {{ 'selected' if sort == 'title' else '' }}>Title</option>

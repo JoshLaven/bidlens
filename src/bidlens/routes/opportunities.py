@@ -128,6 +128,8 @@ DATE_TYPE_POSTED = "posted"
 DATE_TYPES = {DATE_TYPE_IMPORTED, DATE_TYPE_DUE, DATE_TYPE_POSTED}
 FEED_PAGE_SIZE = 50
 TRIAGE_PAGE_SIZE = 100
+FEED_SORT_VALUES = frozenset({"imported", "due", "agency", "title", "lane"})
+MY_SHORTLIST_SORT_VALUES = FEED_SORT_VALUES | {"shortlisted"}
 TRIAGE_SOURCE_FILTERS = ("sam", "grants", "govwin")
 TRIAGE_SOURCE_OPTIONS = (
     {"value": "sam", "label": "SAM.gov"},
@@ -1223,13 +1225,14 @@ def _apply_date_ordering(query, *, date_type: str = DATE_TYPE_IMPORTED):
     return query.order_by(date_field.desc(), Opportunity.id.desc())
 
 
-def _normalize_feed_sort(sort: str = "") -> str:
+def _normalize_feed_sort(sort: str = "", *, allow_shortlisted: bool = False) -> str:
     aliases = {
         "newest": "imported",
         "deadline": "due",
     }
     normalized = aliases.get(sort, sort)
-    return normalized if normalized in {"imported", "due", "agency", "title"} else "imported"
+    allowed = MY_SHORTLIST_SORT_VALUES if allow_shortlisted else FEED_SORT_VALUES
+    return normalized if normalized in allowed else "imported"
 
 
 def _normalize_sort_direction(direction: str = "") -> str:
@@ -1242,9 +1245,51 @@ def _pagination_values(result_count: int, page: int, page_size: int) -> tuple[in
     return current_page, total_pages, (current_page - 1) * page_size
 
 
-def _apply_feed_ordering(query, *, sort: str = "imported", direction: str = "desc"):
-    sort = _normalize_feed_sort(sort)
+def _representative_lane_sort_value(*, organization_id: int):
+    """Alphabetically first active organization lane for each opportunity."""
+    return (
+        select(func.min(func.lower(PursuitLane.name)))
+        .select_from(OpportunityPursuitLaneMatch)
+        .join(PursuitLane, PursuitLane.id == OpportunityPursuitLaneMatch.pursuit_lane_id)
+        .where(
+            OpportunityPursuitLaneMatch.organization_id == organization_id,
+            OpportunityPursuitLaneMatch.opportunity_id == Opportunity.id,
+            PursuitLane.organization_id == organization_id,
+            PursuitLane.is_active.is_(True),
+        )
+        .correlate(Opportunity)
+        .scalar_subquery()
+    )
+
+
+def _apply_feed_ordering(
+    query, *, sort: str = "imported", direction: str = "desc",
+    organization_id: int, allow_shortlisted: bool = False,
+):
+    sort = _normalize_feed_sort(sort, allow_shortlisted=allow_shortlisted)
     direction = _normalize_sort_direction(direction)
+    # A selected sort is authoritative. SQLAlchemy appends order_by() clauses,
+    # so clear any ordering introduced by an upstream query before applying it.
+    query = query.order_by(None)
+    if sort == "lane":
+        lane_name = _representative_lane_sort_value(organization_id=organization_id)
+        unassigned_order = lane_name.is_(None).asc() if direction == "asc" else lane_name.is_(None).desc()
+        return query.order_by(
+            unassigned_order,
+            lane_name.asc(),
+            Opportunity.upserted_at.is_(None).asc(),
+            Opportunity.upserted_at.desc(),
+            Opportunity.id.desc(),
+        )
+    if sort == "shortlisted":
+        ordered_shortlisted = Vote.shortlisted_at.asc() if direction == "asc" else Vote.shortlisted_at.desc()
+        return query.order_by(
+            Vote.shortlisted_at.is_(None).asc(),
+            ordered_shortlisted,
+            Opportunity.upserted_at.is_(None).asc(),
+            Opportunity.upserted_at.desc(),
+            Opportunity.id.desc(),
+        )
     sort_field = {
         "due": Opportunity.response_deadline,
         "agency": func.lower(Opportunity.agency),
@@ -1380,7 +1425,10 @@ async def feed(
     query = _apply_stage_filter(query, selected_stages)
     if _is_admin(user):
         query = _apply_triage_source_filter(query, selected_sources)
-    query = _apply_feed_ordering(query, sort=selected_sort, direction=selected_direction)
+    query = _apply_feed_ordering(
+        query, sort=selected_sort, direction=selected_direction,
+        organization_id=_user_org_id(user),
+    )
 
     result_count = query.count()
     current_page, total_pages, offset = _pagination_values(
@@ -1465,7 +1513,10 @@ async def triage_queue(
     query = _apply_stage_filter(query, selected_stages)
     query = _apply_triage_source_filter(query, selected_sources)
     query = _apply_lane_filter(query, db, user, lane_id=lane_id)
-    query = _apply_feed_ordering(query, sort=selected_sort, direction=selected_direction)
+    query = _apply_feed_ordering(
+        query, sort=selected_sort, direction=selected_direction,
+        organization_id=_user_org_id(user),
+    )
     result_count = query.count()
     current_page, total_pages, offset = _pagination_values(
         result_count,
@@ -1578,7 +1629,7 @@ async def my_shortlist(
     if pre_live_redirect:
         return pre_live_redirect
 
-    selected_sort = _normalize_feed_sort(sort)
+    selected_sort = _normalize_feed_sort(sort, allow_shortlisted=True)
     selected_direction = _normalize_sort_direction(direction)
     selected_stages = _normalize_stage_filters(
         stages if stages is not None else ([stage] if stage and stage != "All" else None)
@@ -1598,7 +1649,10 @@ async def my_shortlist(
     query = _apply_stage_filter(query, selected_stages)
     if _is_admin(user):
         query = _apply_triage_source_filter(query, selected_sources)
-    query = _apply_feed_ordering(query, sort=selected_sort, direction=selected_direction)
+    query = _apply_feed_ordering(
+        query, sort=selected_sort, direction=selected_direction,
+        organization_id=_user_org_id(user), allow_shortlisted=True,
+    )
     result_count = query.count()
     current_page, total_pages, offset = _pagination_values(
         result_count,
@@ -1680,6 +1734,7 @@ async def archive(
         query,
         sort=selected_sort,
         direction=selected_direction,
+        organization_id=_user_org_id(user),
     )
     result_count = query.count()
     rows = query.limit(50).all()

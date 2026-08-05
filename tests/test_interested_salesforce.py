@@ -395,6 +395,7 @@ class InterestedSalesforceTests(unittest.TestCase):
             .one()
         )
         self.assertEqual(vote.vote, "PURSUE")
+        self.assertIsNotNone(vote.shortlisted_at)
         self.assertTrue(result["in_my_shortlist"])
         self.assertEqual(
             result["sidebar"]["my_shortlisted"][0]["id"],
