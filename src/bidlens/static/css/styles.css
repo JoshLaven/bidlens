@@ -11383,7 +11383,7 @@ details[open] .accordion-summary::after {
 
 .queue-toolbar {
   display: grid;
-  grid-template-columns: minmax(180px, max-content) minmax(0, 1fr);
+  grid-template-columns: minmax(0, max-content);
   align-items: start;
   justify-content: space-between;
   gap: 24px;
@@ -11399,7 +11399,7 @@ details[open] .accordion-summary::after {
 }
 
 .queue-toolbar-column--sort {
-  grid-template-columns: auto auto;
+  grid-template-columns: auto auto auto;
   align-items: center;
   justify-content: start;
   gap: 8px;
@@ -11413,27 +11413,6 @@ details[open] .accordion-summary::after {
   grid-template-columns: max-content;
 }
 
-.queue-toolbar-column--filters {
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 10px 18px;
-  justify-self: end;
-  width: auto;
-  max-width: min(100%, 760px);
-}
-
-.queue-filter-stack {
-  display: grid;
-  gap: 8px;
-  justify-items: start;
-}
-
-.queue-filter-stack--admin {
-  gap: 9px;
-}
-
 .queue-toolbar-heading {
   color: var(--gray-500);
   font-size: 0.72rem;
@@ -11443,17 +11422,54 @@ details[open] .accordion-summary::after {
   text-transform: uppercase;
 }
 
-.queue-toolbar-column--filters .stage-filter {
-  min-width: 0;
-  margin: 0;
-}
-
-.queue-filter-stack--admin .stage-filter {
+.queue-filter-popover-panel .stage-filter {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
   align-items: center;
   gap: 8px 10px;
   width: 100%;
+  min-width: 0;
+  margin: 0;
+}
+
+.queue-filter-popover {
+  position: relative;
+}
+
+.queue-filter-trigger {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.queue-filter-trigger svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.7;
+}
+
+.queue-filter-popover-panel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 8px);
+  left: 0;
+  display: grid;
+  width: min(430px, calc(100vw - 48px));
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(176, 191, 208, 0.62);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(24, 39, 58, 0.14);
+}
+
+.queue-filter-popover-panel[hidden] {
+  display: none;
 }
 
 .queue-filter-empty {
@@ -11478,16 +11494,14 @@ details[open] .accordion-summary::after {
   max-width: 140px;
 }
 
-.queue-sort-form label,
-.queue-lane-filter-form label {
+.queue-sort-form label {
   color: var(--gray-500);
   font-size: 0.78rem;
   font-weight: 700;
   white-space: nowrap;
 }
 
-.queue-sort-form select,
-.queue-lane-filter-form select {
+.queue-sort-form select {
   min-height: 34px;
   padding: 6px 32px 6px 10px;
   border: 1px solid var(--gray-200);
@@ -11503,8 +11517,7 @@ details[open] .accordion-summary::after {
   width: 136px;
 }
 
-.queue-sort-form select:focus,
-.queue-lane-filter-form select:focus {
+.queue-sort-form select:focus {
   border-color: var(--primary);
   outline: 3px solid rgba(47, 111, 206, 0.1);
 }
@@ -11529,39 +11542,6 @@ details[open] .accordion-summary::after {
   border-color: var(--primary);
   color: var(--primary);
   outline: 3px solid rgba(47, 111, 206, 0.1);
-}
-
-.queue-lane-filter-form {
-  display: grid;
-  gap: 7px;
-  max-width: 320px;
-}
-
-.queue-lane-row {
-  display: flex;
-  align-items: center;
-  gap: 8px 14px;
-  flex-wrap: wrap;
-  margin: 0 0 12px;
-}
-
-.queue-lane-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.queue-lane-shortcut {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.queue-lane-shortcut span {
-  color: #c28b12;
-  font-size: 0.75rem;
-  line-height: 1;
 }
 
 .queue-result-summary {
@@ -13776,18 +13756,6 @@ details[open] .accordion-summary::after {
     gap: 16px;
   }
 
-  .queue-toolbar-column--filters {
-    display: grid;
-    gap: 10px;
-    justify-self: stretch;
-    width: 100%;
-    max-width: none;
-  }
-
-  .queue-filter-stack {
-    width: 100%;
-  }
-
   .queue-toolbar-column--sort {
     justify-content: start;
   }
@@ -13806,11 +13774,15 @@ details[open] .accordion-summary::after {
     gap: 7px;
   }
 
-  .queue-toolbar-column--filters .stage-filter,
-  .queue-sort-form,
-  .queue-lane-filter-form {
+  .queue-sort-form {
     width: 100%;
     max-width: none;
+  }
+
+  .queue-filter-popover-panel {
+    left: auto;
+    right: 0;
+    width: min(390px, calc(100vw - 32px));
   }
 
   .queue-sort-form {

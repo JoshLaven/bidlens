@@ -108,16 +108,16 @@ class MyLanesTests(unittest.TestCase):
         self.assertEqual(saved_count, 0)
         self.assertEqual(self.db.query(PursuitLaneAssignment).count(), 0)
 
-    def test_queue_toolbar_uses_single_lane_dropdown(self):
+    def test_queue_toolbar_uses_lane_chips_inside_shared_popover(self):
         template = Path("src/bidlens/templates/_queue_layout.html").read_text()
 
         self.assertIn('queue-toolbar-column queue-toolbar-column--sort', template)
-        self.assertIn('queue-toolbar-column queue-toolbar-column--filters', template)
+        self.assertIn('class="queue-filter-popover"', template)
         self.assertIn('show_filter_controls = show_filters', template)
-        self.assertIn('class="queue-lane-filter-form"', template)
-        self.assertIn('<label for="{{ id_prefix }}-lane">Lane</label>', template)
-        self.assertIn('<option value="my_lanes"', template)
-        self.assertIn('<optgroup label="All Workspace Lanes">', template)
+        self.assertIn('data-lane-filter-chip="my_lanes"', template)
+        self.assertIn('★ My Lanes', template)
+        self.assertIn('data-lane-filter-chip="{{ lane_value }}"', template)
+        self.assertNotIn('class="queue-lane-filter-form"', template)
         self.assertNotIn('class="queue-lane-row"', template)
         self.assertNotIn('feed-toolbar-label">My Lanes</span>', template)
 
@@ -125,7 +125,7 @@ class MyLanesTests(unittest.TestCase):
         feed_template = Path("src/bidlens/templates/feed.html").read_text()
         toolbar_template = Path("src/bidlens/templates/_queue_layout.html").read_text()
 
-        self.assertIn("show_filters=(user.current_role == 'admin')", feed_template)
+        self.assertIn("show_filters=true", feed_template)
         self.assertIn("feed_sort_options=true", feed_template)
         self.assertIn("queue-sort-direction-toggle", toolbar_template)
         self.assertIn(">Imported</option>", toolbar_template)

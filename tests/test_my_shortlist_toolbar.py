@@ -8,9 +8,9 @@ class MyShortlistToolbarTemplateTests(unittest.TestCase):
         self.card_template = Path("src/bidlens/templates/_opp_card.html").read_text()
         self.styles = Path("src/bidlens/static/css/styles.css").read_text()
 
-    def test_shortlist_uses_feed_role_aware_toolbar(self):
+    def test_shortlist_uses_shared_filter_toolbar_for_every_role(self):
         self.assertIn("queue_toolbar('/my-shortlist'", self.template)
-        self.assertIn("show_filters=(user.current_role == 'admin')", self.template)
+        self.assertIn("show_filters=true", self.template)
         self.assertIn("feed_sort_options=true", self.template)
 
     def test_shortlist_results_row_matches_feed_bulk_selection_pattern(self):

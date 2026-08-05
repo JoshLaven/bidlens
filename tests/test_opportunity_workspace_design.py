@@ -43,12 +43,12 @@ class OpportunityWorkspaceDesignTests(unittest.TestCase):
         self.assertNotIn("Matched Lanes", self.card)
         self.assertIn("Open in Salesforce", self.card)
 
-    def test_shared_toolbar_stacks_stage_then_source_filters(self):
+    def test_shared_toolbar_popover_orders_stage_source_then_lane(self):
         self.assertIn("source_options=none", self.toolbar)
         self.assertIn("show_tabs=true", self.toolbar)
         self.assertIn("admin_filter_bar=false", self.toolbar)
-        self.assertIn("queue-filter-stack", self.toolbar)
-        self.assertIn("queue-filter-stack--admin", self.toolbar)
+        self.assertIn("queue-filter-popover-panel", self.toolbar)
+        self.assertIn("data-queue-filter-trigger", self.toolbar)
         toolbar_body = self.toolbar[self.toolbar.index("{% macro queue_toolbar("):]
         self.assertLess(
             toolbar_body.index("stage_filter_chips(route"),
@@ -58,8 +58,8 @@ class OpportunityWorkspaceDesignTests(unittest.TestCase):
             toolbar_body.index("source_filter_chips(route"),
             toolbar_body.index("lane_filter_chips(route"),
         )
-        self.assertIn("justify-content: flex-end;", self.styles)
-        self.assertIn(".queue-filter-stack", self.styles)
+        self.assertIn(".queue-filter-popover-panel", self.styles)
+        self.assertIn("position: absolute;", self.styles)
 
     def test_triage_uses_shared_toolbar_for_source_filter(self):
         self.assertNotIn("triage-source-filter-row", self.triage)

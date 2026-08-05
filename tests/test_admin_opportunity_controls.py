@@ -17,20 +17,21 @@ class AdminOpportunityControlsTests(unittest.TestCase):
         self.styles = STYLES.read_text()
         self.routes = ROUTES.read_text()
 
-    def test_shared_admin_filter_bar_renders_stage_source_lane_in_order(self):
-        self.assertIn("queue-filter-stack--admin", self.toolbar)
-        admin_branch = self.toolbar[self.toolbar.index("queue-filter-stack--admin") :]
-        self.assertLess(admin_branch.index("stage_filter_chips("), admin_branch.index("source_filter_chips("))
-        self.assertLess(admin_branch.index("source_filter_chips("), admin_branch.index("lane_filter_chips("))
+    def test_shared_filter_popover_renders_stage_source_lane_in_order(self):
+        self.assertIn("queue-filter-popover-panel", self.toolbar)
+        popover = self.toolbar[self.toolbar.index("queue-filter-popover-panel") :]
+        self.assertLess(popover.index("stage_filter_chips("), popover.index("source_filter_chips("))
+        self.assertLess(popover.index("source_filter_chips("), popover.index("lane_filter_chips("))
         self.assertIn("Stage", self.toolbar)
         self.assertIn("Source", self.toolbar)
         self.assertIn("Lane", self.toolbar)
         self.assertIn("No active lanes", self.toolbar)
 
-    def test_admin_views_use_shared_stacked_filters(self):
+    def test_admin_views_use_shared_filter_popover(self):
         for source in (self.feed, self.shortlist):
             with self.subTest(template=source[:30]):
                 self.assertIn("admin_filter_bar=(user.current_role == 'admin')", source)
+                self.assertIn("show_filters=true", source)
                 self.assertIn("source_options=source_options if user.current_role == 'admin' else none", source)
                 self.assertIn("selected_sources=selected_sources if user.current_role == 'admin' else none", source)
 

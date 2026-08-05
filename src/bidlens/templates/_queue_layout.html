@@ -152,7 +152,7 @@
   </script>
 {% endmacro %}
 
-{% macro lane_filter_chips(route, id_prefix, active_lanes, lane_id, stages_value, sources_value, sort, direction, q, org_id=none, current_tab=none) %}
+{% macro lane_filter_chips(route, id_prefix, active_lanes, lane_id, stages_value, sources_value, sort, direction, q, org_id=none, current_tab=none, my_lanes=none) %}
   {% set selected_lane = lane_id|string if lane_id else '' %}
   <form method="GET" action="{{ route }}" class="stage-filter lane-filter" data-lane-filter-form>
     {% if current_tab %}<input type="hidden" name="tab" value="{{ current_tab }}">{% endif %}
@@ -165,6 +165,17 @@
     {% if org_id %}<input type="hidden" name="org_id" value="{{ org_id }}">{% endif %}
     <span class="stage-filter-label">Lane</span>
     <div class="stage-filter-chips" aria-label="Filter opportunities by pursuit lane">
+      {% if my_lanes %}
+        <button
+          type="button"
+          class="stage-filter-chip lane-filter-chip{% if selected_lane == 'my_lanes' %} is-selected{% endif %}"
+          data-lane-filter-chip="my_lanes"
+          aria-pressed="{{ 'true' if selected_lane == 'my_lanes' else 'false' }}"
+        >
+          <span class="stage-filter-check" aria-hidden="true">✓</span>
+          ★ My Lanes
+        </button>
+      {% endif %}
       {% if active_lanes %}
         {% for lane in active_lanes %}
           {% set lane_value = lane.id|string %}
@@ -200,7 +211,10 @@
 
 {% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none, my_lanes=none, show_filters=true, feed_sort_options=false, source_options=none, selected_sources=none, show_tabs=true, admin_filter_bar=false, shortlist_sort_options=false) %}
   {% set show_filter_controls = show_filters and (selected_stages is not none or active_lanes or my_lanes or source_options) %}
-  <div class="queue-toolbar{% if not show_filter_controls %} queue-toolbar--sort-only{% endif %}" aria-label="Queue organization controls">
+  {% set selected_stage_count = selected_stages|length if selected_stages is not none and selected_stages|length < 3 else 0 %}
+  {% set selected_source_count = selected_sources|length if source_options and selected_sources|length < source_options|length else 0 %}
+  {% set active_filter_count = selected_stage_count + selected_source_count + (1 if lane_id else 0) %}
+  <div class="queue-toolbar" aria-label="Queue organization controls">
     <div class="queue-toolbar-column queue-toolbar-column--sort">
       <span class="queue-toolbar-heading">Sort By</span>
       {% if current_tab and show_tabs %}
@@ -243,62 +257,98 @@
         title="{{ 'Sort ascending' if direction == 'desc' else 'Sort descending' }}"
         aria-label="{{ 'Sort ascending' if direction == 'desc' else 'Sort descending' }}"
       >{{ '↓' if direction == 'desc' else '↑' }}</a>
-    </div>
-
-    {% if show_filter_controls %}
-      <div class="queue-toolbar-column queue-toolbar-column--filters">
-        {% if admin_filter_bar %}
-          <div class="queue-filter-stack queue-filter-stack--admin">
-            <span class="queue-toolbar-heading">Filters</span>
-            {{ stage_filter_chips(route, selected_stages or [], stages_value, sort, direction, q, org_id, lane_id, sources_value, current_tab) }}
-            {{ source_filter_chips(route, source_options or [], selected_sources or [], sources_value, stages_value, sort, direction, q, org_id, lane_id, current_tab) }}
-            {{ lane_filter_chips(route, id_prefix, active_lanes or [], lane_id, stages_value, sources_value, sort, direction, q, org_id, current_tab) }}
-          </div>
-        {% elif selected_stages is not none or source_options %}
-          <div class="queue-filter-stack">
-            <span class="queue-toolbar-heading">Filters</span>
+      {% if show_filter_controls %}
+        <div class="queue-filter-popover" data-queue-filter-popover>
+          <button
+            type="button"
+            class="btn btn-sm btn-outline-secondary queue-filter-trigger"
+            data-queue-filter-trigger
+            aria-expanded="false"
+            aria-controls="{{ id_prefix }}-filters-popover"
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+              <path d="M3 5h14M6 10h8M8.5 15h3"></path>
+            </svg>
+            <span data-queue-filter-label>Filters{% if active_filter_count %} ({{ active_filter_count }}){% endif %}</span>
+            <span aria-hidden="true">⌄</span>
+          </button>
+          <div
+            id="{{ id_prefix }}-filters-popover"
+            class="queue-filter-popover-panel"
+            data-queue-filter-panel
+            hidden
+          >
             {% if selected_stages is not none %}
               {{ stage_filter_chips(route, selected_stages, stages_value, sort, direction, q, org_id, lane_id, sources_value, current_tab) }}
             {% endif %}
             {% if source_options %}
               {{ source_filter_chips(route, source_options, selected_sources or [], sources_value, stages_value, sort, direction, q, org_id, lane_id, current_tab) }}
             {% endif %}
+            {% if active_lanes or my_lanes %}
+              {{ lane_filter_chips(route, id_prefix, active_lanes or [], lane_id, stages_value, sources_value, sort, direction, q, org_id, current_tab, my_lanes if not admin_filter_bar else none) }}
+            {% endif %}
           </div>
-        {% endif %}
-        {% if not admin_filter_bar and (active_lanes or my_lanes) %}
-          {% set my_lane_ids = my_lanes|map(attribute='id')|list if my_lanes else [] %}
-          {% set selected_lane = lane_id|string if lane_id else '' %}
-          <form method="GET" action="{{ route }}" class="queue-lane-filter-form">
-            {% if current_tab %}
-              <input type="hidden" name="tab" value="{{ current_tab }}">
-            {% endif %}
-            <input type="hidden" name="q" value="{{ q }}">
-            <input type="hidden" name="sort" value="{{ sort }}">
-            <input type="hidden" name="direction" value="{{ direction }}">
-            {% if org_id %}
-              <input type="hidden" name="org_id" value="{{ org_id }}">
-            {% endif %}
-            {% if stages_value is not none %}<input type="hidden" name="stages" value="{{ stages_value }}">{% endif %}
-            {% if sources_value is not none %}<input type="hidden" name="sources" value="{{ sources_value }}">{% endif %}
-            <label for="{{ id_prefix }}-lane">Lane</label>
-            <select id="{{ id_prefix }}-lane" name="lane_id" onchange="this.form.submit()">
-              <option value="" {{ 'selected' if not selected_lane else '' }}>All Opportunities</option>
-              {% if my_lanes %}
-                <option value="my_lanes" {{ 'selected' if selected_lane == 'my_lanes' else '' }}>★ My Lanes</option>
-              {% endif %}
-              {% if active_lanes %}
-                <optgroup label="All Workspace Lanes">
-                  {% for lane in active_lanes %}
-                    <option value="{{ lane.id }}" {{ 'selected' if selected_lane == (lane.id|string) else '' }}>{{ '★ ' if lane.id in my_lane_ids else '' }}{{ lane.name }}</option>
-                  {% endfor %}
-                </optgroup>
-              {% endif %}
-            </select>
-          </form>
-        {% endif %}
-      </div>
-    {% endif %}
+        </div>
+      {% endif %}
+    </div>
   </div>
+  {% if show_filter_controls %}
+    <script>
+      (() => {
+        const toolbar = document.currentScript.previousElementSibling;
+        const popover = toolbar?.querySelector('[data-queue-filter-popover]');
+        const trigger = popover?.querySelector('[data-queue-filter-trigger]');
+        const panel = popover?.querySelector('[data-queue-filter-panel]');
+        if (!popover || !trigger || !panel) return;
+
+        const storageKey = `bidlens:queue-filters-open:${window.location.pathname}:{{ id_prefix }}`;
+        let preserveOpenOnPageHide = false;
+
+        const rememberOpen = (open) => {
+          try {
+            if (open) window.sessionStorage.setItem(storageKey, 'true');
+            else window.sessionStorage.removeItem(storageKey);
+          } catch (_error) {
+            // The popover still works when browser storage is unavailable.
+          }
+        };
+
+        const setOpen = (open, {restoreFocus = false, persist = true} = {}) => {
+          panel.hidden = !open;
+          trigger.setAttribute('aria-expanded', String(open));
+          if (persist) rememberOpen(open);
+          if (!open && restoreFocus) trigger.focus({preventScroll: true});
+        };
+
+        try {
+          if (window.sessionStorage.getItem(storageKey) === 'true') {
+            setOpen(true, {persist: false});
+          }
+        } catch (_error) {
+          // The default closed state remains available without browser storage.
+        }
+
+        popover.addEventListener('click', (event) => {
+          if (!event.target.closest('[data-stage-filter-chip], [data-source-filter-chip], [data-lane-filter-chip]')) return;
+          preserveOpenOnPageHide = true;
+          rememberOpen(true);
+        }, true);
+
+        trigger.addEventListener('click', () => setOpen(panel.hidden));
+        document.addEventListener('pointerdown', (event) => {
+          if (!panel.hidden && !popover.contains(event.target)) setOpen(false);
+        });
+        document.addEventListener('keydown', (event) => {
+          if (event.key !== 'Escape' || panel.hidden) return;
+          event.preventDefault();
+          setOpen(false, {restoreFocus: true});
+        });
+        window.addEventListener('pagehide', () => {
+          if (!preserveOpenOnPageHide) rememberOpen(false);
+        });
+      })();
+    </script>
+  {% endif %}
 {% endmacro %}
 
 {% macro queue_count(result_count, q=none) %}
