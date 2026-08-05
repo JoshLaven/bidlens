@@ -13505,7 +13505,10 @@ details[open] .accordion-summary::after {
 }
 
 .shortlist-activity-rail {
+  --shortlist-calendar-sticky-top: 96px;
+  --shortlist-calendar-gap: 12px;
   min-width: 0;
+  min-height: 560px;
   color: var(--gray-700);
 }
 
@@ -13567,6 +13570,12 @@ details[open] .accordion-summary::after {
   color: var(--gray-500);
   font-size: 0.73rem;
   line-height: 1.45;
+}
+
+@media (max-width: 960px) {
+  .shortlist-activity-rail {
+    min-height: 0;
+  }
 }
 
 .opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"], [data-card-view="user_archive"]) {

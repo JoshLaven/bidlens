@@ -218,16 +218,28 @@ class ShortlistRecentActivityTests(unittest.TestCase):
         self.assertIn("bidlens.workSidebarCollapsed", base)
         self.assertIn("work-sidebar-is-collapsed .layout[data-work-layout]", styles)
         self.assertIn(".shortlist-activity-rail", styles)
+        self.assertIn("min-height: 560px", styles)
+        self.assertRegex(
+            styles,
+            r"@media \(max-width: 960px\)[\s\S]*?\.shortlist-activity-rail\s*\{\s*min-height: 0;",
+        )
         self.assertNotIn("shortlist-content-layout", shortlist)
         self.assertNotIn(".shortlist-content-layout", styles)
 
     def test_feed_default_companion_content_and_shortlist_calendar_remain(self):
         base = Path("src/bidlens/templates/base.html").read_text()
         shortlist = Path("src/bidlens/templates/my_shortlist.html").read_text()
+        styles = Path("src/bidlens/static/css/styles.css").read_text()
 
         self.assertIn('class="side-card-title"><a href="/my-shortlist', base)
         self.assertIn("calendar_drawer(calendar_items", shortlist)
         self.assertIn("data-calendar-drawer-toggle", Path("src/bidlens/templates/_calendar_drawer.html").read_text())
+        self.assertIn("positionShortlistCalendarTab", shortlist)
+        self.assertIn("shortlistActivityRail.getBoundingClientRect().bottom", shortlist)
+        self.assertIn("Math.max(stickyTop", shortlist)
+        self.assertIn("work-sidebar-is-collapsed", shortlist)
+        self.assertIn("--shortlist-calendar-sticky-top: 96px", styles)
+        self.assertIn("--shortlist-calendar-gap: 12px", styles)
 
 
 if __name__ == "__main__":

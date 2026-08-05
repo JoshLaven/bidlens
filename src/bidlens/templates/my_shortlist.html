@@ -143,6 +143,37 @@
   );
   const shortlistActivityRail = document.querySelector('[data-shortlist-activity-rail]');
   const shortlistPreviewCards = Array.from(document.querySelectorAll('[data-shortlist-preview-card]'));
+  const shortlistCalendarShell = document.querySelector('[data-calendar-drawer-id="shortlist-calendar"]');
+  const shortlistCalendarTab = shortlistCalendarShell?.querySelector('[data-calendar-drawer-toggle]');
+  const shortlistDesktopLayout = window.matchMedia('(min-width: 961px)');
+  let shortlistCalendarPositionFrame = null;
+
+  function positionShortlistCalendarTab() {
+    shortlistCalendarPositionFrame = null;
+    if (!shortlistCalendarTab || !shortlistActivityRail) return;
+    if (!shortlistDesktopLayout.matches) {
+      shortlistCalendarTab.style.removeProperty('top');
+      return;
+    }
+
+    const railStyles = window.getComputedStyle(shortlistActivityRail);
+    const stickyTop = Number.parseFloat(
+      railStyles.getPropertyValue('--shortlist-calendar-sticky-top')
+    ) || 96;
+    const cardGap = Number.parseFloat(
+      railStyles.getPropertyValue('--shortlist-calendar-gap')
+    ) || 12;
+    const railIsCollapsed = document.documentElement.classList.contains('work-sidebar-is-collapsed');
+    const cardBottom = railIsCollapsed
+      ? stickyTop - cardGap
+      : shortlistActivityRail.getBoundingClientRect().bottom;
+    shortlistCalendarTab.style.top = `${Math.max(stickyTop, Math.round(cardBottom + cardGap))}px`;
+  }
+
+  function scheduleShortlistCalendarPosition() {
+    if (shortlistCalendarPositionFrame !== null) return;
+    shortlistCalendarPositionFrame = window.requestAnimationFrame(positionShortlistCalendarTab);
+  }
 
   function activityDetail(primary, secondary = null) {
     const wrapper = document.createElement('div');
@@ -213,6 +244,7 @@
         ? activityDetail(note.author, [note.date, note.preview].filter(Boolean).join(' · '))
         : activityEmpty('No team notes recorded.')
     );
+    scheduleShortlistCalendarPosition();
   }
 
   shortlistPreviewCards.forEach((card) => {
@@ -220,6 +252,17 @@
     card.addEventListener('focusin', () => selectShortlistPreview(card));
   });
   selectShortlistPreview(shortlistPreviewCards[0]);
+  window.addEventListener('scroll', scheduleShortlistCalendarPosition, {passive: true});
+  window.addEventListener('resize', scheduleShortlistCalendarPosition);
+  document.querySelector('[data-work-sidebar-toggle]')?.addEventListener(
+    'click',
+    scheduleShortlistCalendarPosition
+  );
+  shortlistDesktopLayout.addEventListener?.('change', scheduleShortlistCalendarPosition);
+  if (window.ResizeObserver && shortlistActivityRail) {
+    new ResizeObserver(scheduleShortlistCalendarPosition).observe(shortlistActivityRail);
+  }
+  scheduleShortlistCalendarPosition();
 </script>
 {% endblock %}
 {% include "_archive_modal.html" %}
