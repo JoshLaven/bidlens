@@ -21,10 +21,12 @@ class MyShortlistToolbarTemplateTests(unittest.TestCase):
         self.assertNotIn("data-archive-visible", self.template)
         self.assertNotIn("Archive all visible", self.template)
 
-    def test_shortlist_export_is_list_level_icon_action(self):
-        self.assertIn("queue_export_action(export_url)", self.template)
+    def test_shortlist_export_is_a_toolbar_action_not_a_bulk_action(self):
+        self.assertIn("export_url=export_url", self.template)
         self.assertIn("/opportunities/export.csv?view=my_shortlist", self.template)
         self.assertIn("data-shortlist-bulk-actions", self.template)
+        bulk_actions = self.template[self.template.index('data-shortlist-bulk-actions'):self.template.index('</div>', self.template.index('data-shortlist-bulk-actions'))]
+        self.assertNotIn("queue_export_action", bulk_actions)
         self.assertNotIn("queue_heading('My Shortlist', 'Opportunities you are actively considering or pursuing.', export_url)", self.template)
 
     def test_shortlist_cards_expose_bulk_archive_checkboxes(self):

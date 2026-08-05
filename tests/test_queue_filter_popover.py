@@ -96,6 +96,21 @@ class QueueFilterPopoverTests(unittest.TestCase):
         self.assertIn("if (!preserveOpenOnPageHide) rememberOpen(false)", html)
         self.assertIn("else window.sessionStorage.removeItem(storageKey)", html)
 
+    def test_export_renders_as_a_right_aligned_toolbar_action(self):
+        html = self.render(export_url="/opportunities/export.csv?view=feed")
+
+        self.assertIn('class="queue-toolbar-export"', html)
+        self.assertIn('href="/opportunities/export.csv?view=feed"', html)
+        self.assertIn('aria-label="Export CSV"', html)
+
+    def test_filter_has_extra_separation_from_tight_sort_controls(self):
+        styles = Path("src/bidlens/static/css/styles.css").read_text()
+
+        self.assertIn(".queue-toolbar-column--sort {", styles)
+        self.assertIn("gap: 8px;", styles)
+        popover_styles = styles[styles.index(".queue-filter-popover {"):]
+        self.assertIn("margin-left: 8px;", popover_styles.split("}", 1)[0])
+
     def test_all_queue_templates_use_the_shared_component(self):
         templates = {
             name: (TEMPLATES / name).read_text()

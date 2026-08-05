@@ -58,24 +58,24 @@ class PageHeaderSystemTests(unittest.TestCase):
                 self.assertNotIn('data-page-header-variant="editorial"', source)
                 self.assertNotIn("queue-export-button", source)
 
-    def test_existing_csv_export_moves_to_list_actions(self):
+    def test_csv_export_is_supplied_to_the_shared_queue_toolbar(self):
         feed = (TEMPLATES / "feed.html").read_text()
         shortlist = (TEMPLATES / "my_shortlist.html").read_text()
         triage = (TEMPLATES / "triage.html").read_text()
         archive = (TEMPLATES / "archive.html").read_text()
         legacy_shortlist = (TEMPLATES / "shortlist.html").read_text()
 
-        self.assertIn("queue_export_action(export_url)", feed)
-        self.assertIn("queue_export_action(export_url)", shortlist)
+        self.assertIn("export_url=export_url", feed)
+        self.assertIn("export_url=export_url", shortlist)
         self.assertIn("/opportunities/export.csv?view=feed", feed)
         self.assertIn("/opportunities/export.csv?view=my_shortlist", shortlist)
         self.assertIn("/opportunities/export.csv?view=triage", triage)
         self.assertIn("data-feed-bulk-actions", feed)
         self.assertIn("data-shortlist-bulk-actions", shortlist)
-        self.assertIn("queue_export_action(export_url)", triage)
+        self.assertIn("export_url=export_url", triage)
+        self.assertIn("export_url=export_url", archive)
+        self.assertIn("/opportunities/export.csv?view=archive", archive)
         self.assertIn("queue_export_action(export_url)", legacy_shortlist)
-        self.assertNotIn("queue_export_action", archive)
-        self.assertNotIn("/opportunities/export.csv", archive)
         self.assertNotIn(">Export CSV</a>", legacy_shortlist)
 
     def test_workspace_management_pages_use_administrative_hero(self):

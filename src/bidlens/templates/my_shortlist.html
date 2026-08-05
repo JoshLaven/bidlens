@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_opp_card.html" import opp_card %}
-{% from "_queue_layout.html" import queue_heading, queue_search, queue_toolbar, queue_count, queue_pagination, queue_export_action %}
+{% from "_queue_layout.html" import queue_heading, queue_search, queue_toolbar, queue_count, queue_pagination %}
 {% from "_calendar_drawer.html" import calendar_drawer %}
 {% block title %}My Shortlist - BidLens{% endblock %}
 {% block content %}
@@ -14,7 +14,7 @@
 
 {{ queue_heading('My Shortlist', 'Opportunities you are actively considering or pursuing.') }}
 {{ queue_search('/my-shortlist', 'shortlist-search-input', q, sort, direction, none, org_id_param, lane_id, stages_value, sources_value if user.current_role == 'admin' else none) }}
-{{ queue_toolbar('/my-shortlist', 'shortlist', sort, direction, q, none, org_id_param, lane_id, active_lanes, stages_value, sources_value if user.current_role == 'admin' else none, selected_stages, my_lanes, show_filters=true, feed_sort_options=true, source_options=source_options if user.current_role == 'admin' else none, selected_sources=selected_sources if user.current_role == 'admin' else none, admin_filter_bar=(user.current_role == 'admin'), shortlist_sort_options=true) }}
+{{ queue_toolbar('/my-shortlist', 'shortlist', sort, direction, q, none, org_id_param, lane_id, active_lanes, stages_value, sources_value if user.current_role == 'admin' else none, selected_stages, my_lanes, show_filters=true, feed_sort_options=true, source_options=source_options if user.current_role == 'admin' else none, selected_sources=selected_sources if user.current_role == 'admin' else none, admin_filter_bar=(user.current_role == 'admin'), shortlist_sort_options=true, export_url=export_url) }}
 
 <div class="feed-queue-summary">
   <div class="feed-results-left">
@@ -29,7 +29,6 @@
     {{ queue_count(result_count, q) }}
   </div>
   <div class="feed-bulk-actions" data-shortlist-bulk-actions>
-    {{ queue_export_action(export_url) }}
     <button
       type="button"
       class="btn btn-sm btn-outline-secondary"
@@ -67,15 +66,15 @@
       <p class="shortlist-activity-context-title" data-activity-title></p>
     </header>
     <section class="shortlist-activity-section" aria-labelledby="shortlist-official-heading">
-      <h3 id="shortlist-official-heading">Most Recent Official Update</h3>
+      <h3 id="shortlist-official-heading">Official Update</h3>
       <div data-activity-official></div>
     </section>
     <section class="shortlist-activity-section" aria-labelledby="shortlist-communication-heading">
-      <h3 id="shortlist-communication-heading">Most Recent Communication</h3>
+      <h3 id="shortlist-communication-heading">Communication</h3>
       <div data-activity-communication></div>
     </section>
     <section class="shortlist-activity-section" aria-labelledby="shortlist-note-heading">
-      <h3 id="shortlist-note-heading">Most Recent Note</h3>
+      <h3 id="shortlist-note-heading">Note</h3>
       <div data-activity-note></div>
     </section>
     <a class="details-link shortlist-activity-folder-link" data-activity-url href="#">Open Opportunity Folder &rarr;</a>

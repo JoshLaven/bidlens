@@ -209,7 +209,7 @@
   </script>
 {% endmacro %}
 
-{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none, my_lanes=none, show_filters=true, feed_sort_options=false, source_options=none, selected_sources=none, show_tabs=true, admin_filter_bar=false, shortlist_sort_options=false) %}
+{% macro queue_toolbar(route, id_prefix, sort, direction, q, current_tab=none, org_id=none, lane_id=none, active_lanes=none, stages_value=none, sources_value=none, selected_stages=none, my_lanes=none, show_filters=true, feed_sort_options=false, source_options=none, selected_sources=none, show_tabs=true, admin_filter_bar=false, shortlist_sort_options=false, export_url=none) %}
   {% set show_filter_controls = show_filters and (selected_stages is not none or active_lanes or my_lanes or source_options) %}
   {% set selected_stage_count = selected_stages|length if selected_stages is not none and selected_stages|length < 3 else 0 %}
   {% set selected_source_count = selected_sources|length if source_options and selected_sources|length < source_options|length else 0 %}
@@ -270,7 +270,7 @@
               <path d="M3 5h14M6 10h8M8.5 15h3"></path>
             </svg>
             <span data-queue-filter-label>Filters{% if active_filter_count %} ({{ active_filter_count }}){% endif %}</span>
-            <span aria-hidden="true">⌄</span>
+            <span aria-hidden="true"></span>
           </button>
           <div
             id="{{ id_prefix }}-filters-popover"
@@ -291,6 +291,11 @@
         </div>
       {% endif %}
     </div>
+    {% if export_url %}
+      <div class="queue-toolbar-export">
+        {{ queue_export_action(export_url) }}
+      </div>
+    {% endif %}
   </div>
   {% if show_filter_controls %}
     <script>

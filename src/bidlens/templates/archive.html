@@ -4,10 +4,17 @@
 {% block title %}Archive - BidLens{% endblock %}
 {% block content %}
 {% set org_id_param = request.query_params.get('org_id') %}
+{% set q_param = '&q=' ~ (q|urlencode) if q else '' %}
+{% set org_param = '&org_id=' ~ org_id_param if org_id_param else '' %}
+{% set lane_param = '&lane_id=' ~ lane_id if user.current_role == 'admin' and lane_id else '' %}
+{% set stage_param = '&stages=' ~ stages_value %}
+{% set source_param = '&sources=' ~ sources_value if user.current_role == 'admin' and sources_value else '' %}
+{% set tab_param = '&tab=' ~ current_tab if current_tab else '' %}
+{% set export_url = '/opportunities/export.csv?view=archive&sort=' ~ sort ~ '&direction=' ~ direction ~ tab_param ~ q_param ~ org_param ~ lane_param ~ stage_param ~ source_param %}
 
 {{ queue_heading('Archive', 'Review opportunities you have removed from active consideration.') }}
 {{ queue_search('/archive', 'archive-search-input', q, sort, direction, current_tab, org_id_param, lane_id if user.current_role == 'admin' else none, stages_value, sources_value if user.current_role == 'admin' else none) }}
-{{ queue_toolbar('/archive', 'archive', sort, direction, q, current_tab, org_id_param, lane_id if user.current_role == 'admin' else none, active_lanes if user.current_role == 'admin' else none, stages_value, sources_value if user.current_role == 'admin' else none, selected_stages, none, true, false, source_options if user.current_role == 'admin' else none, selected_sources if user.current_role == 'admin' else none, false, admin_filter_bar=(user.current_role == 'admin')) }}
+{{ queue_toolbar('/archive', 'archive', sort, direction, q, current_tab, org_id_param, lane_id if user.current_role == 'admin' else none, active_lanes if user.current_role == 'admin' else none, stages_value, sources_value if user.current_role == 'admin' else none, selected_stages, none, true, false, source_options if user.current_role == 'admin' else none, selected_sources if user.current_role == 'admin' else none, false, admin_filter_bar=(user.current_role == 'admin'), export_url=export_url) }}
 {{ queue_count(result_count, q) }}
 
 <div id="opportunity-list" data-list-view="archive">

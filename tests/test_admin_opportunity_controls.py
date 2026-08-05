@@ -50,7 +50,7 @@ class AdminOpportunityControlsTests(unittest.TestCase):
         self.assertIn("data-triage-select-all", self.triage)
         self.assertIn("feed-results-left", self.triage)
         self.assertIn("Select All", self.triage)
-        self.assertIn("queue_export_action(export_url)", self.triage)
+        self.assertIn("export_url=export_url", self.triage)
         self.assertIn("/opportunities/export.csv?view=triage", self.triage)
         self.assertIn("data-triage-selected=\"qualify\"", self.triage)
         self.assertIn("data-triage-selected=\"reject\"", self.triage)

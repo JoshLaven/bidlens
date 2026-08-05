@@ -7411,7 +7411,8 @@ h2 {
 
 .btn-sm {
     padding: 6px 14px;
-    font-size: 0.8125rem;
+    font-size: 0.82rem;
+    font-weight: 950;
 }
 
 .show-more {
@@ -11383,8 +11384,8 @@ details[open] .accordion-summary::after {
 
 .queue-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, max-content);
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 10px;
@@ -11434,6 +11435,12 @@ details[open] .accordion-summary::after {
 
 .queue-filter-popover {
   position: relative;
+  margin-left: 8px;
+}
+
+.queue-toolbar-export {
+  align-self: end;
+  padding-bottom: 1px;
 }
 
 .queue-filter-trigger {
@@ -13758,6 +13765,10 @@ details[open] .accordion-summary::after {
 
   .queue-toolbar-column--sort {
     justify-content: start;
+  }
+
+  .queue-toolbar-export {
+    justify-self: end;
   }
 
   .queue-primary-search {

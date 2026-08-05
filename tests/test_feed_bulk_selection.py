@@ -19,10 +19,12 @@ class FeedBulkSelectionTemplateTests(unittest.TestCase):
         self.assertNotIn("mode === 'visible'", self.template)
         self.assertNotIn("Archive all ${oppIds.length} visible opportunities?", self.template)
 
-    def test_feed_export_is_list_level_icon_action(self):
-        self.assertIn("queue_export_action(export_url)", self.template)
+    def test_feed_export_is_a_toolbar_action_not_a_bulk_action(self):
+        self.assertIn("export_url=export_url", self.template)
         self.assertIn("/opportunities/export.csv?view=feed", self.template)
         self.assertIn("data-feed-bulk-actions", self.template)
+        bulk_actions = self.template[self.template.index('data-feed-bulk-actions'):self.template.index('</div>', self.template.index('data-feed-bulk-actions'))]
+        self.assertNotIn("queue_export_action", bulk_actions)
         self.assertNotIn("queue_heading('Feed', 'Review active opportunities and move the right ones forward.', export_url)", self.template)
 
 
