@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..auth import attach_request_user_context, get_current_user
-from ..models import Event, OrgProfile, OrganizationMembership, PursuitLane
+from ..models import Event, Organization, OrgProfile, OrganizationMembership, PursuitLane
 from ..services.pursuit_lanes import set_user_my_lanes, user_my_lanes
 from .pursuit_lanes import lane_management_context
 
@@ -63,8 +63,18 @@ def _my_lanes_redirect_url(request: Request) -> str:
         for key, value in parse_qsl(str(request.url.query or ""), keep_blank_values=False)
         if key != "saved"
     ]
-    params.append(("saved", "1"))
-    return f"/my-settings/my-lanes?{urlencode(params)}"
+    params.append(("saved", "lanes"))
+    return f"/my-settings?{urlencode(params)}"
+
+
+def _my_settings_redirect_url(request: Request, *, saved: str) -> str:
+    params = [
+        (key, value)
+        for key, value in parse_qsl(str(request.url.query or ""), keep_blank_values=False)
+        if key != "saved"
+    ]
+    params.append(("saved", saved))
+    return f"/my-settings?{urlencode(params)}"
 
 
 @router.get("/my-settings")
@@ -78,11 +88,48 @@ async def my_settings_page(
             return JSONResponse({"ok": False, "error": "Please sign in again."}, status_code=401)
         return RedirectResponse(url="/login", status_code=303)
 
+    org_id = _user_org_id(user)
+    organization = db.query(Organization).filter(Organization.id == org_id).one()
+    lanes = (
+        db.query(PursuitLane)
+        .filter(
+            PursuitLane.organization_id == org_id,
+            PursuitLane.is_active.is_(True),
+        )
+        .order_by(PursuitLane.name.asc(), PursuitLane.id.asc())
+        .all()
+    )
+    my_lanes = user_my_lanes(db, organization_id=org_id, user_id=user.id)
+
     return templates.TemplateResponse("my_settings.html", {
         "request": request,
         "user": user,
+        "organization": organization,
+        "role": getattr(user, "current_role", None) or _current_user_role(db, user),
+        "lanes": lanes,
+        "my_lanes": my_lanes,
+        "my_lane_ids": {lane.id for lane in my_lanes},
+        "saved": request.query_params.get("saved"),
         "active_page": "my_settings",
     })
+
+
+@router.post("/my-settings/daily-brief")
+async def save_daily_brief_settings(
+    request: Request,
+    daily_brief_email_enabled: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    user.daily_brief_email_opted_out = daily_brief_email_enabled != "1"
+    db.commit()
+    return RedirectResponse(
+        url=_my_settings_redirect_url(request, saved="daily-brief"),
+        status_code=303,
+    )
 
 
 def _settings_placeholder_response(request: Request, user, title: str, description: str):

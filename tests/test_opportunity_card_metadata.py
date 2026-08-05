@@ -66,6 +66,16 @@ class OpportunityCardMetadataTests(unittest.TestCase):
         self.assertNotIn("opportunity-type-pill", self.collapsed)
         self.assertNotIn("source-pill", self.collapsed)
 
+    def test_lane_is_rendered_only_inline_without_redundant_matched_lanes_section(self):
+        html = self._render_card(
+            "Lane opportunity",
+            view="my_shortlist",
+            pursuit_lanes=[{"name": "Health", "reasons": ["Agency match"]}],
+        )
+        self.assertEqual(html.count("pursuit-lane-pill"), 1)
+        self.assertIn(">Health</span>", html)
+        self.assertNotIn("Matched Lanes", html)
+
     def test_titles_use_single_line_css_truncation_and_title_tooltip(self):
         self.assertNotIn("title_limit = 70", self.collapsed)
         self.assertNotIn("title_prefix = opp.title[:title_limit]", self.collapsed)

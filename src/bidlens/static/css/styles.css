@@ -4932,85 +4932,100 @@ h2 {
     text-transform: uppercase;
 }
 
-.personal-settings-grid {
-    display: grid;
-    gap: 12px;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-}
-
-.personal-settings-card {
-    min-height: 156px;
-    padding: 18px;
-    border: 1px solid rgba(176, 191, 208, 0.34);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.9);
-    box-shadow: 0 8px 20px rgba(17, 32, 51, 0.045);
-}
-
-.personal-settings-card--link {
-    display: block;
-    color: inherit;
-    text-decoration: none;
-    transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
-}
-
-.personal-settings-card--link:hover {
-    border-color: rgba(47, 111, 206, 0.34);
-    box-shadow: 0 12px 28px rgba(17, 32, 51, 0.09);
-    transform: translateY(-1px);
-}
-
-.personal-settings-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    margin-bottom: 12px;
-    border-radius: 8px;
-    font-size: 1.15rem;
-    font-weight: 800;
-}
-
-.personal-settings-icon--account {
-    color: var(--primary);
-    background: rgba(47, 111, 206, 0.08);
-}
-
-.personal-settings-icon--notifications {
-    color: #6d3fc4;
-    background: rgba(109, 63, 196, 0.08);
-}
-
-.personal-settings-icon--organization {
-    color: #1f8a4c;
-    background: rgba(31, 138, 76, 0.08);
-}
-
-.personal-settings-icon--interests {
-    color: #c45a1b;
-    background: rgba(196, 90, 27, 0.08);
-}
-
-.personal-settings-card h2 {
-    margin-bottom: 10px;
-    font-size: 1rem;
-}
-
-.personal-settings-card ul {
-    margin-left: 16px;
-    color: var(--gray-700);
-    font-size: 0.84rem;
-}
-
-.personal-settings-card li + li {
-    margin-top: 5px;
-}
-
 .personal-settings-page {
     display: grid;
     gap: 16px;
     max-width: 880px;
+}
+
+.personal-settings-page--consolidated {
+    gap: 0;
+}
+
+.personal-settings-page--consolidated > .page-header {
+    margin-bottom: 10px;
+}
+
+.personal-settings-page--consolidated > .alert {
+    margin: 0 0 8px;
+}
+
+.personal-settings-section {
+    padding: 30px 0;
+    border-top: 1px solid var(--gray-200);
+}
+
+.personal-settings-section-heading {
+    margin-bottom: 22px;
+}
+
+.personal-settings-section-heading h2 {
+    margin: 0 0 5px;
+    font-size: 1.1rem;
+}
+
+.personal-settings-section-heading p,
+.personal-settings-organization-profile p {
+    margin: 0;
+    color: var(--gray-500);
+    font-size: 0.86rem;
+}
+
+.personal-settings-account-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 22px 48px;
+    margin: 0;
+}
+
+.personal-settings-account-list div {
+    display: grid;
+    gap: 5px;
+}
+
+.personal-settings-account-list dt {
+    color: var(--gray-500);
+    font-size: 0.76rem;
+    font-weight: 650;
+}
+
+.personal-settings-account-list dd {
+    margin: 0;
+    color: var(--gray-900);
+    font-size: 0.92rem;
+}
+
+.personal-settings-organization-profile {
+    display: grid;
+    justify-items: start;
+    gap: 8px;
+    margin-top: 28px;
+}
+
+.personal-settings-organization-profile h3 {
+    margin: 0;
+    font-size: 0.9rem;
+}
+
+.personal-settings-preference-form {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+}
+
+.personal-settings-preference-form .bidlens-switch-field {
+    display: flex;
+    justify-content: space-between;
+    width: min(100%, 540px);
+}
+
+.personal-settings-preference-form .bidlens-switch-copy small {
+    display: block;
+    margin-top: 4px;
+    color: var(--gray-500);
+    font-size: 0.8rem;
+    font-weight: 400;
 }
 
 .my-lanes-settings-form {
@@ -5021,28 +5036,47 @@ h2 {
 .my-lanes-settings-list {
     display: grid;
     gap: 10px;
+    width: min(100%, 540px);
 }
 
 .my-lanes-settings-option {
     display: grid;
-    grid-template-columns: auto minmax(112px, auto) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 14px;
-    padding: 15px 16px;
-    background: white;
-    border: 1px solid var(--gray-200);
-    border-radius: 8px;
+    padding: 13px 2px;
+    border-bottom: 1px solid var(--gray-200);
     cursor: pointer;
 }
 
 .my-lanes-settings-option:has(input:checked) {
-    border-color: rgba(47, 111, 206, 0.38);
-    background: #f8fbff;
+    color: var(--primary);
 }
 
 .my-lanes-settings-option input {
-    width: 18px;
-    height: 18px;
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    margin: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.my-lanes-settings-option:hover .bidlens-switch {
+    border-color: rgba(103, 117, 138, 0.42);
+}
+
+.my-lanes-settings-option input:focus-visible + .bidlens-switch {
+    box-shadow: 0 0 0 3px rgba(47, 111, 206, 0.16);
+}
+
+.my-lanes-settings-option input:checked + .bidlens-switch {
+    border-color: rgba(34, 143, 92, 0.58);
+    background: #2fa46b;
+}
+
+.my-lanes-settings-option input:checked + .bidlens-switch .bidlens-switch-knob {
+    transform: translateX(18px);
 }
 
 .my-lanes-settings-state {
@@ -5083,6 +5117,21 @@ h2 {
 .my-lanes-settings-actions span {
     color: var(--gray-500);
     font-size: 0.84rem;
+}
+
+@media (max-width: 640px) {
+    .personal-settings-account-list {
+        grid-template-columns: 1fr;
+    }
+
+    .personal-settings-preference-form {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .personal-settings-preference-form .btn {
+        align-self: flex-start;
+    }
 }
 
 .workspace-management-shell {
@@ -6757,10 +6806,6 @@ h2 {
     white-space: nowrap;
 }
 
-.opp-card-lane-group {
-    margin-top: 8px;
-}
-
 .opp-card-crm-attribution {
     margin-top: 5px;
     color: var(--gray-500);
@@ -6784,22 +6829,6 @@ h2 {
 
 .opp-card-crm-link {
     font-weight: 700;
-}
-
-.opp-card-lane-label {
-    margin-bottom: 4px;
-    color: var(--gray-500);
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    line-height: 1.2;
-    text-transform: uppercase;
-}
-
-.opp-card-lanes {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
 }
 
 .pursuit-lane-pill {

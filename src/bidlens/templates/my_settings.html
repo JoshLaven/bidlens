@@ -2,47 +2,78 @@
 {% set hide_context_sidebar = true %}
 {% block title %}My Settings - BidLens{% endblock %}
 {% block content %}
-<div class="page-header">
-  <h1>My Settings</h1>
-  <p class="page-subtitle">User-specific preferences for your BidLens workspace.</p>
-</div>
+<div class="personal-settings-page personal-settings-page--consolidated">
+  <div class="page-header">
+    <h1>My Settings</h1>
+    <p class="page-subtitle">Manage your personal BidLens preferences.</p>
+  </div>
 
-<div class="personal-settings-grid">
-  <a href="/my-settings/account{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="personal-settings-card personal-settings-card--link">
-    <div class="personal-settings-icon personal-settings-icon--account" aria-hidden="true">♙</div>
-    <h2>Account</h2>
-    <ul>
-      <li>Role: {{ user.current_role|default('member')|title }}</li>
-      <li>User: {{ user.name or user.email }}</li>
-    </ul>
-  </a>
+  {% if saved %}
+    <div class="alert alert-success">
+      {% if saved == 'lanes' %}My Lanes updated.{% else %}Daily Brief preference updated.{% endif %}
+    </div>
+  {% endif %}
 
-  <a href="/my-settings/notifications{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="personal-settings-card personal-settings-card--link">
-    <div class="personal-settings-icon personal-settings-icon--notifications" aria-hidden="true">♢</div>
-    <h2>Notifications</h2>
-    <ul>
-      <li>Email notifications</li>
-      <li>Daily digest preferences</li>
-      <li>Future personal notifications</li>
-    </ul>
-  </a>
+  <section class="personal-settings-section" aria-labelledby="account-settings-heading">
+    <div class="personal-settings-section-heading">
+      <h2 id="account-settings-heading">Account</h2>
+      <p>Your BidLens account and workspace membership.</p>
+    </div>
+    <dl class="personal-settings-account-list">
+      <div><dt>Name</dt><dd>{{ user.name or 'Not provided' }}</dd></div>
+      <div><dt>Email</dt><dd>{{ user.email }}</dd></div>
+      <div><dt>Role</dt><dd>{{ role|title }}</dd></div>
+      <div><dt>Organization</dt><dd>{{ organization.name }}</dd></div>
+    </dl>
+    <div class="personal-settings-organization-profile">
+      <h3>Organization Profile</h3>
+      <p>{{ organization.name }}</p>
+      <a href="/company-profile?org_id={{ organization.id }}" class="btn btn-outline-secondary">View Organization Profile</a>
+    </div>
+  </section>
 
-  <a href="/my-settings/organization{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="personal-settings-card personal-settings-card--link">
-    <div class="personal-settings-icon personal-settings-icon--organization" aria-hidden="true">▥</div>
-    <h2>My Organization</h2>
-    <ul>
-      <li>{{ user.current_organization_name if user.current_organization_name is defined and user.current_organization_name else user.organization.name if user.organization else 'Workspace' }}</li>
-      <li>Display only</li>
-    </ul>
-  </a>
+  <section class="personal-settings-section" aria-labelledby="daily-brief-settings-heading">
+    <div class="personal-settings-section-heading">
+      <h2 id="daily-brief-settings-heading">Daily Brief</h2>
+      <p>Choose whether to receive your Daily Brief by email.</p>
+    </div>
+    <form method="POST" action="/my-settings/daily-brief{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="personal-settings-preference-form">
+      <label class="bidlens-switch-field">
+        <span class="bidlens-switch-copy">
+          <strong>Email me my Daily Brief</strong>
+          <small>Receive the existing workspace Daily Brief at {{ user.email }}.</small>
+        </span>
+        <input type="checkbox" name="daily_brief_email_enabled" value="1" {% if not user.daily_brief_email_opted_out %}checked{% endif %}>
+        <span class="bidlens-switch" aria-hidden="true"><span class="bidlens-switch-knob"></span></span>
+    </form>
+  </section>
 
-  <a href="/my-settings/my-lanes{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="personal-settings-card personal-settings-card--link">
-    <div class="personal-settings-icon personal-settings-icon--interests" aria-hidden="true">◇</div>
-    <h2>My Lanes</h2>
-    <ul>
-      <li>Choose your lane shortcuts</li>
-      <li>Personalize your Daily Brief</li>
-    </ul>
-  </a>
+  <section class="personal-settings-section" aria-labelledby="my-lanes-settings-heading">
+    <div class="personal-settings-section-heading">
+      <h2 id="my-lanes-settings-heading">My Lanes</h2>
+      <p>Select the lanes that personalize your Daily Brief.</p>
+    </div>
+    {% if lanes %}
+      <form method="POST" action="/my-settings/my-lanes{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="my-lanes-settings-form">
+        <div class="my-lanes-settings-list">
+          {% for lane in lanes %}
+            <label class="my-lanes-settings-option">
+              <span class="my-lanes-settings-copy">
+                <strong>{{ lane.name }}</strong>
+                {% if lane.description %}<small>{{ lane.description }}</small>{% endif %}
+              </span>
+              <input type="checkbox" name="lane_ids" value="{{ lane.id }}" {% if lane.id in my_lane_ids %}checked{% endif %}>
+              <span class="bidlens-switch" aria-hidden="true"><span class="bidlens-switch-knob"></span></span>
+            </label>
+          {% endfor %}
+        </div>
+      </form>
+    {% else %}
+      <div class="empty-state empty-state--compact">
+        <h3>No pursuit lanes are available yet.</h3>
+        <p>Workspace Admins create Pursuit Lanes for the workspace.</p>
+      </div>
+    {% endif %}
+  </section>
 </div>
 {% endblock %}

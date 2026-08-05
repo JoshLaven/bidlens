@@ -891,7 +891,7 @@
       });
     }
 
-    function beginOptimisticPursue(card, button, shouldRemove) {
+    function beginOptimisticPursue(card, button, shouldRemove, { updateActionState = true } = {}) {
       const original = {
         buttonClassName: button.className,
         buttonHtml: button.innerHTML,
@@ -910,9 +910,11 @@
       card.dataset.votePending = 'true';
       button.disabled = true;
       button.setAttribute('aria-busy', 'true');
-      setPursueButtonState(button, true);
-      card.classList.remove('opp-card--pass');
-      card.classList.add('opp-card--pursue');
+      if (updateActionState) {
+        setPursueButtonState(button, true);
+        card.classList.remove('opp-card--pass');
+        card.classList.add('opp-card--pursue');
+      }
 
       const finish = () => {
         if (settled) return;
@@ -970,7 +972,7 @@
       };
     }
 
-    function beginOptimisticArchive(card, button, shouldRemove) {
+    function beginOptimisticArchive(card, button, shouldRemove, { updateActionState = true } = {}) {
       const original = {
         buttonClassName: button.className,
         buttonHtml: button.innerHTML,
@@ -988,9 +990,11 @@
       card.dataset.votePending = 'true';
       button.disabled = true;
       button.setAttribute('aria-busy', 'true');
-      setPassButtonState(button, true);
-      card.classList.remove('opp-card--pursue', 'opp-card--exit-away');
-      card.classList.add('opp-card--pass');
+      if (updateActionState) {
+        setPassButtonState(button, true);
+        card.classList.remove('opp-card--pursue', 'opp-card--exit-away');
+        card.classList.add('opp-card--pass');
+      }
 
       const finish = () => {
         if (settled) return;

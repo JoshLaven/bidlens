@@ -131,16 +131,28 @@ async function bulkSetQualificationStatus(action) {
 
 async function setQualificationStatus(oppId, action) {
   const endpoint = `/api/opps/${oppId}/${action}`;
+  const card = document.getElementById(`opp-card-${oppId}`);
+  const actionButton = card?.querySelector(`[data-triage-action="${action}"]`);
+  if (actionButton?.disabled || card?.dataset.votePending === 'true') {
+    return;
+  }
+  const optimisticRemoval = card && actionButton
+    ? (action === 'qualify'
+      ? beginOptimisticPursue(card, actionButton, true, { updateActionState: false })
+      : beginOptimisticArchive(card, actionButton, true, { updateActionState: false }))
+    : null;
   try {
     const response = await fetch(endpoint, { method: 'POST' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
+      optimisticRemoval?.cancel();
       showToast(data.detail || 'Unable to update triage status', 'error');
       return;
     }
 
-    const card = document.getElementById(`opp-card-${oppId}`);
-    if (card) {
+    if (optimisticRemoval) {
+      await optimisticRemoval.commit();
+    } else if (card) {
       card.remove();
       decrementQueueResultCount();
     }
@@ -152,6 +164,7 @@ async function setQualificationStatus(oppId, action) {
     updateOpportunityEmptyState();
     updateTriageBulkActions();
   } catch (error) {
+    optimisticRemoval?.cancel();
     showToast('Unable to update triage status', 'error');
   }
 }
