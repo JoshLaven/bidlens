@@ -64,10 +64,7 @@
   </div>
   <div data-shortlist-activity-content {% if not opportunities %}hidden{% endif %}>
     <header class="shortlist-activity-header">
-      <h2 data-activity-title></h2>
-      <p data-activity-agency></p>
-      <p class="shortlist-activity-due" data-activity-due></p>
-      <a class="details-link" data-activity-url href="#">Open Opportunity Folder &rarr;</a>
+      <p class="shortlist-activity-context-title" data-activity-title></p>
     </header>
     <section class="shortlist-activity-section" aria-labelledby="shortlist-official-heading">
       <h3 id="shortlist-official-heading">Most Recent Official Update</h3>
@@ -81,6 +78,7 @@
       <h3 id="shortlist-note-heading">Most Recent Note</h3>
       <div data-activity-note></div>
     </section>
+    <a class="details-link shortlist-activity-folder-link" data-activity-url href="#">Open Opportunity Folder &rarr;</a>
   </div>
 </div>
 {{ calendar_drawer(calendar_items, 'shortlist-calendar', 'Shortlisted Opportunities') }}
@@ -143,8 +141,26 @@
   const shortlistActivityPayload = JSON.parse(
     document.querySelector('[data-shortlist-activity-payload]')?.textContent || '{}'
   );
+  const shortlistCompanionStack = document.querySelector('.shortlist-companion-sticky');
   const shortlistActivityRail = document.querySelector('[data-shortlist-activity-rail]');
   const shortlistPreviewCards = Array.from(document.querySelectorAll('[data-shortlist-preview-card]'));
+  let shortlistCompanionFocusFrame = null;
+
+  function transitionShortlistCompanionFocus() {
+    if (!shortlistCompanionStack) return;
+    shortlistCompanionStack.classList.remove('shortlist-companion-sticky--focus-changing');
+    if (shortlistCompanionFocusFrame !== null) {
+      window.cancelAnimationFrame(shortlistCompanionFocusFrame);
+    }
+    shortlistCompanionFocusFrame = window.requestAnimationFrame(() => {
+      shortlistCompanionStack.classList.add('shortlist-companion-sticky--focus-changing');
+      shortlistCompanionFocusFrame = null;
+    });
+  }
+
+  shortlistCompanionStack?.addEventListener('animationend', () => {
+    shortlistCompanionStack.classList.remove('shortlist-companion-sticky--focus-changing');
+  });
 
   function activityDetail(primary, secondary = null) {
     const wrapper = document.createElement('div');
@@ -184,11 +200,9 @@
     });
 
     const opportunity = activity.opportunity;
-    shortlistActivityRail.querySelector('[data-activity-title]').textContent = opportunity.title;
-    shortlistActivityRail.querySelector('[data-activity-agency]').textContent = opportunity.agency || '';
-    shortlistActivityRail.querySelector('[data-activity-due]').textContent = opportunity.due_date
-      ? `Due ${opportunity.due_date}`
-      : 'No response deadline';
+    const contextTitle = shortlistActivityRail.querySelector('[data-activity-title]');
+    contextTitle.textContent = opportunity.title;
+    contextTitle.title = opportunity.title;
     shortlistActivityRail.querySelector('[data-activity-url]').href = opportunity.url;
 
     const official = activity.official_update;
@@ -215,6 +229,7 @@
         ? activityDetail(note.author, [note.date, note.preview].filter(Boolean).join(' · '))
         : activityEmpty('No team notes recorded.')
     );
+    transitionShortlistCompanionFocus();
   }
 
   shortlistPreviewCards.forEach((card) => {

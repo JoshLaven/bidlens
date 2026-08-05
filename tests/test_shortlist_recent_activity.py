@@ -207,6 +207,9 @@ class ShortlistRecentActivityTests(unittest.TestCase):
         self.assertIn('class="side-card shortlist-activity-rail"', shortlist)
         self.assertIn('class="side-card-title">Recent Activity</div>', shortlist)
         self.assertIn('class="shortlist-companion-stack shortlist-companion-sticky"', shortlist)
+        self.assertIn("shortlist-activity-context-title", shortlist)
+        self.assertNotIn("data-activity-agency", shortlist)
+        self.assertNotIn("data-activity-due", shortlist)
         self.assertIn("mouseenter", shortlist)
         self.assertIn("focusin", shortlist)
         self.assertIn("selectShortlistPreview(shortlistPreviewCards[0])", shortlist)
@@ -256,6 +259,15 @@ class ShortlistRecentActivityTests(unittest.TestCase):
         self.assertIn("max-height: calc(100vh - 112px)", styles)
         self.assertIn("writing-mode: horizontal-tb", styles)
         self.assertNotIn("rotate(270deg)", styles)
+        self.assertRegex(
+            styles,
+            r"\.shortlist-companion-sticky::before\s*\{[\s\S]*?top: min\(50%, 280px\);[\s\S]*?width: 3px;[\s\S]*?height: 72px;[\s\S]*?background: rgba\(40, 139, 92, 0\.68\);",
+        )
+        self.assertIn("shortlist-companion-focus 170ms ease-out", styles)
+        self.assertIn("transitionShortlistCompanionFocus", shortlist)
+        self.assertIn("shortlist-companion-sticky--focus-changing", shortlist)
+        self.assertIn("font-size: 0.84rem", styles)
+        self.assertIn("text-overflow: ellipsis", styles)
 
 
 if __name__ == "__main__":
