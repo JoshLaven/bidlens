@@ -245,7 +245,14 @@ class ShortlistRecentActivityTests(unittest.TestCase):
             styles,
             r"\.shortlist-companion-sticky\s*\{[\s\S]*?position: sticky;[\s\S]*?top: 96px;",
         )
-        self.assertRegex(styles, r"\.work-sidebar--shortlist\s*\{\s*align-self: stretch;")
+        self.assertRegex(
+            styles,
+            r"\.work-sidebar--shortlist\s*\{[\s\S]*?align-self: stretch;",
+        )
+        self.assertRegex(
+            styles,
+            r"\.work-sidebar--shortlist \.work-sidebar-content\s*\{[\s\S]*?flex: 1 1 auto;",
+        )
         self.assertIn("max-height: calc(100vh - 112px)", styles)
         self.assertIn("writing-mode: horizontal-tb", styles)
         self.assertNotIn("rotate(270deg)", styles)

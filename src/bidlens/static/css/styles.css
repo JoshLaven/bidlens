@@ -13505,7 +13505,14 @@ details[open] .accordion-summary::after {
 }
 
 .work-sidebar--shortlist {
+  display: flex;
+  flex-direction: column;
   align-self: stretch;
+}
+
+.work-sidebar--shortlist .work-sidebar-content {
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .shortlist-companion-sticky {
@@ -13622,7 +13629,12 @@ details[open] .accordion-summary::after {
 
 @media (max-width: 960px) {
   .work-sidebar--shortlist {
+    display: block;
     align-self: auto;
+  }
+
+  .work-sidebar--shortlist .work-sidebar-content {
+    min-height: auto;
   }
 
   .shortlist-companion-sticky {
