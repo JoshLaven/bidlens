@@ -82,7 +82,6 @@
             <p>Pinned resources and notes for your team.</p>
           </div>
         </div>
-        {% if can_manage_resources %}<button type="button" class="btn btn-outline-secondary" data-dialog-open="organization-resources-dialog">✎&nbsp; Manage Resources</button>{% endif %}
       </div>
 
       {% if resources %}
@@ -90,26 +89,37 @@
           {% for resource in resources %}
             <div class="organization-resource-row">
               {% if resource.resource_type == 'link' %}
-                <span class="organization-resource-icon organization-resource-icon--link">{{ profile_icon('link') }}</span>
-                <a class="organization-resource-copy" href="{{ resource.link_url }}" target="_blank" rel="noreferrer"><strong>{{ resource.title }}</strong>{% if resource.description %}<small>{{ resource.description }}</small>{% endif %}</a>
-                <a class="organization-resource-action" href="{{ resource.link_url }}" target="_blank" rel="noreferrer" aria-label="Open {{ resource.title }}">↗</a>
+                <a class="organization-resource-main" href="{{ resource.link_url }}" target="_blank" rel="noreferrer">
+                  <span class="organization-resource-icon organization-resource-icon--link">{{ profile_icon('link') }}</span>
+                  <span class="organization-resource-copy"><strong>{{ resource.title }}</strong>{% if resource.description %}<small>{{ resource.description }}</small>{% endif %}</span>
+                  <span class="organization-resource-action" aria-hidden="true">↗</span>
+                </a>
               {% else %}
-                <span class="organization-resource-icon organization-resource-icon--note">{{ profile_icon('note') }}</span>
-                <button type="button" class="organization-resource-copy organization-resource-copy--button" data-dialog-open="organization-note-{{ resource.id }}"><strong>{{ resource.title }}</strong>{% if resource.description %}<small>{{ resource.description }}</small>{% endif %}</button>
-                <button type="button" class="organization-resource-action organization-resource-action--button" data-dialog-open="organization-note-{{ resource.id }}">Read</button>
+                <button type="button" class="organization-resource-main organization-resource-main--button" data-dialog-open="organization-note-{{ resource.id }}">
+                  <span class="organization-resource-icon organization-resource-icon--note">{{ profile_icon('note') }}</span>
+                  <span class="organization-resource-copy"><strong>{{ resource.title }}</strong>{% if resource.description %}<small>{{ resource.description }}</small>{% endif %}</span>
+                </button>
               {% endif %}
-              {% if can_manage_resources %}<button type="button" class="organization-resource-menu" aria-label="Edit {{ resource.title }}" data-dialog-open="organization-resources-dialog">⋮</button>{% endif %}
+              {% if can_manage_resources %}
+                <div class="organization-resource-menu">
+                  <button type="button" class="organization-resource-menu__trigger" aria-label="Actions for {{ resource.title }}" aria-haspopup="menu" aria-expanded="false">⋮</button>
+                  <div class="organization-resource-menu__popover" role="menu" aria-label="Actions for {{ resource.title }}" hidden>
+                    <button type="button" role="menuitem" data-dialog-open="organization-resource-edit-{{ resource.id }}">Edit</button>
+                    <form method="POST" action="/company-profile/resources/{{ resource.id }}/delete{{ org_q }}" onsubmit="return confirm('Delete this resource?')"><button type="submit" role="menuitem">Delete</button></form>
+                  </div>
+                </div>
+              {% endif %}
             </div>
             {% if resource.resource_type == 'note' %}
                 <dialog id="organization-note-{{ resource.id }}" class="organization-dialog organization-note-dialog" aria-labelledby="organization-note-title-{{ resource.id }}"><div class="organization-dialog__heading"><div><h2 id="organization-note-title-{{ resource.id }}">{{ resource.title }}</h2>{% if resource.description %}<p>{{ resource.description }}</p>{% endif %}</div><button type="button" aria-label="Close note" data-dialog-close>×</button></div><div class="organization-note-content">{{ resource.note_content }}</div></dialog>
               {% endif %}
           {% endfor %}
         </div>
-        {% if can_manage_resources %}<button type="button" class="organization-add-resource" data-dialog-open="organization-resources-dialog"><span aria-hidden="true">＋</span> Add Resource</button>{% endif %}
+        {% if can_manage_resources %}<button type="button" class="organization-add-resource" data-dialog-open="organization-resource-create-dialog"><span aria-hidden="true">＋</span> Add Resource</button>{% endif %}
       {% else %}
         <div class="organization-resources-empty">
           <p>No resources have been pinned yet.</p>
-          {% if can_manage_resources %}<button type="button" class="btn btn-outline-secondary" data-dialog-open="organization-resources-dialog">Add the first resource</button>{% endif %}
+          {% if can_manage_resources %}<button type="button" class="btn btn-outline-secondary" data-dialog-open="organization-resource-create-dialog">Add the first resource</button>{% endif %}
         </div>
       {% endif %}
     </section>
@@ -132,34 +142,30 @@
 {% endif %}
 
 {% if can_manage_resources %}
-<dialog id="organization-resources-dialog" class="organization-dialog organization-resource-manager" aria-labelledby="organization-resource-manager-title">
-  <div class="organization-dialog__heading"><div><h2 id="organization-resource-manager-title">Manage Resources</h2><p>Add links and notes that every workspace member can access.</p></div><button type="button" aria-label="Close" data-dialog-close>×</button></div>
-  <details class="organization-resource-editor" open>
-    <summary>Add Resource</summary>
+<dialog id="organization-resource-create-dialog" class="organization-dialog organization-resource-manager" aria-labelledby="organization-resource-create-title">
+  <div class="organization-dialog__heading"><div><h2 id="organization-resource-create-title">Add Resource</h2><p>Add a link or note that every workspace member can access.</p></div><button type="button" aria-label="Close" data-dialog-close>×</button></div>
     <form method="POST" action="/company-profile/resources{{ org_q }}" class="organization-resource-form" data-resource-form>
       <div class="form-group"><label for="resource-title">Title</label><input id="resource-title" name="title" required maxlength="200"></div>
       <div class="form-group"><label for="resource-description">Description <span class="muted">(optional)</span></label><input id="resource-description" name="description" maxlength="500"></div>
       <div class="form-group"><label for="resource-type">Resource Type</label><select id="resource-type" name="resource_type" data-resource-type><option value="link">Link</option><option value="note">Note</option></select></div>
       <div class="form-group" data-link-field><label for="resource-link">Link</label><input id="resource-link" name="link_url" type="url" placeholder="https://example.com"></div>
       <div class="form-group" data-note-field hidden><label for="resource-note">Note content</label><textarea id="resource-note" name="note_content" rows="6"></textarea></div>
-      <div class="organization-dialog__actions"><button type="submit" class="btn btn-primary">Add Resource</button></div>
+      <div class="organization-dialog__actions"><button type="button" class="btn btn-outline-secondary" data-dialog-close>Cancel</button><button type="submit" class="btn btn-primary">Add Resource</button></div>
     </form>
-  </details>
-  {% for resource in resources %}
-    <details class="organization-resource-editor">
-      <summary>{{ resource.title }} <small>{{ resource.resource_type|title }}</small></summary>
+</dialog>
+{% for resource in resources %}
+  <dialog id="organization-resource-edit-{{ resource.id }}" class="organization-dialog organization-resource-manager" aria-labelledby="organization-resource-edit-title-{{ resource.id }}">
+    <div class="organization-dialog__heading"><div><h2 id="organization-resource-edit-title-{{ resource.id }}">Edit Resource</h2><p>Update this shared {{ resource.resource_type }}.</p></div><button type="button" aria-label="Close" data-dialog-close>×</button></div>
       <form method="POST" action="/company-profile/resources/{{ resource.id }}{{ org_q }}" class="organization-resource-form" data-resource-form>
         <div class="form-group"><label for="resource-title-{{ resource.id }}">Title</label><input id="resource-title-{{ resource.id }}" name="title" value="{{ resource.title }}" required maxlength="200"></div>
         <div class="form-group"><label for="resource-description-{{ resource.id }}">Description <span class="muted">(optional)</span></label><input id="resource-description-{{ resource.id }}" name="description" value="{{ resource.description or '' }}" maxlength="500"></div>
         <div class="form-group"><label for="resource-type-{{ resource.id }}">Resource Type</label><select id="resource-type-{{ resource.id }}" name="resource_type" data-resource-type><option value="link" {{ 'selected' if resource.resource_type == 'link' else '' }}>Link</option><option value="note" {{ 'selected' if resource.resource_type == 'note' else '' }}>Note</option></select></div>
         <div class="form-group" data-link-field {{ 'hidden' if resource.resource_type != 'link' else '' }}><label for="resource-link-{{ resource.id }}">Link</label><input id="resource-link-{{ resource.id }}" name="link_url" type="url" value="{{ resource.link_url or '' }}"></div>
         <div class="form-group" data-note-field {{ 'hidden' if resource.resource_type != 'note' else '' }}><label for="resource-note-{{ resource.id }}">Note content</label><textarea id="resource-note-{{ resource.id }}" name="note_content" rows="6">{{ resource.note_content or '' }}</textarea></div>
-        <div class="organization-dialog__actions"><button type="submit" class="btn btn-primary">Save Resource</button></div>
+        <div class="organization-dialog__actions"><button type="button" class="btn btn-outline-secondary" data-dialog-close>Cancel</button><button type="submit" class="btn btn-primary">Save Resource</button></div>
       </form>
-      <form method="POST" action="/company-profile/resources/{{ resource.id }}/delete{{ org_q }}" class="organization-resource-delete" onsubmit="return confirm('Delete this resource?')"><button type="submit" class="btn btn-outline-danger">Delete</button></form>
-    </details>
-  {% endfor %}
-</dialog>
+  </dialog>
+{% endfor %}
 {% endif %}
 {% endblock %}
 
@@ -167,7 +173,9 @@
 <script>
 (() => {
   document.querySelectorAll('[data-dialog-open]').forEach((button) => {
-    button.addEventListener('click', () => document.getElementById(button.dataset.dialogOpen)?.showModal());
+    button.addEventListener('click', () => {
+      document.getElementById(button.dataset.dialogOpen)?.showModal();
+    });
   });
   document.querySelectorAll('[data-dialog-close]').forEach((button) => {
     button.addEventListener('click', () => button.closest('dialog')?.close());
@@ -175,6 +183,83 @@
   document.querySelectorAll('.organization-dialog').forEach((dialog) => {
     dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); });
   });
+  let activeResourceMenu = null;
+
+  function positionResourceMenu(state) {
+    const triggerRect = state.trigger.getBoundingClientRect();
+    const menuRect = state.popover.getBoundingClientRect();
+    const viewportPadding = 8;
+    const gap = 5;
+    const left = Math.min(
+      window.innerWidth - menuRect.width - viewportPadding,
+      Math.max(viewportPadding, triggerRect.right - menuRect.width)
+    );
+    const roomBelow = window.innerHeight - triggerRect.bottom - viewportPadding;
+    const top = roomBelow >= menuRect.height + gap
+      ? triggerRect.bottom + gap
+      : Math.max(viewportPadding, triggerRect.top - menuRect.height - gap);
+    state.popover.style.left = `${Math.round(left)}px`;
+    state.popover.style.top = `${Math.round(top)}px`;
+  }
+
+  function closeResourceMenu({ restoreFocus = false } = {}) {
+    if (!activeResourceMenu) return;
+    const state = activeResourceMenu;
+    activeResourceMenu = null;
+    state.popover.hidden = true;
+    state.popover.classList.remove('is-open');
+    state.popover.removeAttribute('style');
+    state.owner.appendChild(state.popover);
+    state.trigger.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) state.trigger.focus();
+  }
+
+  function openResourceMenu(owner) {
+    const trigger = owner.querySelector('.organization-resource-menu__trigger');
+    const popover = owner.querySelector('.organization-resource-menu__popover');
+    if (activeResourceMenu?.trigger === trigger) {
+      closeResourceMenu({ restoreFocus: true });
+      return;
+    }
+    closeResourceMenu();
+    activeResourceMenu = { owner, trigger, popover };
+    document.body.appendChild(popover);
+    popover.hidden = false;
+    popover.classList.add('is-open');
+    trigger.setAttribute('aria-expanded', 'true');
+    positionResourceMenu(activeResourceMenu);
+    popover.querySelector('[role="menuitem"]')?.focus();
+  }
+
+  document.querySelectorAll('.organization-resource-menu').forEach((owner) => {
+    owner.querySelector('.organization-resource-menu__trigger')?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openResourceMenu(owner);
+    });
+  });
+  document.addEventListener('click', (event) => {
+    if (!activeResourceMenu) return;
+    if (activeResourceMenu.popover.contains(event.target)) {
+      if (event.target.closest('[role="menuitem"]')) closeResourceMenu();
+      return;
+    }
+    if (event.target !== activeResourceMenu.trigger) closeResourceMenu();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (!activeResourceMenu) return;
+    const items = [...activeResourceMenu.popover.querySelectorAll('[role="menuitem"]')];
+    const index = items.indexOf(document.activeElement);
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeResourceMenu({ restoreFocus: true });
+    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const offset = event.key === 'ArrowDown' ? 1 : -1;
+      items[(index + offset + items.length) % items.length]?.focus();
+    }
+  });
+  window.addEventListener('resize', () => activeResourceMenu && positionResourceMenu(activeResourceMenu));
+  window.addEventListener('scroll', () => activeResourceMenu && positionResourceMenu(activeResourceMenu), true);
   document.querySelectorAll('[data-resource-form]').forEach((form) => {
     const select = form.querySelector('[data-resource-type]');
     const sync = () => {

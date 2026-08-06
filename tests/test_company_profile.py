@@ -151,7 +151,8 @@ class CompanyProfileTests(unittest.TestCase):
         self.assertIn("Profile Org", html)
         self.assertIn("Organization Profile", html)
         self.assertIn("Pinned resources and notes for your team.", html)
-        self.assertIn("Manage Resources", html)
+        self.assertIn("organization-resource-create-dialog", html)
+        self.assertNotIn("Manage Resources", html)
         self.assertNotIn("Recent Awards", html)
 
     def test_template_uses_profile_resources_and_removes_legacy_sections(self):
@@ -165,11 +166,38 @@ class CompanyProfileTests(unittest.TestCase):
             "Integrations",
             "Federal Identifiers",
             "Pinned resources and notes for your team.",
-            "Manage Resources",
+            "organization-resource-create-dialog",
+            "organization-resource-menu",
+            "organization-resource-main",
         ):
             self.assertIn(expected, template)
         for removed in ("Workspace Users", "Recent Awards", "organization-updated", "connected_source_count"):
             self.assertNotIn(removed, template)
+        self.assertNotIn("Manage Resources", template)
+        self.assertNotIn(">Read<", template)
+
+    def test_resource_actions_use_portal_menu_and_shared_centered_dialogs(self):
+        template = Path("src/bidlens/templates/company_profile.html").read_text()
+        styles = Path("src/bidlens/static/css/styles.css").read_text()
+
+        self.assertIn('class="organization-resource-menu__trigger"', template)
+        self.assertIn('role="menu"', template)
+        self.assertIn('role="menuitem"', template)
+        self.assertIn("document.body.appendChild(popover)", template)
+        self.assertIn("trigger.getBoundingClientRect()", template)
+        self.assertIn("roomBelow", template)
+        self.assertIn("event.key === 'Escape'", template)
+        self.assertIn("organization-resource-create-dialog", template)
+        self.assertIn("organization-resource-edit-{{ resource.id }}", template)
+        self.assertIn("organization-dialog organization-resource-manager", template)
+
+        self.assertIn(".organization-resource-menu__popover { position: fixed;", styles)
+        self.assertIn("z-index: 1100", styles)
+        self.assertIn(".organization-dialog { position: fixed; inset: 0;", styles)
+        self.assertIn("margin: auto", styles)
+        self.assertIn("max-height: calc(100dvh - 48px)", styles)
+        self.assertIn(".organization-resource-manager[open]", styles)
+        self.assertIn("overflow-y: auto", styles)
 
     def test_profile_context_is_tenant_scoped_and_members_can_view(self):
         other_org = Organization(name="Other Org", slug="other-org")
