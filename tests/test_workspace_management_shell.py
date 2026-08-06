@@ -40,7 +40,6 @@ class WorkspaceManagementShellTests(unittest.TestCase):
 
     def test_shared_hero_is_used_by_every_workspace_management_destination(self):
         expected = {
-            "company_profile.html": "Organization",
             "workspace_members.html": "Users",
             "govwin_import.html": "Opportunity Sources",
             "pursuit_lanes.html": "Feed Settings",
@@ -55,6 +54,10 @@ class WorkspaceManagementShellTests(unittest.TestCase):
                 self.assertIn("_workspace_management_hero.html", source)
                 self.assertIn(f"workspace_management_hero('{title}'", source)
                 self.assertIn("workspace-management-page", source)
+
+        organization_source = (TEMPLATES / "company_profile.html").read_text()
+        self.assertIn("workspace-management-hero organization-profile-hero", organization_source)
+        self.assertIn("workspace-management-page", organization_source)
 
     def test_operational_pages_do_not_use_workspace_management_hero(self):
         for filename in ("home.html", "feed.html", "my_shortlist.html", "triage.html", "archive.html"):

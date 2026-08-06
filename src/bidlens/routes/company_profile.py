@@ -2,23 +2,27 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from ..auth import attach_request_user_context, get_current_user
 from ..database import get_db
 from ..models import (
     CompanyProfile,
     Event,
+    ExternalIntegrationConnection,
     GrantsSourceConfig,
     Organization,
     OrganizationMembership,
+    OrganizationResource,
     OrgProfile,
     SamSourceConfig,
+    SalesforceConnection,
     User,
+    Workspace,
 )
 from .opportunities import get_sidebar
 
@@ -64,30 +68,8 @@ def _profile_form(profile: CompanyProfile | None, organization: Organization | N
     }
 
 
-def _recent_work_context(profile: CompanyProfile | None) -> dict[str, object]:
-    identifiers = []
-    if profile and profile.uei:
-        identifiers.append({"label": "UEI", "value": profile.uei})
-    if profile and profile.cage_code:
-        identifiers.append({"label": "CAGE", "value": profile.cage_code})
-    if profile and profile.duns:
-        identifiers.append({"label": "DUNS", "value": profile.duns})
-
-    profile_json = profile.profile_json if profile and isinstance(profile.profile_json, dict) else {}
-    recent_work = profile_json.get("recent_work") if isinstance(profile_json, dict) else None
-    awards = recent_work.get("awards", []) if isinstance(recent_work, dict) else []
-    status = recent_work.get("status") if isinstance(recent_work, dict) else None
-
-    return {
-        "identifiers": identifiers,
-        "awards": awards,
-        "status": status or ("ready" if identifiers else "needs_identifiers"),
-        "requested": bool(recent_work and recent_work.get("requested_at")),
-    }
-
-
-def _connected_source_count(db: Session, *, org_id: int, org_profile: OrgProfile | None) -> int:
-    connected = 0
+def _connected_sources(db: Session, *, org_id: int, org_profile: OrgProfile | None) -> list[str]:
+    connected: list[str] = []
 
     has_sam_config = (
         db.query(SamSourceConfig.id)
@@ -103,7 +85,7 @@ def _connected_source_count(db: Session, *, org_id: int, org_profile: OrgProfile
         )
     )
     if has_sam_config or has_legacy_sam_settings:
-        connected += 1
+        connected.append("SAM.gov")
 
     has_grants_config = (
         db.query(GrantsSourceConfig.id)
@@ -114,12 +96,90 @@ def _connected_source_count(db: Session, *, org_id: int, org_profile: OrgProfile
         .first()
     )
     if has_grants_config:
-        connected += 1
+        connected.append("Grants.gov")
 
     if org_profile and org_profile.govwin_credentials_encrypted:
-        connected += 1
+        connected.append("GovWin")
 
     return connected
+
+
+def _connected_integrations(db: Session, *, org_id: int) -> list[str]:
+    connected: list[str] = []
+    workspace = db.query(Workspace).filter(Workspace.organization_id == org_id).first()
+    if workspace and (
+        db.query(ExternalIntegrationConnection.id)
+        .filter(
+            ExternalIntegrationConnection.workspace_id == workspace.id,
+            ExternalIntegrationConnection.provider == "microsoft",
+            ExternalIntegrationConnection.connection_status == "connected",
+        )
+        .first()
+    ):
+        connected.append("Microsoft Graph")
+    if (
+        db.query(SalesforceConnection.id)
+        .filter(
+            SalesforceConnection.workspace_id == org_id,
+            SalesforceConnection.status == "connected",
+        )
+        .first()
+    ):
+        connected.append("Salesforce")
+    return connected
+
+
+def _is_admin(db: Session, *, user_id: int, org_id: int) -> bool:
+    return bool(
+        db.query(OrganizationMembership.id)
+        .filter(
+            OrganizationMembership.organization_id == org_id,
+            OrganizationMembership.user_id == user_id,
+            OrganizationMembership.role == "admin",
+        )
+        .first()
+    )
+
+
+def _require_admin(user, db: Session) -> int:
+    org_id = _user_org_id(user)
+    if not _is_admin(db, user_id=user.id, org_id=org_id):
+        raise HTTPException(status_code=403, detail="Organization administrator access required")
+    return org_id
+
+
+def _validate_resource(
+    *,
+    title: str,
+    description: str,
+    resource_type: str,
+    link_url: str,
+    note_content: str,
+) -> dict[str, str | None]:
+    cleaned_title = _clean_text(title)
+    cleaned_type = _clean_text(resource_type).lower()
+    cleaned_link = _clean_optional_text(link_url)
+    cleaned_note = _clean_optional_text(note_content)
+    if not cleaned_title:
+        raise ValueError("Title is required.")
+    if cleaned_type not in {"link", "note"}:
+        raise ValueError("Choose Link or Note as the resource type.")
+    if cleaned_type == "link":
+        parsed = urlsplit(cleaned_link or "")
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Link resources require a valid http or https URL.")
+        cleaned_note = None
+    elif not cleaned_note:
+        raise ValueError("Note resources require note content.")
+    else:
+        cleaned_link = None
+    return {
+        "title": cleaned_title,
+        "description": _clean_optional_text(description),
+        "resource_type": cleaned_type,
+        "link_url": cleaned_link,
+        "note_content": cleaned_note,
+    }
 
 
 def active_company_profile(db: Session, org_id: int) -> CompanyProfile | None:
@@ -255,6 +315,23 @@ def render_company_profile(
         .order_by(User.name.asc().nullslast(), User.email.asc())
         .all()
     )
+    owner_row = (
+        db.query(OrganizationMembership, User)
+        .join(User, User.id == OrganizationMembership.user_id)
+        .filter(
+            OrganizationMembership.organization_id == org_id,
+            OrganizationMembership.role == "admin",
+        )
+        .order_by(OrganizationMembership.created_at.asc(), OrganizationMembership.id.asc())
+        .first()
+    )
+    resources = (
+        db.query(OrganizationResource)
+        .filter(OrganizationResource.organization_id == org_id)
+        .order_by(OrganizationResource.position.asc(), OrganizationResource.id.asc())
+        .all()
+    )
+    can_manage = _is_admin(db, user_id=user.id, org_id=org_id)
     form = form or _profile_form(profile, organization)
     return templates.TemplateResponse(
         "company_profile.html",
@@ -266,24 +343,24 @@ def render_company_profile(
             "profile": profile,
             "organization": organization,
             "profile_form": form,
-            "recent_work": _recent_work_context(profile),
             "member_count": len(member_rows),
             "workspace_status": "Live" if organization and organization.is_live else "Setup",
-            "connected_source_count": _connected_source_count(
+            "workspace_owner": {
+                "name": owner_row[1].name or owner_row[1].email,
+                "email": owner_row[1].email,
+            } if owner_row else None,
+            "connected_sources": _connected_sources(
                 db,
                 org_id=org_id,
                 org_profile=org_profile,
             ),
-            "member_preview": [
-                {
-                    "name": member.name or member.email,
-                    "email": member.email,
-                    "role": membership.role.replace("_", " ").title(),
-                }
-                for membership, member in member_rows[:5]
-            ],
-            "can_manage_members": getattr(user, "current_role", "member") == "admin",
+            "connected_integrations": _connected_integrations(db, org_id=org_id),
+            "resources": resources,
+            "can_manage_organization": can_manage,
+            "can_manage_resources": can_manage,
             "saved": saved,
+            "resource_saved": request.query_params.get("resource_saved") == "1",
+            "resource_deleted": request.query_params.get("resource_deleted") == "1",
             "duplicate_cleanup_count": duplicate_cleanup_count,
         },
     )
@@ -332,7 +409,7 @@ async def company_profile_save(
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    org_id = _user_org_id(user)
+    org_id = _require_admin(user, db)
     profile, created, archived_count = upsert_company_profile(
         db,
         org_id=org_id,
@@ -359,6 +436,120 @@ async def company_profile_save(
         if value
     })
     return RedirectResponse(url=f"/company-profile?{query}", status_code=303)
+
+
+def _resource_redirect(request: Request, org_id: int, *, key: str) -> RedirectResponse:
+    query = urlencode({
+        "org_id": request.query_params.get("org_id") or str(org_id),
+        key: "1",
+    })
+    return RedirectResponse(url=f"/company-profile?{query}#organization-resources", status_code=303)
+
+
+@router.post("/company-profile/resources")
+async def organization_resource_create(
+    request: Request,
+    title: str = Form(""),
+    description: str = Form(""),
+    resource_type: str = Form(""),
+    link_url: str = Form(""),
+    note_content: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    org_id = _require_admin(user, db)
+    try:
+        values = _validate_resource(
+            title=title,
+            description=description,
+            resource_type=resource_type,
+            link_url=link_url,
+            note_content=note_content,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    next_position = (
+        db.query(OrganizationResource.position)
+        .filter(OrganizationResource.organization_id == org_id)
+        .order_by(OrganizationResource.position.desc())
+        .first()
+    )
+    resource = OrganizationResource(
+        organization_id=org_id,
+        position=(next_position[0] + 1) if next_position else 0,
+        **values,
+    )
+    db.add(resource)
+    db.commit()
+    return _resource_redirect(request, org_id, key="resource_saved")
+
+
+@router.post("/company-profile/resources/{resource_id}")
+async def organization_resource_update(
+    resource_id: int,
+    request: Request,
+    title: str = Form(""),
+    description: str = Form(""),
+    resource_type: str = Form(""),
+    link_url: str = Form(""),
+    note_content: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    org_id = _require_admin(user, db)
+    resource = (
+        db.query(OrganizationResource)
+        .filter(
+            OrganizationResource.id == resource_id,
+            OrganizationResource.organization_id == org_id,
+        )
+        .first()
+    )
+    if not resource:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    try:
+        values = _validate_resource(
+            title=title,
+            description=description,
+            resource_type=resource_type,
+            link_url=link_url,
+            note_content=note_content,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    for field, value in values.items():
+        setattr(resource, field, value)
+    db.commit()
+    return _resource_redirect(request, org_id, key="resource_saved")
+
+
+@router.post("/company-profile/resources/{resource_id}/delete")
+async def organization_resource_delete(
+    resource_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    org_id = _require_admin(user, db)
+    resource = (
+        db.query(OrganizationResource)
+        .filter(
+            OrganizationResource.id == resource_id,
+            OrganizationResource.organization_id == org_id,
+        )
+        .first()
+    )
+    if not resource:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    db.delete(resource)
+    db.commit()
+    return _resource_redirect(request, org_id, key="resource_deleted")
 
 
 @router.post("/company-profile/save")

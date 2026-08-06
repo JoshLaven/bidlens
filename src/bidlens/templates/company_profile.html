@@ -1,114 +1,190 @@
 {% extends "base.html" %}
-{% from "_workspace_management_hero.html" import workspace_management_hero %}
+{% from "_back_navigation.html" import back_navigation %}
 {% set hide_context_sidebar = true %}
 {% block title %}Organization - BidLens{% endblock %}
+
+{% macro profile_icon(kind) -%}
+  {% if kind == 'organization' %}
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21h16M6 21V7l6-4 6 4v14M9 10h1m4 0h1m-6 4h1m4 0h1m-6 4h6"/></svg>
+  {% elif kind == 'link' %}
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.1 1.1M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.1-1.1"/></svg>
+  {% elif kind == 'resources' %}
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12v17l-6-4-6 4z"/></svg>
+  {% else %}
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l3 3v15H6zM9 11h6m-6 4h6M14 3v4h4"/></svg>
+  {% endif %}
+{%- endmacro %}
 
 {% block content %}
 {% set org_id = request.query_params.get('org_id') or organization.id %}
 {% set org_q = '?org_id=' ~ org_id %}
 {% set setup_back_url = '/organization-setup' ~ org_q if user.current_organization_is_live is defined and not user.current_organization_is_live else none %}
-<div class="admin-page-layout workspace-management-page organization-overview">
+<div class="admin-page-layout workspace-management-page organization-overview organization-profile-page">
   <div class="admin-page-content">
-    {{ workspace_management_hero('Organization', 'Company information used for opportunity matching, enrichment, and routing.', profile.updated_at if profile and profile.updated_at else none, action_url=setup_back_url) }}
+    {% if setup_back_url %}{{ back_navigation('Setup', setup_back_url) }}{% endif %}
+
+    <header class="workspace-management-hero organization-profile-hero" data-workspace-management-hero>
+      <span class="organization-profile-hero__icon">{{ profile_icon('organization') }}</span>
+      <div class="organization-profile-hero__content">
+        <div class="organization-profile-hero__title"><h1>{{ profile_form.organization_name }}</h1><span class="organization-profile-hero__status"><i aria-hidden="true"></i>{{ workspace_status }}</span></div>
+        <p>Company information used for opportunity matching, enrichment, routing, and collaboration.</p>
+      </div>
+      {% if can_manage_organization %}
+        <button type="button" class="btn btn-outline-secondary organization-profile-hero__edit" data-dialog-open="organization-edit-dialog">✎&nbsp; Edit Organization</button>
+      {% endif %}
+    </header>
 
     {% if saved %}<div class="alert alert-success">Organization saved.</div>{% endif %}
+    {% if resource_saved %}<div class="alert alert-success">Resource saved.</div>{% endif %}
+    {% if resource_deleted %}<div class="alert alert-success">Resource deleted.</div>{% endif %}
     {% if duplicate_cleanup_count %}<div class="alert alert-warning">Archived {{ duplicate_cleanup_count }} duplicate active profile{{ '' if duplicate_cleanup_count == 1 else 's' }}.</div>{% endif %}
 
-    <section class="organization-profile-card" aria-labelledby="organization-profile-heading">
-      <div class="organization-card-heading organization-card-heading--identity">
-        <div class="organization-identity">
-          <h2 id="organization-profile-heading">{{ profile_form.organization_name }}</h2>
-          {% if profile_form.website_url %}<a href="{{ profile_form.website_url }}" target="_blank" rel="noreferrer">{{ profile_form.website_url|replace('https://www.', '')|replace('http://www.', '')|replace('https://', '')|replace('http://', '') }} ↗</a>{% else %}<span class="organization-unset">Website not set</span>{% endif %}
-          <span class="organization-identity-accent" aria-hidden="true"></span>
+    <section class="organization-profile-card organization-profile-summary" aria-labelledby="organization-profile-heading">
+      <div class="organization-section-heading">
+        <span class="organization-section-icon organization-section-icon--blue">{{ profile_icon('organization') }}</span>
+        <div>
+          <h2 id="organization-profile-heading">Organization Profile</h2>
+          <p>Core workspace identity and connected systems.</p>
         </div>
-        <details class="organization-edit-panel">
-          <summary class="btn btn-primary">Edit Organization</summary>
-          <form method="POST" action="/company-profile{{ org_q }}" class="organization-edit-form">
-            <div class="organization-edit-actions">
-              <button type="button" class="btn btn-outline-secondary" onclick="this.closest('details').removeAttribute('open')">Cancel</button>
-              <button type="submit" class="btn btn-primary">Save Changes</button>
-            </div>
-            <div class="organization-edit-website form-group">
-              <label for="website_url">Website <span class="muted">(optional)</span></label>
-              <input id="website_url" name="website_url" type="url" value="{{ profile_form.website_url }}" placeholder="https://example.com">
-            </div>
-            <div class="organization-summary-metadata organization-summary-metadata--edit">
-              <dl class="organization-property-list" aria-label="Workspace metadata">
-                <div>
-                  <dt>Workspace Status</dt>
-                  <dd><input type="text" value="{{ workspace_status }}" readonly aria-label="Workspace Status"></dd>
-                </div>
-                <div>
-                  <dt>Users</dt>
-                  <dd><input type="text" value="{{ member_count }}" readonly aria-label="Users"></dd>
-                </div>
-                <div>
-                  <dt>Sources</dt>
-                  <dd><input type="text" value="{{ connected_source_count }} Connected" readonly aria-label="Sources"></dd>
-                </div>
-              </dl>
-              <dl class="organization-property-list organization-property-list--identifiers" aria-label="Federal identifiers">
-                <div><dt><label for="uei">UEI</label></dt><dd><input id="uei" name="uei" type="text" value="{{ profile_form.uei }}" placeholder="Not set"></dd></div>
-                <div><dt><label for="cage_code">CAGE</label></dt><dd><input id="cage_code" name="cage_code" type="text" value="{{ profile_form.cage_code }}" placeholder="Not set"></dd></div>
-                <div><dt><label for="duns">DUNS</label></dt><dd><input id="duns" name="duns" type="text" value="{{ profile_form.duns }}" placeholder="Not set"></dd></div>
-              </dl>
-            </div>
-          </form>
-        </details>
       </div>
-      <div class="organization-summary-metadata organization-summary-metadata--display">
-        <dl class="organization-property-list" aria-label="Workspace metadata">
+
+      <div class="organization-profile-grid">
+        <dl class="organization-profile-list">
+          <div><dt>Legal Name</dt><dd>{{ profile_form.organization_name }}</dd></div>
+          <div><dt>Website</dt><dd>{% if profile_form.website_url %}<a href="{{ profile_form.website_url }}" target="_blank" rel="noreferrer">{{ profile_form.website_url|replace('https://www.', '')|replace('http://www.', '')|replace('https://', '')|replace('http://', '') }} ↗</a>{% else %}<span class="organization-unset">Not set</span>{% endif %}</dd></div>
           <div>
-            <dt>Workspace Status</dt>
-            <dd class="organization-status-value organization-status-value--{{ 'live' if workspace_status == 'Live' else 'setup' }}">{{ workspace_status }}</dd>
+            <dt>Workspace Owner</dt>
+            <dd>{% if workspace_owner %}<strong>{{ workspace_owner.name }}</strong><small>{{ workspace_owner.email }}</small>{% else %}<span class="organization-unset">Not assigned</span>{% endif %}</dd>
           </div>
-          <div>
-            <dt>Users</dt>
-            <dd>{{ member_count }}</dd>
-          </div>
-          <div>
-            <dt>Sources</dt>
-            <dd>{{ connected_source_count }} Connected</dd>
-          </div>
+          <div><dt>Users</dt><dd>{{ member_count }} member{{ '' if member_count == 1 else 's' }}</dd></div>
         </dl>
-        <dl class="organization-property-list organization-property-list--identifiers" aria-label="Federal identifiers">
-          <div class="{{ 'is-unset' if not profile_form.uei else '' }}"><dt>UEI</dt><dd>{{ profile_form.uei or 'Not set' }}</dd></div>
-          <div class="{{ 'is-unset' if not profile_form.cage_code else '' }}"><dt>CAGE</dt><dd>{{ profile_form.cage_code or 'Not set' }}</dd></div>
-          <div class="{{ 'is-unset' if not profile_form.duns else '' }}"><dt>DUNS</dt><dd>{{ profile_form.duns or 'Not set' }}</dd></div>
+        <dl class="organization-profile-list organization-profile-list--secondary">
+          <div><dt>Opportunity Sources</dt><dd class="organization-system-list">{% for source in connected_sources %}<span>{{ source }}</span>{% else %}<span class="organization-unset">None connected</span>{% endfor %}</dd></div>
+          <div><dt>Integrations</dt><dd class="organization-system-list">{% for integration in connected_integrations %}<span>{{ integration }}</span>{% else %}<span class="organization-unset">None connected</span>{% endfor %}</dd></div>
+          <div class="organization-identifiers">
+            <dt>Federal Identifiers</dt>
+            <dd><dl>
+              <div><dt>UEI</dt><dd>{{ profile_form.uei or 'Not set' }}</dd></div>
+              <div><dt>CAGE</dt><dd>{{ profile_form.cage_code or 'Not set' }}</dd></div>
+              <div><dt>DUNS</dt><dd>{{ profile_form.duns or 'Not set' }}</dd></div>
+            </dl></dd>
+          </div>
         </dl>
       </div>
     </section>
 
-    <div class="organization-overview-grid">
-      <section class="organization-members-card" aria-labelledby="organization-members-heading">
-        <div class="organization-card-heading">
-          <div><span>Access</span><h2 id="organization-members-heading">Workspace Users</h2><p>{{ member_count }} active user{{ '' if member_count == 1 else 's' }}</p></div>
-          {% if can_manage_members %}<a href="/admin/organizations/{{ organization.id }}/users{{ org_q }}#add-users" class="btn btn-primary">Add Users</a>{% endif %}
-        </div>
-        {% if member_preview %}
-          <div class="organization-member-list">
-            {% for row in member_preview %}
-              <div><span class="organization-member-initials">{{ row.name[:1]|upper }}</span><span><strong>{{ row.name }}</strong><small>{{ row.email }}</small></span><em>{{ row.role }}</em></div>
-            {% endfor %}
+    <section id="organization-resources" class="organization-profile-card organization-resources" aria-labelledby="organization-resources-heading">
+      <div class="organization-resources__heading">
+        <div class="organization-section-heading">
+          <span class="organization-section-icon organization-section-icon--blue">{{ profile_icon('resources') }}</span>
+          <div>
+            <h2 id="organization-resources-heading">Resources</h2>
+            <p>Pinned resources and notes for your team.</p>
           </div>
-        {% else %}<p class="company-profile-placeholder">No active users yet.</p>{% endif %}
-        {% if can_manage_members %}<a class="organization-card-link" href="/admin/organizations/{{ organization.id }}/users{{ org_q }}">View all users →</a>{% endif %}
-      </section>
+        </div>
+        {% if can_manage_resources %}<button type="button" class="btn btn-outline-secondary" data-dialog-open="organization-resources-dialog">✎&nbsp; Manage Resources</button>{% endif %}
+      </div>
 
-      <section class="organization-awards-card" aria-labelledby="organization-awards-heading">
-        <div class="organization-card-heading"><div><span>Enrichment</span><h2 id="organization-awards-heading">Recent Awards</h2></div></div>
-        {% if recent_work.awards %}
-          <strong class="organization-award-count">{{ recent_work.awards|length }}</strong>
-          <span>award{{ '' if recent_work.awards|length == 1 else 's' }} available</span>
-          <div class="company-profile-work-list">{% for award in recent_work.awards[:3] %}<div class="company-profile-work-row"><strong>{{ award.title }}</strong><span>{{ award.agency or 'Agency unavailable' }}</span></div>{% endfor %}</div>
-        {% elif recent_work.identifiers %}
-          <p>Optional federal identifiers are ready for award enrichment when matching records are available.</p>
-          <div class="company-profile-identifier-pills">{% for identifier in recent_work.identifiers %}<span>{{ identifier.label }} {{ identifier.value }}</span>{% endfor %}</div>
-        {% else %}
-          <p class="organization-unset">Optional. Add UEI, CAGE, or DUNS later to connect public award context.</p>
-        {% endif %}
-      </section>
-    </div>
+      {% if resources %}
+        <div class="organization-resource-list">
+          {% for resource in resources %}
+            <div class="organization-resource-row">
+              {% if resource.resource_type == 'link' %}
+                <span class="organization-resource-icon organization-resource-icon--link">{{ profile_icon('link') }}</span>
+                <a class="organization-resource-copy" href="{{ resource.link_url }}" target="_blank" rel="noreferrer"><strong>{{ resource.title }}</strong>{% if resource.description %}<small>{{ resource.description }}</small>{% endif %}</a>
+                <a class="organization-resource-action" href="{{ resource.link_url }}" target="_blank" rel="noreferrer" aria-label="Open {{ resource.title }}">↗</a>
+              {% else %}
+                <span class="organization-resource-icon organization-resource-icon--note">{{ profile_icon('note') }}</span>
+                <button type="button" class="organization-resource-copy organization-resource-copy--button" data-dialog-open="organization-note-{{ resource.id }}"><strong>{{ resource.title }}</strong>{% if resource.description %}<small>{{ resource.description }}</small>{% endif %}</button>
+                <button type="button" class="organization-resource-action organization-resource-action--button" data-dialog-open="organization-note-{{ resource.id }}">Read</button>
+              {% endif %}
+              {% if can_manage_resources %}<button type="button" class="organization-resource-menu" aria-label="Edit {{ resource.title }}" data-dialog-open="organization-resources-dialog">⋮</button>{% endif %}
+            </div>
+            {% if resource.resource_type == 'note' %}
+                <dialog id="organization-note-{{ resource.id }}" class="organization-dialog organization-note-dialog" aria-labelledby="organization-note-title-{{ resource.id }}"><div class="organization-dialog__heading"><div><h2 id="organization-note-title-{{ resource.id }}">{{ resource.title }}</h2>{% if resource.description %}<p>{{ resource.description }}</p>{% endif %}</div><button type="button" aria-label="Close note" data-dialog-close>×</button></div><div class="organization-note-content">{{ resource.note_content }}</div></dialog>
+              {% endif %}
+          {% endfor %}
+        </div>
+        {% if can_manage_resources %}<button type="button" class="organization-add-resource" data-dialog-open="organization-resources-dialog"><span aria-hidden="true">＋</span> Add Resource</button>{% endif %}
+      {% else %}
+        <div class="organization-resources-empty">
+          <p>No resources have been pinned yet.</p>
+          {% if can_manage_resources %}<button type="button" class="btn btn-outline-secondary" data-dialog-open="organization-resources-dialog">Add the first resource</button>{% endif %}
+        </div>
+      {% endif %}
+    </section>
   </div>
 </div>
+
+{% if can_manage_organization %}
+<dialog id="organization-edit-dialog" class="organization-dialog" aria-labelledby="organization-edit-title">
+  <form method="POST" action="/company-profile{{ org_q }}" class="organization-dialog__form">
+    <div class="organization-dialog__heading"><div><h2 id="organization-edit-title">Edit Organization</h2><p>Update the organization website and federal identifiers.</p></div><button type="button" aria-label="Close" data-dialog-close>×</button></div>
+    <div class="form-group"><label for="website_url">Website <span class="muted">(optional)</span></label><input id="website_url" name="website_url" type="url" value="{{ profile_form.website_url }}" placeholder="https://example.com"></div>
+    <div class="organization-dialog__grid">
+      <div class="form-group"><label for="uei">UEI</label><input id="uei" name="uei" type="text" value="{{ profile_form.uei }}" placeholder="Not set"></div>
+      <div class="form-group"><label for="cage_code">CAGE</label><input id="cage_code" name="cage_code" type="text" value="{{ profile_form.cage_code }}" placeholder="Not set"></div>
+      <div class="form-group"><label for="duns">DUNS</label><input id="duns" name="duns" type="text" value="{{ profile_form.duns }}" placeholder="Not set"></div>
+    </div>
+    <div class="organization-dialog__actions"><button type="button" class="btn btn-outline-secondary" data-dialog-close>Cancel</button><button type="submit" class="btn btn-primary">Save Changes</button></div>
+  </form>
+</dialog>
+{% endif %}
+
+{% if can_manage_resources %}
+<dialog id="organization-resources-dialog" class="organization-dialog organization-resource-manager" aria-labelledby="organization-resource-manager-title">
+  <div class="organization-dialog__heading"><div><h2 id="organization-resource-manager-title">Manage Resources</h2><p>Add links and notes that every workspace member can access.</p></div><button type="button" aria-label="Close" data-dialog-close>×</button></div>
+  <details class="organization-resource-editor" open>
+    <summary>Add Resource</summary>
+    <form method="POST" action="/company-profile/resources{{ org_q }}" class="organization-resource-form" data-resource-form>
+      <div class="form-group"><label for="resource-title">Title</label><input id="resource-title" name="title" required maxlength="200"></div>
+      <div class="form-group"><label for="resource-description">Description <span class="muted">(optional)</span></label><input id="resource-description" name="description" maxlength="500"></div>
+      <div class="form-group"><label for="resource-type">Resource Type</label><select id="resource-type" name="resource_type" data-resource-type><option value="link">Link</option><option value="note">Note</option></select></div>
+      <div class="form-group" data-link-field><label for="resource-link">Link</label><input id="resource-link" name="link_url" type="url" placeholder="https://example.com"></div>
+      <div class="form-group" data-note-field hidden><label for="resource-note">Note content</label><textarea id="resource-note" name="note_content" rows="6"></textarea></div>
+      <div class="organization-dialog__actions"><button type="submit" class="btn btn-primary">Add Resource</button></div>
+    </form>
+  </details>
+  {% for resource in resources %}
+    <details class="organization-resource-editor">
+      <summary>{{ resource.title }} <small>{{ resource.resource_type|title }}</small></summary>
+      <form method="POST" action="/company-profile/resources/{{ resource.id }}{{ org_q }}" class="organization-resource-form" data-resource-form>
+        <div class="form-group"><label for="resource-title-{{ resource.id }}">Title</label><input id="resource-title-{{ resource.id }}" name="title" value="{{ resource.title }}" required maxlength="200"></div>
+        <div class="form-group"><label for="resource-description-{{ resource.id }}">Description <span class="muted">(optional)</span></label><input id="resource-description-{{ resource.id }}" name="description" value="{{ resource.description or '' }}" maxlength="500"></div>
+        <div class="form-group"><label for="resource-type-{{ resource.id }}">Resource Type</label><select id="resource-type-{{ resource.id }}" name="resource_type" data-resource-type><option value="link" {{ 'selected' if resource.resource_type == 'link' else '' }}>Link</option><option value="note" {{ 'selected' if resource.resource_type == 'note' else '' }}>Note</option></select></div>
+        <div class="form-group" data-link-field {{ 'hidden' if resource.resource_type != 'link' else '' }}><label for="resource-link-{{ resource.id }}">Link</label><input id="resource-link-{{ resource.id }}" name="link_url" type="url" value="{{ resource.link_url or '' }}"></div>
+        <div class="form-group" data-note-field {{ 'hidden' if resource.resource_type != 'note' else '' }}><label for="resource-note-{{ resource.id }}">Note content</label><textarea id="resource-note-{{ resource.id }}" name="note_content" rows="6">{{ resource.note_content or '' }}</textarea></div>
+        <div class="organization-dialog__actions"><button type="submit" class="btn btn-primary">Save Resource</button></div>
+      </form>
+      <form method="POST" action="/company-profile/resources/{{ resource.id }}/delete{{ org_q }}" class="organization-resource-delete" onsubmit="return confirm('Delete this resource?')"><button type="submit" class="btn btn-outline-danger">Delete</button></form>
+    </details>
+  {% endfor %}
+</dialog>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  document.querySelectorAll('[data-dialog-open]').forEach((button) => {
+    button.addEventListener('click', () => document.getElementById(button.dataset.dialogOpen)?.showModal());
+  });
+  document.querySelectorAll('[data-dialog-close]').forEach((button) => {
+    button.addEventListener('click', () => button.closest('dialog')?.close());
+  });
+  document.querySelectorAll('.organization-dialog').forEach((dialog) => {
+    dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); });
+  });
+  document.querySelectorAll('[data-resource-form]').forEach((form) => {
+    const select = form.querySelector('[data-resource-type]');
+    const sync = () => {
+      const isLink = select.value === 'link';
+      form.querySelector('[data-link-field]').hidden = !isLink;
+      form.querySelector('[data-note-field]').hidden = isLink;
+    };
+    select.addEventListener('change', sync);
+    sync();
+  });
+})();
+</script>
 {% endblock %}

@@ -80,7 +80,6 @@ class PageHeaderSystemTests(unittest.TestCase):
 
     def test_workspace_management_pages_use_administrative_hero(self):
         expected = {
-            "company_profile.html": "Company information used for opportunity matching, enrichment, and routing.",
             "workspace_members.html": "Invite users and manage access to this workspace.",
             "govwin_import.html": "Configure where BidLens discovers and imports opportunities.",
             "pursuit_lanes.html": "Configure how this workspace reviews and organizes incoming opportunities.",
@@ -96,6 +95,11 @@ class PageHeaderSystemTests(unittest.TestCase):
                 self.assertIn("workspace_management_hero(", source)
                 self.assertIn(description, source)
                 self.assertNotIn("bidlens-page-header--operational", source)
+
+        organization = (TEMPLATES / "company_profile.html").read_text()
+        self.assertIn("workspace-management-hero organization-profile-hero", organization)
+        self.assertIn("Company information used for opportunity matching, enrichment, routing, and collaboration.", organization)
+        self.assertNotIn("bidlens-page-header--operational", organization)
 
     def test_header_variant_css_exists(self):
         source = Path("src/bidlens/static/css/styles.css").read_text()
