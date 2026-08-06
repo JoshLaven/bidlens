@@ -49,6 +49,7 @@ from .. import config
 from ..services import get_vote_counts, get_vote_user_maps
 from ..sam_client import _is_url_like
 from ..services.agency_display import agency_presentation
+from ..services.account_aliases import resolve_account_display_name
 router = APIRouter(prefix="/api", tags=["api"])
 logger = logging.getLogger(__name__)
 N8N_PROVIDER = "n8n"
@@ -101,11 +102,14 @@ def _clean_preview_text(value: str | None) -> str:
 
 def _build_preview_payload(opp: Opportunity) -> dict[str, Any]:
     description = _clean_preview_text(_best_description_text(opp))
+    agency_display = resolve_account_display_name(opp.agency)
     if description:
         return {
             "ok": True,
             "state": "text",
             "title": opp.title,
+            "agency": opp.agency,
+            "agency_display": agency_display,
             "description": description[:300] + ("…" if len(description) > 300 else ""),
             "sam_url": opp.sam_url,
             "source_url": opp.source_url or opp.sam_url,
@@ -116,6 +120,8 @@ def _build_preview_payload(opp: Opportunity) -> dict[str, Any]:
             "ok": True,
             "state": "sam_fallback",
             "title": opp.title,
+            "agency": opp.agency,
+            "agency_display": agency_display,
             "description": "Detailed description available on SAM.gov",
             "sam_url": opp.sam_url,
             "source_url": opp.source_url or opp.sam_url,
@@ -123,6 +129,8 @@ def _build_preview_payload(opp: Opportunity) -> dict[str, Any]:
 
     return {
         "ok": True,
+        "agency": opp.agency,
+        "agency_display": agency_display,
         "state": "empty",
         "title": opp.title,
         "description": "No description available.",
@@ -222,7 +230,8 @@ def _build_n8n_payload(opp: Opportunity, brief_payload: dict[str, Any]) -> dict[
     from ..services.research.brief_generator import build_opportunity_source_text
     from ..services.research.document_fetcher import fetch_opportunity_attachment_metadata
 
-    agency = agency_presentation(opp.agency)
+    account_display = resolve_account_display_name(opp.agency)
+    agency = agency_presentation(account_display)
     source_text, source_text_field = build_opportunity_source_text(
         opp,
         brief_context=brief_payload.get("brief_context") or brief_payload.get("text_for_enrichment"),
@@ -236,7 +245,7 @@ def _build_n8n_payload(opp: Opportunity, brief_payload: dict[str, Any]) -> dict[
         "bidlens_id": str(opp.bidlens_id) if getattr(opp, "bidlens_id", None) else None,
         "title": opp.title,
         "agency": opp.agency,
-        "agency_display": agency.display,
+        "agency_display": account_display,
         "department": agency.parent,
         "subagency": agency.sub_agency,
         "opportunity_type": opp.opportunity_type,

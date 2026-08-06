@@ -25,6 +25,7 @@ from ..models import (
 )
 from .feed_queries import feed_awaiting_review_query
 from .salesforce import SalesforceService
+from .account_aliases import resolve_account_display_name
 
 
 SUCCESSFUL_RUN_STATUSES = ("success", "completed")
@@ -336,7 +337,7 @@ def _daily_brief_section_item(section_key: str, raw_item: Any) -> dict[str, str]
     )
 
     if section_key == "new_opportunities":
-        agency = opportunity.get("agency")
+        agency = resolve_account_display_name(opportunity.get("agency"))
         due = opportunity.get("response_deadline")
         subtitle = " · ".join([str(part) for part in (agency, f"Due {due}" if due else None) if part])
     elif section_key == "updated_opportunities":

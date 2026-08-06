@@ -20,6 +20,7 @@ from .opportunity_history import (
     EVENT_GRANTS_SYNOPSIS_VERSION,
     EVENT_SOURCE_UPDATED,
 )
+from .account_aliases import resolve_account_display_name
 
 
 OFFICIAL_EVENT_TYPES = (
@@ -90,7 +91,7 @@ def shortlist_recent_activity(
             "opportunity": {
                 "id": opportunity.id,
                 "title": opportunity.title,
-                "agency": opportunity.agency,
+                "agency": resolve_account_display_name(opportunity.agency),
                 "due_date": _date_label(opportunity.response_deadline),
                 "url": f"/opportunity/{opportunity.id}?return_to=shortlist",
             },

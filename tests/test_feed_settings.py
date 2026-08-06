@@ -523,6 +523,28 @@ class FeedSettingsTests(unittest.TestCase):
         self.assertIn("Agency matched Medicaid", match_lane_to_opportunity(agency_lane, opportunity))
         self.assertIn("NAICS matched 5416", match_lane_to_opportunity(naics_lane, opportunity))
 
+    def test_lane_matching_considers_semantically_resolved_account(self):
+        lane = PursuitLane(
+            organization_id=self.org.id,
+            name="Policy",
+            keywords=["Under Secretary"],
+        )
+        opportunity = Opportunity(
+            organization_id=self.org.id,
+            source="manual_import",
+            source_record_id="semantic-alias-lane",
+            title="Policy support",
+            agency="69A350 OSDBU",
+            opportunity_type="RFP",
+            posted_date=date(2026, 7, 1),
+            response_deadline=date(2026, 8, 1),
+        )
+
+        self.assertIn(
+            "Agency matched Under Secretary",
+            match_lane_to_opportunity(lane, opportunity),
+        )
+
     def test_description_only_generic_term_does_not_assign_lane(self):
         lane = PursuitLane(organization_id=self.org.id, name="Health", keywords=["health"])
         opportunity = Opportunity(

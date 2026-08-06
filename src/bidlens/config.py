@@ -89,6 +89,11 @@ GRANTS_GOV_API_KEY = os.getenv("GRANTS_GOV_API_KEY")
 GRANTS_GOV_SEARCH_URL = os.getenv("GRANTS_GOV_SEARCH_URL", "https://api.grants.gov/v1/api/search2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+ACCOUNT_ALIAS_FILE_PATH = (
+    Path(os.environ["ACCOUNT_ALIAS_FILE_PATH"]).expanduser()
+    if os.getenv("ACCOUNT_ALIAS_FILE_PATH")
+    else None
+)
 GUTS_ENABLED = _env_bool("GUTS_ENABLED", False)
 GUTS_AI_PROVIDER = os.getenv("GUTS_AI_PROVIDER", "openai").strip().lower()
 GUTS_AI_MODEL = os.getenv("GUTS_AI_MODEL") or OPENAI_MODEL

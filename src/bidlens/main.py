@@ -1,12 +1,14 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from .config import AUTO_CREATE_SCHEMA, ENABLE_INTERNAL_SCHEDULER, startup_diagnostics, validate_deployment_config
+from .services.account_aliases import get_account_alias_lookup
 
 
 for diagnostic in startup_diagnostics():
     print(f"[startup] {diagnostic}")
 
 validate_deployment_config()
+get_account_alias_lookup()
 
 from .database import engine, Base
 from .routes import admin, auth, opportunities, opportunity_intake, api, settings, company_profile, pursuit_lanes, imports, grants, integrations, home, platform, connect_sources

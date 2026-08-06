@@ -80,6 +80,7 @@ from ..services.feed_queries import (
 )
 from ..services.pursuit_lanes import user_my_lanes
 from ..services.agency_display import agency_presentation
+from ..services.account_aliases import resolve_account_display_name
 from ..services.opportunity_outcomes import (
     OUTCOME_BIDDING,
     OUTCOME_NO_BID,
@@ -515,7 +516,7 @@ def _exclude_inactive_govwin_stages(query):
 
 
 def _agency_parts_for_export(raw_agency: str | None) -> tuple[str | None, str | None]:
-    agency = agency_presentation(raw_agency)
+    agency = agency_presentation(resolve_account_display_name(raw_agency))
     return agency.parent, agency.sub_agency
 
 
@@ -757,7 +758,8 @@ def _enrich_opps(rows, db, user, watched_col=True):
     current_user_label = (user.name or user.email or "").strip()
 
     for opp in opportunities:
-        agency = agency_presentation(opp.agency)
+        account_display = resolve_account_display_name(opp.agency)
+        agency = agency_presentation(account_display)
         c = counts.get(opp.id, {"pursue": 0, "pass": 0})
         opp.pursue_count = c["pursue"]
         opp.pass_count = c["pass"]
@@ -779,7 +781,7 @@ def _enrich_opps(rows, db, user, watched_col=True):
             current_user_interested=opp.current_user_interested,
         )
         opp.normalized_opportunity_type = _normalized_opportunity_type(opp)
-        opp.agency_display = agency.display
+        opp.agency_display = account_display
         opp.parent_agency = agency.parent
         opp.sub_agency = agency.sub_agency
         opp.pursuit_lanes = lane_map.get(opp.id, [])
@@ -929,7 +931,7 @@ def _calendar_drawer_items(rows) -> list[dict[str, object]]:
         {
             "id": opportunity.id,
             "title": opportunity.title,
-            "agency": opportunity.agency or "",
+            "agency": resolve_account_display_name(opportunity.agency),
             "deadline": opportunity.response_deadline.isoformat(),
             "url": f"/opportunity/{opportunity.id}?return_to=shortlist",
         }
@@ -1925,7 +1927,8 @@ async def export_opportunities_csv(
         "BidLens ID",
         "DB ID",
         "Title",
-        "Agency",
+        "Account",
+        "Source Account",
         "Department",
         "Sub-agency",
         "Opportunity Type",
@@ -1975,6 +1978,7 @@ async def export_opportunities_csv(
             str(opp.bidlens_id or ""),
             opp.id,
             opp.title or "",
+            resolve_account_display_name(opp.agency),
             opp.agency or "",
             department or "",
             sub_agency or "",
@@ -2141,8 +2145,9 @@ async def opportunity_detail(
         opportunity_id=opportunity.id,
         user_id=user.id,
     )
-    agency = agency_presentation(opportunity.agency)
-    opportunity.agency_display = agency.display
+    account_display = resolve_account_display_name(opportunity.agency)
+    agency = agency_presentation(account_display)
+    opportunity.agency_display = account_display
     opportunity.parent_agency = agency.parent
     opportunity.sub_agency = agency.sub_agency
     try:

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ...models import Opportunity, OpportunityOutcome, User, Vote, Workspace
 from ..opportunity_descriptions import select_opportunity_description
+from ..account_aliases import resolve_account_display_name
 from .contracts import (
     CurrentOpportunityState,
     CurrentStateField,
@@ -108,7 +109,11 @@ class CurrentStateAssembler:
             organization_id=organization_id,
             workspace_id=workspace_id,
             title=_field(opportunity.id, "title", opportunity.title),
-            client=_field(opportunity.id, "client", opportunity.agency),
+            client=_field(
+                opportunity.id,
+                "client",
+                resolve_account_display_name(opportunity.agency),
+            ),
             description=_field(opportunity.id, "description", description or None),
             response_deadline=_field(opportunity.id, "response_deadline", _date_value(opportunity.response_deadline)),
             posted_date=_field(opportunity.id, "posted_date", _date_value(opportunity.posted_date)),

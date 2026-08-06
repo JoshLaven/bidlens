@@ -98,7 +98,7 @@ class GutsCurrentStateTests(unittest.TestCase):
             workspace_id=self.workspace.id,
         )
         self.assertEqual(state.title.value, "Health Evaluation")
-        self.assertEqual(state.client.value, "Department of Health")
+        self.assertEqual(state.client.value, "Department Of Health")
         self.assertEqual(state.description.value, "Preferred synopsis\n\nSecond paragraph")
         self.assertEqual(state.response_deadline.value, "2026-09-01")
         self.assertEqual(state.posted_date.value, "2026-07-01")
@@ -159,7 +159,7 @@ class GutsCurrentStateTests(unittest.TestCase):
             "reason_code", "internal_reason", "Do not include", "previous_ai_output",
         ):
             self.assertNotIn(excluded, rendered)
-        self.assertEqual(snapshot["fields"]["client"], "Department of Health")
+        self.assertEqual(snapshot["fields"]["client"], "Department Of Health")
 
     def test_assembler_queries_no_notes_messages_history_or_prior_brief(self):
         statements = []

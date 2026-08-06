@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Opportunity, OpportunityPursuitLaneMatch, PursuitLane, PursuitLaneAssignment
 from .agency_display import agency_presentation
+from .account_aliases import resolve_account_display_name
 
 
 BROAD_DESCRIPTION_TERMS = {
@@ -108,10 +109,12 @@ def match_lane_to_opportunity(lane: PursuitLane, opportunity: Opportunity) -> li
     naics_terms = [term for term in terms if _is_naics_term(term)]
     text_terms = [term for term in terms if not _is_naics_term(term)]
     agency = agency_presentation(opportunity.agency)
+    resolved_agency = resolve_account_display_name(opportunity.agency)
     agency_text = " ".join(
         part
         for part in [
             opportunity.agency,
+            resolved_agency,
             agency.display,
             agency.parent,
             agency.sub_agency,
