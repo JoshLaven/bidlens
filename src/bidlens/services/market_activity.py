@@ -10,6 +10,7 @@ from sqlalchemy import case, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models import Opportunity, Vote
+from .account_aliases import normalize_account_lookup_key, resolve_account_display_name
 
 
 TIME_PERIODS = {
@@ -100,7 +101,71 @@ def _sort_rows(rows: list[dict[str, Any]], *, sort: str, direction: str, metric:
             return -1.0 if converted is None else converted
         return row[sort]
 
+    # Preserve a deterministic, case-insensitive account/dimension tie-breaker
+    # regardless of the database's raw grouping order.
+    rows.sort(key=lambda row: (row["label"].casefold(), row["label"]))
     rows.sort(key=value, reverse=reverse)
+
+
+def _merged_account_rows(grouped_rows: list[Any]) -> list[dict[str, Any]]:
+    """Merge raw SQL account aggregates at the presentation boundary.
+
+    SQL continues to aggregate compact rows by the source agency value. Alias
+    resolution happens before percentage calculation, sorting, and pagination
+    so every resolved account has one complete and auditable aggregate.
+    """
+
+    merged: dict[str, dict[str, Any]] = {}
+    for grouped_row in grouped_rows:
+        raw_account = str(grouped_row.dimension or "").strip()
+        if not raw_account or raw_account == "Unassigned":
+            label = "Unassigned"
+            key = "__unassigned__"
+            source_account = None
+        else:
+            label = resolve_account_display_name(raw_account)
+            key = normalize_account_lookup_key(label) or "__unassigned__"
+            source_account = raw_account
+
+        row = merged.setdefault(
+            key,
+            {
+                "label": label,
+                "imported": 0,
+                "qualified": 0,
+                "shortlisted": 0,
+                "source_accounts": set(),
+            },
+        )
+        # Identical normalized display keys should normally have the same
+        # configured label. This deterministic choice also handles harmless
+        # capitalization/punctuation differences in unmatched legacy values.
+        if (label.casefold(), label) < (row["label"].casefold(), row["label"]):
+            row["label"] = label
+        row["imported"] += int(grouped_row.imported or 0)
+        row["qualified"] += int(grouped_row.qualified or 0)
+        row["shortlisted"] += int(grouped_row.shortlisted or 0)
+        if source_account:
+            row["source_accounts"].add(source_account)
+
+    rows: list[dict[str, Any]] = []
+    for row in merged.values():
+        imported = row["imported"]
+        qualified = row["qualified"]
+        shortlisted = row["shortlisted"]
+        rows.append({
+            "label": row["label"],
+            "imported": imported,
+            "qualified": qualified,
+            "shortlisted": shortlisted,
+            "conversion": {
+                "imported": 100.0 if imported else None,
+                "qualified": conversion_percent(qualified, imported),
+                "shortlisted": conversion_percent(shortlisted, qualified),
+            },
+            "source_accounts": tuple(sorted(row["source_accounts"], key=str.casefold)),
+        })
+    return rows
 
 
 def build_market_activity(
@@ -151,25 +216,28 @@ def build_market_activity(
         query_columns.append(title)
     grouped = db.query(*query_columns).filter(*conditions).group_by(dimension).all()
 
-    rows: list[dict[str, Any]] = []
-    for grouped_row in grouped:
-        code = str(grouped_row.dimension)
-        naics_title = getattr(grouped_row, "naics_title", None)
-        label = f"{code} — {naics_title}" if view_by == "naics" and code != "No NAICS" and naics_title else code
-        imported = int(grouped_row.imported or 0)
-        qualified_count = int(grouped_row.qualified or 0)
-        shortlisted_count = int(grouped_row.shortlisted or 0)
-        rows.append({
-            "label": label,
-            "imported": imported,
-            "qualified": qualified_count,
-            "shortlisted": shortlisted_count,
-            "conversion": {
-                "imported": 100.0 if imported else None,
-                "qualified": conversion_percent(qualified_count, imported),
-                "shortlisted": conversion_percent(shortlisted_count, qualified_count),
-            },
-        })
+    if view_by == "account":
+        rows = _merged_account_rows(grouped)
+    else:
+        rows: list[dict[str, Any]] = []
+        for grouped_row in grouped:
+            code = str(grouped_row.dimension)
+            naics_title = getattr(grouped_row, "naics_title", None)
+            label = f"{code} — {naics_title}" if view_by == "naics" and code != "No NAICS" and naics_title else code
+            imported = int(grouped_row.imported or 0)
+            qualified_count = int(grouped_row.qualified or 0)
+            shortlisted_count = int(grouped_row.shortlisted or 0)
+            rows.append({
+                "label": label,
+                "imported": imported,
+                "qualified": qualified_count,
+                "shortlisted": shortlisted_count,
+                "conversion": {
+                    "imported": 100.0 if imported else None,
+                    "qualified": conversion_percent(qualified_count, imported),
+                    "shortlisted": conversion_percent(shortlisted_count, qualified_count),
+                },
+            })
 
     _sort_rows(rows, sort=sort, direction=direction, metric=metric)
     page_size = max(1, int(page_size))

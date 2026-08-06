@@ -17,6 +17,7 @@ from bidlens.models import Opportunity, Organization, User, Vote
 from bidlens.routes import imports
 from bidlens.services.market_activity import (
     MarketActivityFilters,
+    _merged_account_rows,
     build_market_activity,
     conversion_percent,
     market_period_dates,
@@ -154,6 +155,98 @@ class MarketActivityAggregationTests(unittest.TestCase):
         empty = self._build(filters=self._filters(dt.date(2024, 1, 1), dt.date(2024, 1, 2)), metric="conversion")
         self.assertEqual(empty["metric_conversion"], {"imported": None, "qualified": None, "shortlisted": None})
 
+    def test_account_aliases_merge_counts_and_recalculate_conversion(self):
+        first_raw = "Administration for Children & Families - ACYF/FYSB"
+        second_raw = "Administration for Children and Families - ACYF/CB"
+        self._opportunity("alias-imported", agency=first_raw)
+        self._opportunity("alias-qualified", agency=first_raw, qualification_status="qualified")
+        self._opportunity(
+            "alias-shortlisted",
+            agency=second_raw,
+            qualification_status="qualified",
+            decision_state="SHORTLISTED",
+        )
+        self.db.commit()
+
+        result = self._build(metric="conversion", sort="dimension", direction="asc")
+
+        self.assertEqual(result["total_rows"], 1)
+        row = result["rows"][0]
+        self.assertEqual(row["label"], "Administration for Children and Families")
+        self.assertEqual(
+            (row["imported"], row["qualified"], row["shortlisted"]),
+            (3, 2, 1),
+        )
+        self.assertEqual(
+            row["conversion"],
+            {"imported": 100.0, "qualified": 66.7, "shortlisted": 50.0},
+        )
+        self.assertEqual(set(row["source_accounts"]), {first_raw, second_raw})
+        self.assertEqual(
+            {opportunity.agency for opportunity in self.db.query(Opportunity).all()},
+            {first_raw, second_raw},
+        )
+
+    def test_formatting_variants_merge_and_unmatched_values_use_legacy_display(self):
+        self._opportunity("format-one", agency="Example & Research")
+        self._opportunity("format-two", agency=" example and research ")
+        self._opportunity("fallback-one", agency="department.of.nih")
+        self._opportunity("fallback-two", agency="DEPARTMENT OF NIH")
+        self._opportunity("blank-one", agency=" ")
+        self.db.commit()
+
+        rows = {
+            row["label"]: row
+            for row in self._build(sort="dimension", direction="asc")["rows"]
+        }
+
+        self.assertEqual(rows["Example & Research"]["imported"], 2)
+        self.assertEqual(rows["Department Of NIH"]["imported"], 2)
+        self.assertEqual(rows["Unassigned"]["imported"], 1)
+
+        null_rows = _merged_account_rows([
+            SimpleNamespace(dimension=None, imported=1, qualified=0, shortlisted=0),
+            SimpleNamespace(dimension="Unassigned", imported=2, qualified=1, shortlisted=0),
+        ])
+        self.assertEqual(len(null_rows), 1)
+        self.assertEqual(null_rows[0]["label"], "Unassigned")
+        self.assertEqual(null_rows[0]["imported"], 3)
+
+    def test_account_sort_and_metric_sort_use_merged_rows(self):
+        self._opportunity("z-one", agency="Administration for Children & Families - ACYF/FYSB")
+        self._opportunity("z-two", agency="Administration for Children and Families - ACYF/CB")
+        self._opportunity("alpha", agency="AAA Independent")
+        self._opportunity("zulu", agency="Zulu Independent")
+        self.db.commit()
+
+        alphabetical = self._build(sort="dimension", direction="asc")["rows"]
+        by_imported = self._build(sort="imported", direction="desc")["rows"]
+
+        self.assertEqual(
+            [row["label"] for row in alphabetical],
+            ["Aaa Independent", "Administration for Children and Families", "Zulu Independent"],
+        )
+        self.assertEqual(by_imported[0]["label"], "Administration for Children and Families")
+        self.assertEqual(by_imported[0]["imported"], 2)
+
+    def test_account_pagination_occurs_after_alias_merge(self):
+        alias_label = "Administration for Children and Families"
+        self._opportunity("alias-page-one", agency="Administration for Children & Families - ACYF/FYSB")
+        self._opportunity("alias-page-two", agency="Administration for Children and Families - ACYF/CB")
+        for index in range(10):
+            self._opportunity(f"page-{index}", agency=f"Page Account {index:02d}")
+        self.db.commit()
+
+        first = self._build(sort="dimension", direction="asc", page=1, page_size=5)
+        second = self._build(sort="dimension", direction="asc", page=2, page_size=5)
+        third = self._build(sort="dimension", direction="asc", page=3, page_size=5)
+        all_labels = [row["label"] for result in (first, second, third) for row in result["rows"]]
+
+        self.assertEqual(first["total_rows"], 11)
+        self.assertEqual(first["total_pages"], 3)
+        self.assertEqual(all_labels.count(alias_label), 1)
+        self.assertEqual(len(all_labels), 11)
+
     def test_all_columns_sort_ascending_and_descending_in_both_metrics(self):
         self._seed_funnel()
         for metric in ("count", "conversion"):
@@ -262,6 +355,43 @@ class MarketActivityAggregationTests(unittest.TestCase):
         self.assertTrue(all(value.endswith("%") or value == "—" for row in rows[1:] for value in row[1:]))
         self.assertIn("bidlens-insights-account-1_year.csv", response.headers["content-disposition"])
         self.assertEqual(response.headers["cache-control"], "private, no-store")
+
+    def test_csv_export_matches_alias_merged_ui_rows(self):
+        self._opportunity(
+            "csv-alias-one",
+            agency="Administration for Children & Families - ACYF/FYSB",
+            qualification_status="qualified",
+        )
+        self._opportunity(
+            "csv-alias-two",
+            agency="Administration for Children and Families - ACYF/CB",
+            qualification_status="qualified",
+            decision_state="SHORTLISTED",
+        )
+        self.db.commit()
+        dashboard = self._build(sort="dimension", direction="asc")
+        request = Request({
+            "type": "http",
+            "method": "GET",
+            "path": "/admin/market-activity/export.csv",
+            "headers": [],
+            "query_string": b"period=1_year&view_by=account&metric=count&sort=dimension&direction=asc",
+            "server": ("testserver", 80),
+            "scheme": "http",
+        })
+        user = SimpleNamespace(
+            id=self.user.id,
+            organization_id=self.org.id,
+            current_organization_id=self.org.id,
+            current_role="admin",
+        )
+
+        with patch("bidlens.routes.imports.require_admin", return_value=user):
+            response = asyncio.run(imports.market_activity_export(request, db=self.db))
+
+        csv_rows = list(csv.reader(io.StringIO(response.body.decode())))
+        self.assertEqual(len(dashboard["rows"]), 1)
+        self.assertEqual(csv_rows[1], [dashboard["rows"][0]["label"], "2", "2", "1"])
 
 
 class MarketActivityTemplateTests(unittest.TestCase):
