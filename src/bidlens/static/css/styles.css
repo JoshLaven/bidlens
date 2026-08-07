@@ -9279,7 +9279,7 @@ details[open] .accordion-summary::after {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 1.18rem;
-  font-weight: 760;
+  font-weight: 660;
   color: var(--gray-900);
   text-decoration: none;
   line-height: 1.18;
@@ -9385,7 +9385,7 @@ details[open] .accordion-summary::after {
   align-items: center;
   gap: 4px;
   color: var(--gray-600);
-  font-size: 0.825rem;
+  font-size: 0.75rem;
   font-weight: 700;
   line-height: 1.25;
   white-space: nowrap;
@@ -9586,7 +9586,7 @@ details[open] .accordion-summary::after {
 }
 
 .opp-card-agency {
-  font-size: 0.9rem;
+  font-size: 0.86rem;
   color: var(--gray-500);
   line-height: 1.18;
 }
@@ -13729,7 +13729,7 @@ details[open] .accordion-summary::after {
 }
 
 .opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"], [data-card-view="user_archive"]) .opp-card-title {
-  font-size: 1.145rem;
+  font-size: 1.12rem;
   line-height: 1.16;
   letter-spacing: 0;
 }
