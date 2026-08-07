@@ -316,13 +316,6 @@
           </div>
         {% endif %}
 
-        {% if view in ['my_shortlist', 'user_archive'] and opp.account_type %}
-          <div class="opp-detail-row">
-            <span class="opp-detail-label">Account Type</span>
-            <span class="opp-detail-value">{{ opp.account_type }}</span>
-          </div>
-        {% endif %}
-
         {% if view in ['my_shortlist', 'user_archive'] and crm_pushed and opp.crm_pushed_by_label %}
           <div class="opp-detail-row">
             <span class="opp-detail-label">CRM Activity</span>

@@ -305,6 +305,8 @@ class MarketActivityAggregationTests(unittest.TestCase):
         html = response.body.decode()
         self.assertIn('<option value="1_year" selected>Last 1 Year</option>', html)
         self.assertIn('<option value="naics" selected>NAICS</option>', html)
+        self.assertNotIn('<option value="account_type">', html)
+        self.assertNotIn('>Account Type</option>', html)
         self.assertIn("57.1%", html)
         self.assertIn("No NAICS", html)
         self.assertIn("541611 — Administrative Management Consulting Services", html)
@@ -319,6 +321,32 @@ class MarketActivityAggregationTests(unittest.TestCase):
         self.assertIn("window.scrollTo(scrollX, scrollY)", html)
         self.assertNotIn("onchange=\"this.form.submit()\"", html)
         self.assertNotIn("Pushed to Salesforce", html)
+
+    def test_account_type_is_not_a_user_facing_insights_pivot(self):
+        self._seed_funnel()
+        request = Request({
+            "type": "http",
+            "method": "GET",
+            "path": "/admin/market-activity",
+            "headers": [],
+            "query_string": b"view_by=account_type",
+            "server": ("testserver", 80),
+            "scheme": "http",
+        })
+        user = SimpleNamespace(
+            id=self.user.id,
+            organization_id=self.org.id,
+            current_organization_id=self.org.id,
+            current_role="admin",
+        )
+        with patch("bidlens.routes.imports.require_admin", return_value=user), patch(
+            "bidlens.routes.imports.get_sidebar", return_value={}
+        ):
+            response = asyncio.run(imports.market_activity_page(request, db=self.db))
+        html = response.body.decode()
+        self.assertIn('<option value="account" selected>Account</option>', html)
+        self.assertNotIn('<option value="account_type">', html)
+        self.assertEqual(response.context["dashboard"]["view_by"], "account")
 
     def test_csv_export_respects_grouping_metric_and_sort_without_pagination(self):
         self._seed_funnel()

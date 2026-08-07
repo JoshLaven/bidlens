@@ -49,6 +49,15 @@ from ..services.sam_source_config import (
 )
 from .opportunities import get_sidebar
 
+
+# Account Type remains available to internal aggregation callers for legacy
+# compatibility, but it is intentionally not exposed as an Insights pivot.
+INSIGHTS_VIEW_BY_OPTIONS = {
+    value: label
+    for value, label in VIEW_BY_OPTIONS.items()
+    if value != "account_type"
+}
+
 router = APIRouter()
 templates = Jinja2Templates(directory="src/bidlens/templates")
 
@@ -223,17 +232,6 @@ def _opportunity_lookup_crm_state(opportunity: Opportunity) -> str:
     if opportunity.crm_pushed:
         return "Pushed"
     return "Not pushed"
-
-
-def _account_type_label(account_type: str | None) -> str:
-    labels = {
-        "Federal": "Federal",
-        "State Government": "State Government",
-        "Regional Government": "Regional Government",
-        "Nonprofit University": "University",
-        "__other__": "Other",
-    }
-    return labels.get(account_type or "", account_type or "Other")
 
 
 def _parse_filter_date(value: str | None) -> date | None:
@@ -919,7 +917,7 @@ async def market_activity_page(request: Request, db: Session = Depends(get_db)):
     if period not in TIME_PERIODS:
         period = "90_days"
     view_by = (request.query_params.get("view_by") or "account").strip().lower()
-    if view_by not in VIEW_BY_OPTIONS:
+    if view_by not in INSIGHTS_VIEW_BY_OPTIONS:
         view_by = "account"
     metric = (request.query_params.get("metric") or "count").strip().lower()
     if metric not in METRIC_OPTIONS:
@@ -960,7 +958,7 @@ async def market_activity_page(request: Request, db: Session = Depends(get_db)):
         "filters": filters,
         "period": period,
         "time_periods": TIME_PERIODS,
-        "view_by_options": VIEW_BY_OPTIONS,
+        "view_by_options": INSIGHTS_VIEW_BY_OPTIONS,
         "metric_options": METRIC_OPTIONS,
         "control_query": control_query,
         "active_page": "imports",
@@ -983,7 +981,7 @@ async def market_activity_export(request: Request, db: Session = Depends(get_db)
     if period not in TIME_PERIODS:
         period = "90_days"
     view_by = (request.query_params.get("view_by") or "account").strip().lower()
-    if view_by not in VIEW_BY_OPTIONS:
+    if view_by not in INSIGHTS_VIEW_BY_OPTIONS:
         view_by = "account"
     metric = (request.query_params.get("metric") or "count").strip().lower()
     if metric not in METRIC_OPTIONS:
@@ -1004,7 +1002,7 @@ async def market_activity_export(request: Request, db: Session = Depends(get_db)
 
     output = io.StringIO(newline="")
     writer = csv.writer(output)
-    writer.writerow([VIEW_BY_OPTIONS[dashboard["view_by"]], "Imported", "Qualified", "Shortlisted"])
+    writer.writerow([INSIGHTS_VIEW_BY_OPTIONS[dashboard["view_by"]], "Imported", "Qualified", "Shortlisted"])
     for row in dashboard["rows"]:
         if dashboard["metric"] == "conversion":
             values = [

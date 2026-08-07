@@ -39,7 +39,8 @@ class OpportunityWorkspaceDesignTests(unittest.TestCase):
         self.assertIn("Archive", self.card)
 
     def test_archive_preserves_rich_details_in_expanded_section(self):
-        self.assertIn("view in ['my_shortlist', 'user_archive'] and opp.account_type", self.card)
+        self.assertNotIn("Account Type", self.card)
+        self.assertNotIn("opp.account_type", self.card)
         self.assertNotIn("Matched Lanes", self.card)
         self.assertIn("Open in Salesforce", self.card)
 
