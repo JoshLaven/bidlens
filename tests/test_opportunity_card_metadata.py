@@ -382,6 +382,10 @@ class OpportunityCardMetadataTests(unittest.TestCase):
             self.assertIn(f">{label}</span>", body)
         self.assertNotIn('class="opp-detail-label">Salesforce', body)
         self.assertIn("Open in Salesforce", body)
+        columns = body.split('<div class="opp-detail-column">')[1:]
+        self.assertEqual(len(columns), 2)
+        self.assertNotIn("Open in Salesforce", columns[0])
+        self.assertIn("Open in Salesforce", columns[1])
         for removed in ("CRM Activity", "Source Record ID", "External Key"):
             self.assertNotIn(f">{removed}</span>", body)
 
