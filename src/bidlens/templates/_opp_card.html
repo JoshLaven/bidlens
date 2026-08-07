@@ -284,7 +284,7 @@
           {% endif %}
           {% if view == 'my_shortlist' and has_salesforce_linkage %}
             <div class="opp-detail-row">
-              <span class="opp-detail-label">Salesforce</span>
+              <span class="opp-detail-label"><span class="sr-only">Salesforce</span></span>
               <span class="opp-detail-value">
                 {% if salesforce_url %}
                   <a href="{{ salesforce_url }}" target="_blank" rel="noreferrer" class="opp-card-crm-link">Open in Salesforce &#8599;</a>
@@ -317,7 +317,7 @@
           {% endif %}
           {% if view in ['feed', 'user_archive', 'archive'] and has_salesforce_linkage %}
             <div class="opp-detail-row">
-              <span class="opp-detail-label">Salesforce</span>
+              <span class="opp-detail-label"><span class="sr-only">Salesforce</span></span>
               <span class="opp-detail-value">
                 {% if salesforce_url %}
                   <a href="{{ salesforce_url }}" target="_blank" rel="noreferrer" class="opp-card-crm-link">Open in Salesforce &#8599;</a>

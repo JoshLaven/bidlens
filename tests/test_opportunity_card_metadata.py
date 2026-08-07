@@ -302,8 +302,9 @@ class OpportunityCardMetadataTests(unittest.TestCase):
         )
         body = html.split('<div class="opp-card-expanded">', 1)[1]
 
-        for label in ("Type", "Stage", "Posted", "Solicitation Number", "Salesforce"):
+        for label in ("Type", "Stage", "Posted", "Solicitation Number"):
             self.assertIn(f">{label}</span>", body)
+        self.assertNotIn('class="opp-detail-label">Salesforce', body)
         for removed in ("Source Record ID", "External Key", "CRM Activity", "Account Type", "Recent Changes"):
             self.assertNotIn(f">{removed}</span>", body)
 
@@ -324,7 +325,8 @@ class OpportunityCardMetadataTests(unittest.TestCase):
                     salesforce_action="created",
                 )
                 body = html.split('<div class="opp-card-expanded">', 1)[1]
-                self.assertIn(">Salesforce</span>", body)
+                self.assertNotIn('class="opp-detail-label">Salesforce', body)
+                self.assertIn('<span class="sr-only">Salesforce</span>', body)
                 self.assertIn("Open in Salesforce", body)
                 self.assertIn('href="https://salesforce.example/006linked"', body)
                 self.assertIn('target="_blank"', body)
@@ -350,8 +352,9 @@ class OpportunityCardMetadataTests(unittest.TestCase):
 
         self.assertIn("Updated since Shortlisted", html)
         self.assertNotIn("Updated since import", html)
-        for label in ("Type", "Stage", "Posted", "Solicitation Number", "Date Shortlisted", "Salesforce"):
+        for label in ("Type", "Stage", "Posted", "Solicitation Number", "Date Shortlisted"):
             self.assertIn(f">{label}</span>", body)
+        self.assertNotIn('class="opp-detail-label">Salesforce', body)
         self.assertIn("Open in Salesforce", body)
         for removed in ("CRM Activity", "Source Record ID", "External Key"):
             self.assertNotIn(f">{removed}</span>", body)
@@ -395,8 +398,9 @@ class OpportunityCardMetadataTests(unittest.TestCase):
         )
         body = html.split('<div class="opp-card-expanded">', 1)[1]
 
-        for label in ("Type", "Stage", "Posted", "Solicitation Number", "Salesforce"):
+        for label in ("Type", "Stage", "Posted", "Solicitation Number"):
             self.assertIn(f">{label}</span>", body)
+        self.assertNotIn('class="opp-detail-label">Salesforce', body)
         for removed in ("Source Record ID", "External Key", "CRM Activity"):
             self.assertNotIn(f">{removed}</span>", body)
 
