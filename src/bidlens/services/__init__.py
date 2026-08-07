@@ -5,7 +5,7 @@ from datetime import datetime
 from ..models import Opportunity, Vote, User
 from ..state_machine import OppState, validate_transition
 from ..events import log_event
-from .shortlisting import ensure_user_shortlisted
+from .shortlisting import ensure_user_shortlisted, mark_opportunity_shortlisted_once
 
 
 def transition_state(
@@ -31,6 +31,9 @@ def transition_state(
     validate_transition(from_state, to_state)
 
     opp.decision_state = to_state.value
+
+    if to_state == OppState.SHORTLISTED:
+        mark_opportunity_shortlisted_once(db, opp)
 
     if to_state == OppState.ARCHIVED:
         opp.archived_reason = archive_reason

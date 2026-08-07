@@ -53,14 +53,68 @@ class OpportunityQualificationTests(unittest.TestCase):
 
     def test_grants_eligibility_precedence_is_deterministic(self):
         payload = {
+            "applicantTypes": [{"description": "Top-level applicant type"}],
             "applicantEligibilityDesc": "Top applicant",
             "additionalInformationOnEligibility": "Top additional",
             "synopsis": {
+                "applicantTypes": [{"description": "Synopsis applicant type"}],
                 "applicantEligibilityDesc": "Synopsis applicant",
                 "additionalInformationOnEligibility": "Synopsis additional",
             },
+            "forecast": {
+                "applicantTypes": [{"description": "Forecast applicant type"}],
+            },
         }
-        self.assertEqual(grants_eligibility(payload), "Synopsis applicant")
+        self.assertEqual(grants_eligibility(payload), "Synopsis applicant type")
+
+    def test_grants_eligibility_uses_forecast_then_top_level_applicant_types(self):
+        forecast = {
+            "forecast": {
+                "applicantTypes": [
+                    {"description": "For profit organizations other than small businesses"},
+                ],
+            },
+            "applicantTypes": [{"description": "Top-level fallback"}],
+        }
+        top_level = {
+            "applicantTypes": [{"description": "Top-level applicant type"}],
+        }
+        self.assertEqual(
+            grants_eligibility(forecast),
+            "For profit organizations other than small businesses",
+        )
+        self.assertEqual(grants_eligibility(top_level), "Top-level applicant type")
+
+    def test_grants_eligibility_preserves_distinct_applicant_types_in_source_order(self):
+        payload = {
+            "synopsis": {
+                "applicantTypes": [
+                    {"description": "State governments"},
+                    {"description": "  Nonprofits   having a 501(c)(3) status  "},
+                    {"description": "state governments"},
+                    {"description": "Nonprofits having a 501(c)(3) status"},
+                    {"code": "99"},
+                ],
+            },
+        }
+        self.assertEqual(
+            grants_eligibility(payload),
+            "State governments; Nonprofits having a 501(c)(3) status",
+        )
+
+    def test_grants_eligibility_retains_scalar_fallbacks_and_null_behavior(self):
+        self.assertEqual(
+            grants_eligibility({
+                "synopsis": {"applicantEligibilityDesc": "Synopsis applicant"},
+                "applicantEligibilityDesc": "Top applicant",
+            }),
+            "Synopsis applicant",
+        )
+        self.assertEqual(
+            grants_eligibility({"additionalInformationOnEligibility": "Additional details"}),
+            "Additional details",
+        )
+        self.assertIsNone(grants_eligibility({"synopsis": {"applicantTypes": []}}))
 
     def test_grants_populates_only_eligibility_and_does_not_use_it_as_description(self):
         normalized, reason = normalize_grants_gov_record({

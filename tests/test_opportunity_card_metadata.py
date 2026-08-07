@@ -1,8 +1,11 @@
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 from jinja2 import Environment, FileSystemLoader
+
+from bidlens.routes.opportunities import _datetime_is_after
 
 
 class OpportunityCardMetadataTests(unittest.TestCase):
@@ -29,8 +32,11 @@ class OpportunityCardMetadataTests(unittest.TestCase):
             preview_has_sam_fallback=False,
             source="sam",
             normalized_opportunity_type="RFP",
+            canonical_type="Contract",
+            qualification_display=None,
             user_vote=None,
             updated_since_import=False,
+            updated_since_shortlisted=False,
             team_interest_label="No team interest yet",
             pursue_count=0,
             source_url=None,
@@ -46,6 +52,7 @@ class OpportunityCardMetadataTests(unittest.TestCase):
             govwin_staging_id=None,
             sam_notice_id=None,
             posted_date=None,
+            date_shortlisted=None,
             watched=False,
             last_activity=None,
         )
@@ -61,8 +68,10 @@ class OpportunityCardMetadataTests(unittest.TestCase):
         self.assertIn("opp-card-metadata-row", self.collapsed)
         self.assertIn("opp-card-due-icon", self.collapsed)
         self.assertIn("primary_pursuit_lane.name", self.collapsed)
-        self.assertIn("opp.updated_since_import", self.collapsed)
-        self.assertIn("Updated since import", self.collapsed)
+        self.assertNotIn("opp.updated_since_import", self.collapsed)
+        self.assertNotIn("Updated since import", self.collapsed)
+        self.assertIn("opp.updated_since_shortlisted", self.collapsed)
+        self.assertIn("Updated since Shortlisted", self.collapsed)
         self.assertNotIn("opportunity-type-pill", self.collapsed)
         self.assertNotIn("source-pill", self.collapsed)
 
@@ -83,14 +92,20 @@ class OpportunityCardMetadataTests(unittest.TestCase):
         self.assertNotIn('/watch', footer)
 
     def test_lane_is_rendered_only_inline_without_redundant_matched_lanes_section(self):
-        html = self._render_card(
+        feed_html = self._render_card(
+            "Lane opportunity",
+            view="feed",
+            pursuit_lanes=[{"name": "Health", "reasons": ["Agency match"]}],
+        )
+        shortlist_html = self._render_card(
             "Lane opportunity",
             view="my_shortlist",
             pursuit_lanes=[{"name": "Health", "reasons": ["Agency match"]}],
         )
-        self.assertEqual(html.count("pursuit-lane-pill"), 1)
-        self.assertIn(">Health</span>", html)
-        self.assertNotIn("Matched Lanes", html)
+        self.assertEqual(feed_html.count("pursuit-lane-pill"), 1)
+        self.assertIn(">Health</span>", feed_html)
+        self.assertNotIn("pursuit-lane-pill", shortlist_html)
+        self.assertNotIn("Matched Lanes", feed_html)
 
     def test_titles_use_single_line_css_truncation_and_title_tooltip(self):
         self.assertNotIn("title_limit = 70", self.collapsed)
@@ -269,8 +284,97 @@ class OpportunityCardMetadataTests(unittest.TestCase):
         self.assertNotIn("opp.solicitation_number", self.collapsed)
         self.assertNotIn("opp.naics", self.collapsed)
         self.assertIn("opp.solicitation_number", self.details)
-        self.assertIn("opp.naics", self.details)
+        self.assertNotIn("opp.naics", self.details)
+        self.assertIn("opp.canonical_type", self.details)
+        self.assertIn("qualification_row(opp)", self.details)
         self.assertIn("opp.normalized_opportunity_type", self.details)
+
+    def test_feed_body_uses_canonical_information_architecture(self):
+        html = self._render_card(
+            "Feed IA",
+            view="feed",
+            canonical_type="Contract",
+            posted_date=datetime(2026, 8, 1),
+            solicitation_number="RFP-100",
+            source_record_id="source-100",
+            external_source_key="sam:source-100",
+            salesforce_opportunity_id="006xx",
+        )
+        body = html.split('<div class="opp-card-expanded">', 1)[1]
+
+        for label in ("Type", "Stage", "Posted", "Solicitation Number", "Salesforce"):
+            self.assertIn(f">{label}</span>", body)
+        for removed in ("Source Record ID", "External Key", "CRM Activity", "Account Type", "Recent Changes"):
+            self.assertNotIn(f">{removed}</span>", body)
+
+    def test_my_shortlist_body_and_update_indicator_use_shortlist_context(self):
+        html = self._render_card(
+            "Shortlist IA",
+            view="my_shortlist",
+            user_vote="PURSUE",
+            updated_since_import=True,
+            updated_since_shortlisted=True,
+            date_shortlisted=datetime(2026, 8, 2, tzinfo=timezone.utc),
+            posted_date=datetime(2026, 8, 1),
+            solicitation_number="RFP-200",
+            salesforce_opportunity_id="006yy",
+            salesforce_opportunity_url="https://salesforce.example/006yy",
+            source_record_id="source-200",
+            external_source_key="sam:source-200",
+        )
+        body = html.split('<div class="opp-card-expanded">', 1)[1]
+
+        self.assertIn("Updated since Shortlisted", html)
+        self.assertNotIn("Updated since import", html)
+        for label in ("Type", "Stage", "Posted", "Solicitation Number", "Date Shortlisted", "Salesforce"):
+            self.assertIn(f">{label}</span>", body)
+        self.assertIn("Open in Salesforce", body)
+        for removed in ("CRM Activity", "Source Record ID", "External Key"):
+            self.assertNotIn(f">{removed}</span>", body)
+
+    def test_shortlist_update_requires_an_event_after_date_shortlisted(self):
+        shortlisted = datetime(2026, 8, 2, 9, tzinfo=timezone.utc)
+
+        self.assertFalse(_datetime_is_after(None, shortlisted))
+        self.assertFalse(_datetime_is_after(datetime(2026, 8, 2, 8), shortlisted))
+        self.assertFalse(_datetime_is_after(datetime(2026, 8, 2, 9), shortlisted))
+        self.assertTrue(_datetime_is_after(datetime(2026, 8, 2, 10), shortlisted))
+
+    def test_triage_body_keeps_source_context_without_crm_metadata(self):
+        html = self._render_card(
+            "Triage IA",
+            view="triage",
+            posted_date=datetime(2026, 8, 1),
+            solicitation_number="RFP-300",
+            source_record_id="source-300",
+            external_source_key="sam:source-300",
+            salesforce_opportunity_url="https://salesforce.example/006zz",
+            crm_pushed=True,
+            crm_pushed_by_label="Admin",
+        )
+        body = html.split('<div class="opp-card-expanded">', 1)[1]
+
+        for label in ("Type", "Stage", "Posted", "Solicitation Number", "Source", "Source Record ID"):
+            self.assertIn(f">{label}</span>", body)
+        for removed in ("External Key", "Salesforce", "CRM Activity"):
+            self.assertNotIn(f">{removed}</span>", body)
+
+    def test_archive_body_mirrors_feed_metadata(self):
+        html = self._render_card(
+            "Archive IA",
+            view="user_archive",
+            posted_date=datetime(2026, 8, 1),
+            solicitation_number="RFP-400",
+            salesforce_opportunity_id="006aa",
+            source_record_id="source-400",
+            external_source_key="sam:source-400",
+        )
+        body = html.split('<div class="opp-card-expanded">', 1)[1]
+
+        for label in ("Type", "Stage", "Posted", "Solicitation Number", "Salesforce"):
+            self.assertIn(f">{label}</span>", body)
+        for removed in ("Source Record ID", "External Key", "CRM Activity"):
+            self.assertNotIn(f">{removed}</span>", body)
 
     def test_card_css_keeps_hover_cards_above_neighbors(self):
         css = Path("src/bidlens/static/css/styles.css").read_text()

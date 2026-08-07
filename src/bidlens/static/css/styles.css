@@ -6872,27 +6872,6 @@ h2 {
     white-space: nowrap;
 }
 
-.opp-card-crm-attribution {
-    margin-top: 5px;
-    color: var(--gray-500);
-    font-size: 0.76rem;
-    font-weight: 600;
-}
-
-.opp-card-crm-link-row {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 5px;
-    font-size: 0.78rem;
-}
-
-.opp-card-crm-status {
-    color: var(--gray-600);
-    font-weight: 700;
-}
-
 .opp-card-crm-link {
     font-weight: 700;
 }
@@ -9406,7 +9385,7 @@ details[open] .accordion-summary::after {
   align-items: center;
   gap: 4px;
   color: var(--gray-600);
-  font-size: 0.7rem;
+  font-size: 0.825rem;
   font-weight: 700;
   line-height: 1.25;
   white-space: nowrap;
@@ -9607,7 +9586,7 @@ details[open] .accordion-summary::after {
 }
 
 .opp-card-agency {
-  font-size: 0.78rem;
+  font-size: 0.9rem;
   color: var(--gray-500);
   line-height: 1.18;
 }
@@ -10001,6 +9980,10 @@ details[open] .accordion-summary::after {
   gap: 0 18px;
 }
 
+.opp-detail-column {
+  min-width: 0;
+}
+
 .opp-detail-row {
   display: flex;
   flex-direction: column;
@@ -10019,6 +10002,7 @@ details[open] .accordion-summary::after {
 }
 .opp-detail-value {
   color: var(--gray-700);
+  font-size: 0.8rem;
   font-weight: 500;
   line-height: 1.25;
 }
@@ -13740,7 +13724,7 @@ details[open] .accordion-summary::after {
 }
 
 .opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="triage"], [data-card-view="user_archive"]) .opp-card-title {
-  font-size: 1.02rem;
+  font-size: 1.145rem;
   line-height: 1.16;
   letter-spacing: 0;
 }
@@ -13774,7 +13758,7 @@ details[open] .accordion-summary::after {
 
 .opp-card:is([data-card-view="feed"], [data-card-view="my_shortlist"], [data-card-view="user_archive"]) .opp-card-agency {
   color: var(--gray-700);
-  font-size: 0.78rem;
+  font-size: 0.9rem;
 }
 
 .opp-card[data-card-view="feed"] .opp-card-row {

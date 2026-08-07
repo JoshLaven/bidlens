@@ -225,11 +225,13 @@ class ShortlistedTimestampTests(unittest.TestCase):
         ))
         vote = self.db.query(Vote).one()
         self.assertEqual(vote.shortlisted_at.replace(tzinfo=timezone.utc), first)
+        self.assertEqual(self.opportunity.date_shortlisted.replace(tzinfo=timezone.utc), first)
 
         self.assertFalse(ensure_user_shortlisted(
             self.db, opportunity=self.opportunity, user=self.user, now=second
         ))
         self.assertEqual(vote.shortlisted_at.replace(tzinfo=timezone.utc), first)
+        self.assertEqual(self.opportunity.date_shortlisted.replace(tzinfo=timezone.utc), first)
 
         vote.vote = "PASS"
         self.db.flush()
@@ -239,6 +241,7 @@ class ShortlistedTimestampTests(unittest.TestCase):
             self.db, opportunity=self.opportunity, user=self.user, now=third
         ))
         self.assertEqual(vote.shortlisted_at.replace(tzinfo=timezone.utc), third)
+        self.assertEqual(self.opportunity.date_shortlisted.replace(tzinfo=timezone.utc), first)
 
     def test_cast_vote_reaffirmation_preserves_and_leaving_retains_timestamp(self):
         cast_vote(

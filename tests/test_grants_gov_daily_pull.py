@@ -1,3 +1,4 @@
+import datetime as dt
 import unittest
 from unittest.mock import Mock, patch
 
@@ -6,7 +7,11 @@ from sqlalchemy.orm import sessionmaker
 
 from bidlens.database import Base
 from bidlens.grants_gov_client import GrantsGovApiError, search_recent_opportunities
-from bidlens.ingest_grants_gov import ingest_grants_gov, normalize_grants_gov_record
+from bidlens.ingest_grants_gov import (
+    enrich_grants_gov_opportunity_detail,
+    ingest_grants_gov,
+    normalize_grants_gov_record,
+)
 from bidlens.models import Opportunity, OpportunityHistoryEvent, Organization
 from bidlens.routes import opportunities
 from bidlens.services.opportunity_history import (
@@ -69,6 +74,88 @@ class GrantsGovDailyPullTests(unittest.TestCase):
         self.assertEqual(normalized["opportunity_type"], "Grant")
         self.assertIsNone(normalized["source_stage"])
         self.assertIsNone(opportunities._normalized_opportunity_type(Opportunity(**normalized)))
+
+    @patch("bidlens.ingest_grants_gov.fetch_opportunity_detail")
+    def test_detail_enrichment_populates_previously_missing_eligibility(self, fetch_detail):
+        opportunity = Opportunity(
+            organization_id=self.org.id,
+            source="grants_gov",
+            source_record_id="grant-eligibility-detail",
+            title="Eligibility detail grant",
+            agency="Test Agency",
+            opportunity_type="Funding Opportunity",
+            canonical_type="Grant",
+            posted_date=dt.date(2026, 8, 1),
+            response_deadline=dt.date(2026, 9, 1),
+            eligibility=None,
+            raw_source_payload={
+                "id": "grant-eligibility-detail",
+                "title": "Eligibility detail grant",
+                "agencyName": "Test Agency",
+                "openDate": "08/01/2026",
+                "closeDate": "09/01/2026",
+            },
+        )
+        self.db.add(opportunity)
+        self.db.commit()
+        fetch_detail.return_value = {
+            "data": {
+                "id": "grant-eligibility-detail",
+                "title": "Eligibility detail grant",
+                "agencyName": "Test Agency",
+                "openDate": "08/01/2026",
+                "closeDate": "09/01/2026",
+                "synopsis": {
+                    "applicantTypes": [
+                        {"description": "For profit organizations other than small businesses"},
+                    ],
+                },
+            },
+        }
+
+        self.assertTrue(enrich_grants_gov_opportunity_detail(self.db, opportunity))
+        self.db.refresh(opportunity)
+        self.assertEqual(
+            opportunity.eligibility,
+            "For profit organizations other than small businesses",
+        )
+
+    @patch("bidlens.ingest_grants_gov.fetch_opportunity_detail")
+    def test_detail_enrichment_does_not_erase_existing_eligibility(self, fetch_detail):
+        opportunity = Opportunity(
+            organization_id=self.org.id,
+            source="grants_gov",
+            source_record_id="grant-known-eligibility",
+            title="Known eligibility grant",
+            agency="Test Agency",
+            opportunity_type="Funding Opportunity",
+            canonical_type="Grant",
+            posted_date=dt.date(2026, 8, 1),
+            response_deadline=dt.date(2026, 9, 1),
+            eligibility="Existing eligible applicants",
+            raw_source_payload={
+                "id": "grant-known-eligibility",
+                "title": "Known eligibility grant",
+                "agencyName": "Test Agency",
+                "openDate": "08/01/2026",
+                "closeDate": "09/01/2026",
+            },
+        )
+        self.db.add(opportunity)
+        self.db.commit()
+        fetch_detail.return_value = {
+            "data": {
+                "id": "grant-known-eligibility",
+                "title": "Known eligibility grant",
+                "agencyName": "Test Agency",
+                "openDate": "08/01/2026",
+                "closeDate": "09/01/2026",
+            },
+        }
+
+        enrich_grants_gov_opportunity_detail(self.db, opportunity)
+        self.db.refresh(opportunity)
+        self.assertEqual(opportunity.eligibility, "Existing eligible applicants")
 
     @patch("bidlens.grants_gov_client._post_search")
     def test_search_uses_seven_day_posted_date_window_and_record_offset(self, post_search):

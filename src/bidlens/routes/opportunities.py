@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import html
 import logging
 import re
@@ -688,6 +688,17 @@ def _normalized_opportunity_type(opportunity: Opportunity) -> str:
     )
 
 
+def _datetime_is_after(value: datetime | None, threshold: datetime | None) -> bool:
+    """Compare persisted timestamps consistently across SQLite and PostgreSQL."""
+    if value is None or threshold is None:
+        return False
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    if threshold.tzinfo is not None:
+        threshold = threshold.astimezone(timezone.utc).replace(tzinfo=None)
+    return value > threshold
+
+
 def _enrich_opps(rows, db, user, watched_col=True):
     """Add computed fields (days, vote counts, user vote) to opportunity rows."""
     today = date.today()
@@ -798,6 +809,10 @@ def _enrich_opps(rows, db, user, watched_col=True):
         opp.updated_since_import_label = (
             f"Updated since import · {labels[0]} changed"
             if labels else "Updated since import"
+        )
+        opp.updated_since_shortlisted = _datetime_is_after(
+            latest_update.occurred_at if latest_update else None,
+            getattr(opp, "date_shortlisted", None),
         )
 
     return opportunities

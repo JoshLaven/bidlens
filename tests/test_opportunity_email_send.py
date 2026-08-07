@@ -204,6 +204,7 @@ class OpportunityEmailSendTests(unittest.TestCase):
         self.assertTrue(added)
         self.assertEqual(vote.vote, "PURSUE")
         self.assertIsNotNone(vote.shortlisted_at)
+        self.assertIsNotNone(self.opportunity.date_shortlisted)
 
     def test_message_validation_and_footer_do_not_expose_internal_id(self):
         self.assertEqual(validate_subject("  Hello   there  "), "Hello there")

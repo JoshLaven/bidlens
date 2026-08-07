@@ -72,6 +72,7 @@ class Opportunity(Base):
     source_stage = Column(String, nullable=True, index=True)
     posted_date = Column(Date, nullable=False)
     response_deadline = Column(Date, nullable=False)
+    date_shortlisted = Column(DateTime(timezone=True), nullable=True)
     naics = Column(String, nullable=True)
     naics_title = Column(String, nullable=True)
     set_aside = Column(String, nullable=True)

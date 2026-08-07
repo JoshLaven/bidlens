@@ -534,6 +534,7 @@ def enrich_grants_gov_opportunity_detail(db: Session, opportunity: Opportunity) 
         "opportunity_type",
         "canonical_type",
         "source_stage",
+        "eligibility",
     )
     monitor_result = apply_source_update(
         db,

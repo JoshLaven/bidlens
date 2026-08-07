@@ -217,12 +217,18 @@ class OpportunityPublisherTests(unittest.TestCase):
         self.assertEqual(self.db.query(Opportunity).count(), 1)
         self.assertEqual(self.db.query(Vote).filter(Vote.vote == "PURSUE").count(), 1)
         self.assertIsNotNone(self.db.query(Vote).filter(Vote.vote == "PURSUE").one().shortlisted_at)
+        self.assertIsNotNone(self.db.get(Opportunity, first.opportunity_id).date_shortlisted)
         self.assertIsNone(build_feed_query(
             self.db, organization_id=self.org.id, user_id=self.user.id, include_watched=False
         ).filter(Opportunity.id == first.opportunity_id).one_or_none())
         self.assertIsNotNone(build_feed_query(
             self.db, organization_id=self.org.id, user_id=self.colleague.id, include_watched=False
         ).filter(Opportunity.id == first.opportunity_id).one_or_none())
+
+    def test_unchecked_intake_leaves_date_shortlisted_null(self):
+        result = self._publish(self._draft(shortlist=False), shortlist=False)
+
+        self.assertIsNone(self.db.get(Opportunity, result.opportunity_id).date_shortlisted)
 
     def test_blank_solicitation_uses_persisted_reference(self):
         draft = self._draft()

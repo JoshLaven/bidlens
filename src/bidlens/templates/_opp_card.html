@@ -1,10 +1,27 @@
+{% macro qualification_row(opp) %}
+  {% if opp.qualification_display %}
+    <div class="opp-detail-row">
+      <span class="opp-detail-label">{{ opp.qualification_display.label }}</span>
+      <span class="opp-detail-value">
+        {% if opp.qualification_display.is_long %}
+          <span>{{ opp.qualification_display.preview }}</span>
+          <details class="opp-qualification-details">
+            <summary>Show full eligibility</summary>
+            <p>{{ opp.qualification_display.value }}</p>
+          </details>
+        {% else %}
+          {{ opp.qualification_display.value }}
+        {% endif %}
+      </span>
+    </div>
+  {% endif %}
+{% endmacro %}
+
 {% macro opp_card(opp, view='feed', now=none, show_admin_crm_actions=false) %}
 {% set agency_display = opp.agency_display if opp.agency_display is defined and opp.agency_display else (opp.agency or '') %}
 {% set due_label = opp.response_deadline.strftime('%b %d, %Y') if opp.response_deadline else 'No deadline' %}
 {% set teammate_interest_users = opp.teammate_interest_users or [] %}
 {% set pursuit_lanes = opp.pursuit_lanes or [] %}
-{% set crm_pushed = opp.crm_pushed %}
-{% set crm_pushed_by_current_user = opp.crm_pushed_by_current_user %}
 {% set salesforce_url = opp.salesforce_opportunity_url %}
 {% set has_salesforce_linkage = opp.salesforce_opportunity_id or opp.salesforce_opportunity_url %}
 {% set salesforce_status = 'Created in Salesforce' if opp.salesforce_action == 'created' else 'Pushed to Salesforce' if opp.salesforce_action == 'pushed' else '' %}
@@ -14,7 +31,6 @@
 {% set source_label = 'SAM' if source_value == 'sam' else 'GovWin' if source_value == 'govwin_export' else 'Grants.gov' if source_value == 'grants_gov' else source_value %}
 {% set source_link_url = opp.source_url or opp.sam_url %}
 {% set source_link_label = 'View on SAM.gov' if source_value == 'sam' else 'View on Grants.gov' if source_value == 'grants_gov' else 'View on GovWin' if source_value == 'govwin_export' else 'View Source' %}
-{% set opportunity_type_label = opp.normalized_opportunity_type %}
 {% set primary_pursuit_lane = pursuit_lanes[0] if pursuit_lanes else none %}
 {% set return_context = 'shortlist' if view in ['shortlist', 'my_shortlist'] else 'archive' if view in ['archive', 'user_archive'] else 'triage' if view == 'triage' else 'feed' %}
 <div
@@ -92,15 +108,15 @@
               No deadline
             {% endif %}
           </span>
-          {% if primary_pursuit_lane %}
+          {% if primary_pursuit_lane and view in ['feed', 'triage'] %}
             {% set lane_reasons = primary_pursuit_lane.reasons or [] %}
             {% set lane_title = 'Matched pursuit lane' ~ (': ' ~ (lane_reasons|join('; ')) if lane_reasons else '') %}
             <span class="opp-card-meta-divider" aria-hidden="true">&bull;</span>
             <span class="pursuit-lane-pill" title="{{ lane_title }}">{{ primary_pursuit_lane.name }}</span>
           {% endif %}
-          {% if opp.updated_since_import %}
+          {% if view == 'my_shortlist' and opp.updated_since_shortlisted %}
             <span class="opp-card-meta-divider" aria-hidden="true">&bull;</span>
-            <span class="opp-card-source-update">{{ opp.updated_since_import_label or 'Updated since import' }}</span>
+            <span class="opp-card-source-update">Updated since Shortlisted</span>
           {% endif %}
         </div>
       </div>
@@ -111,21 +127,6 @@
           {% if teammate_interest_users %}title="Interested teammates: {{ teammate_interest_users|join(', ') }}"{% endif %}
         >
           {{ opp.team_interest_label or 'No team interest yet' }}
-        </div>
-      {% endif %}
-      {% if view not in ['feed', 'my_shortlist', 'user_archive'] and crm_pushed and opp.crm_pushed_by_label %}
-        <div class="opp-card-crm-attribution">Pushed to CRM by {{ opp.crm_pushed_by_label }}</div>
-      {% endif %}
-      {% if view not in ['feed', 'my_shortlist', 'user_archive'] %}
-        <div class="opp-card-crm-link-row" data-salesforce-link-container {% if not has_salesforce_linkage %}hidden{% endif %}>
-          <span class="opp-card-crm-status" data-salesforce-status>{{ salesforce_status }}</span>
-          {% if salesforce_url %}
-            <a href="{{ salesforce_url }}" target="_blank" rel="noreferrer" class="opp-card-crm-link" data-salesforce-link>
-              Open in Salesforce
-            </a>
-          {% else %}
-            <a href="#" target="_blank" rel="noreferrer" class="opp-card-crm-link" data-salesforce-link hidden></a>
-          {% endif %}
         </div>
       {% endif %}
       <div class="opp-preview-inline" id="opp-preview-inline-{{ opp.id }}" data-preview-inline hidden>
@@ -269,155 +270,70 @@
     </summary>
     <div class="opp-card-expanded">
       <div class="opp-detail-grid">
-        {% if view == 'feed' %}
-          {% if source_value %}
-            <div class="opp-detail-row">
-              <span class="opp-detail-label">Source</span>
-              <span class="opp-detail-value">{{ source_label }}</span>
-            </div>
-          {% endif %}
-
-          {% if opp.solicitation_number %}
-            <div class="opp-detail-row">
-              <span class="opp-detail-label">Solicitation #</span>
-              <span class="opp-detail-value">{{ opp.solicitation_number }}</span>
-            </div>
-          {% endif %}
-
-          {% if opp.naics %}
-            <div class="opp-detail-row">
-              <span class="opp-detail-label">NAICS</span>
-              <span class="opp-detail-value">
-                {{ opp.naics }}
-                {% if opp.naics_title %}
-                  <span class="opp-detail-subvalue">{{ opp.naics_title }}</span>
-                {% endif %}
-              </span>
-            </div>
-          {% endif %}
-
+        <div class="opp-detail-column">
+          <div class="opp-detail-row">
+            <span class="opp-detail-label">Type</span>
+            <span class="opp-detail-value">{{ opp.canonical_type or 'Not yet classified' }}</span>
+          </div>
+          {{ qualification_row(opp) }}
           {% if opp.posted_date %}
             <div class="opp-detail-row">
               <span class="opp-detail-label">Posted</span>
               <span class="opp-detail-value">{{ opp.posted_date.strftime('%b %d, %Y') }}</span>
             </div>
           {% endif %}
-
-          {% if opp.normalized_opportunity_type %}<div class="opp-detail-row">
-            <span class="opp-detail-label">Type</span>
-            <span class="opp-detail-value">{{ opp.normalized_opportunity_type }}</span>
-          </div>{% endif %}
-
-          {% if salesforce_url %}
+          {% if view == 'my_shortlist' and has_salesforce_linkage %}
             <div class="opp-detail-row">
               <span class="opp-detail-label">Salesforce</span>
-              <span class="opp-detail-value">
-                <a href="{{ salesforce_url }}" target="_blank" rel="noreferrer" class="opp-card-crm-link">Open in Salesforce</a>
-              </span>
+              <span class="opp-detail-value">{{ salesforce_status or 'Linked' }}</span>
             </div>
           {% endif %}
-        {% else %}
-        {% if opp.normalized_opportunity_type %}
-          <div class="opp-detail-row">
-            <span class="opp-detail-label">Stage</span>
-            <span class="opp-detail-value">{{ opp.normalized_opportunity_type }}</span>
-          </div>
-        {% endif %}
+          {% if view == 'triage' and opp.source_record_id %}
+            <div class="opp-detail-row">
+              <span class="opp-detail-label">Source Record ID</span>
+              <span class="opp-detail-value">{{ opp.source_record_id }}</span>
+            </div>
+          {% endif %}
+        </div>
 
-        {% if view in ['my_shortlist', 'user_archive'] and crm_pushed and opp.crm_pushed_by_label %}
-          <div class="opp-detail-row">
-            <span class="opp-detail-label">CRM Activity</span>
-            <span class="opp-detail-value">Pushed by {{ opp.crm_pushed_by_label }}</span>
-          </div>
-        {% endif %}
-
-        {% if opp.qualification_display %}
-          <div class="opp-detail-row">
-            <span class="opp-detail-label">{{ opp.qualification_display.label }}</span>
-            <span class="opp-detail-value">
-              {% if opp.qualification_display.is_long %}
-                <span>{{ opp.qualification_display.preview }}</span>
-                <details class="opp-qualification-details">
-                  <summary>Show full eligibility</summary>
-                  <p>{{ opp.qualification_display.value }}</p>
-                </details>
-              {% else %}
-                {{ opp.qualification_display.value }}
-              {% endif %}
-            </span>
-          </div>
-        {% endif %}
-
-        {% if opp.naics %}
-          <div class="opp-detail-row">
-            <span class="opp-detail-label">NAICS</span>
-            <span class="opp-detail-value">
-              {{ opp.naics }}
-              {% if opp.naics_title %}
-                <span class="opp-detail-subvalue">{{ opp.naics_title }}</span>
-              {% endif %}
-            </span>
-          </div>
-        {% endif %}
-
-        {% if opp.solicitation_number %}
-          <div class="opp-detail-row">
-            <span class="opp-detail-label">Solicitation #</span>
-            <span class="opp-detail-value">{{ opp.solicitation_number }}</span>
-          </div>
-        {% endif %}
-
-        {% if opp.source_record_id %}
-          <div class="opp-detail-row">
-            <span class="opp-detail-label">Source Record ID</span>
-            <span class="opp-detail-value">{{ opp.source_record_id }}</span>
-          </div>
-        {% endif %}
-
-        {% if salesforce_url %}
-          <div class="opp-detail-row">
-            <span class="opp-detail-label">Salesforce</span>
-            <span class="opp-detail-value">
-              <a href="{{ salesforce_url }}" target="_blank" rel="noreferrer" class="opp-card-crm-link">Open in Salesforce</a>
-            </span>
-          </div>
-        {% endif %}
-
-        {% if opp.external_source_key %}
-          <div class="opp-detail-row">
-            <span class="opp-detail-label">External Key</span>
-            <span class="opp-detail-value">{{ opp.external_source_key }}</span>
-          </div>
-        {% endif %}
-
-        {% if opp.govwin_staging_id %}
-          <div class="opp-detail-row">
-            <span class="opp-detail-label">GovWin Staging ID</span>
-            <span class="opp-detail-value">{{ opp.govwin_staging_id }}</span>
-          </div>
-        {% endif %}
-
-        {% if opp.sam_notice_id %}
-          <div class="opp-detail-row">
-            <span class="opp-detail-label">SAM Notice ID</span>
-            <span class="opp-detail-value">{{ opp.sam_notice_id }}</span>
-          </div>
-        {% endif %}
-
-        {% if opp.posted_date %}
-          <div class="opp-detail-row">
-            <span class="opp-detail-label">Posted</span>
-            <span class="opp-detail-value">{{ opp.posted_date.strftime('%b %d, %Y') }}</span>
-          </div>
-        {% endif %}
-
-        {% if opp.last_activity %}
-          <div class="opp-detail-row">
-            <span class="opp-detail-label">Activity</span>
-            <span class="opp-detail-value">{{ opp.last_activity.strftime('%b %d, %Y') }}</span>
-          </div>
-        {% endif %}
-        {% endif %}
+        <div class="opp-detail-column">
+          {% if opp.normalized_opportunity_type %}
+            <div class="opp-detail-row">
+              <span class="opp-detail-label">Stage</span>
+              <span class="opp-detail-value">{{ opp.normalized_opportunity_type }}</span>
+            </div>
+          {% endif %}
+          {% if opp.solicitation_number %}
+            <div class="opp-detail-row">
+              <span class="opp-detail-label">Solicitation Number</span>
+              <span class="opp-detail-value">{{ opp.solicitation_number }}</span>
+            </div>
+          {% endif %}
+          {% if view in ['feed', 'user_archive', 'archive'] and has_salesforce_linkage %}
+            <div class="opp-detail-row">
+              <span class="opp-detail-label">Salesforce</span>
+              <span class="opp-detail-value">{{ salesforce_status or 'Linked' }}</span>
+            </div>
+          {% endif %}
+          {% if view == 'triage' and source_value %}
+            <div class="opp-detail-row">
+              <span class="opp-detail-label">Source</span>
+              <span class="opp-detail-value">{{ source_label }}</span>
+            </div>
+          {% endif %}
+          {% if view == 'my_shortlist' %}
+            <div class="opp-detail-row">
+              <span class="opp-detail-label">Date Shortlisted</span>
+              <span class="opp-detail-value">{{ opp.date_shortlisted.strftime('%b %d, %Y') if opp.date_shortlisted else 'Not available' }}</span>
+            </div>
+            {% if salesforce_url %}
+              <div class="opp-detail-row">
+                <span class="opp-detail-label"><span class="sr-only">Salesforce action</span></span>
+                <span class="opp-detail-value"><a href="{{ salesforce_url }}" target="_blank" rel="noreferrer" class="opp-card-crm-link">Open in Salesforce &#8599;</a></span>
+              </div>
+            {% endif %}
+          {% endif %}
+        </div>
       </div>
 
       <div class="opp-detail-actions">

@@ -34,6 +34,28 @@ def _first(payload: Mapping[str, Any], keys: tuple[str, ...]) -> str | None:
     return None
 
 
+def _applicant_type_descriptions(payload: Mapping[str, Any]) -> str | None:
+    """Return distinct structured applicant types in their source-defined order."""
+    applicant_types = payload.get("applicantTypes")
+    if not isinstance(applicant_types, list):
+        return None
+
+    descriptions: list[str] = []
+    seen: set[str] = set()
+    for applicant_type in applicant_types:
+        if not isinstance(applicant_type, Mapping):
+            continue
+        description = _clean(applicant_type.get("description"))
+        if not description:
+            continue
+        normalized = description.casefold()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        descriptions.append(description)
+    return "; ".join(descriptions) or None
+
+
 def sam_set_aside(payload: Mapping[str, Any]) -> str | None:
     """Return structured SAM set-aside description, mapped code, or raw value."""
     description = _first(payload, ("typeOfSetAsideDescription", "setAsideDescription"))
@@ -49,8 +71,13 @@ def grants_eligibility(payload: Mapping[str, Any]) -> str | None:
     """Select one structured Grants.gov applicant-eligibility value deterministically."""
     synopsis = payload.get("synopsis")
     synopsis = synopsis if isinstance(synopsis, Mapping) else {}
+    forecast = payload.get("forecast")
+    forecast = forecast if isinstance(forecast, Mapping) else {}
     return (
-        _first(synopsis, ("applicantEligibilityDesc",))
+        _applicant_type_descriptions(synopsis)
+        or _applicant_type_descriptions(forecast)
+        or _applicant_type_descriptions(payload)
+        or _first(synopsis, ("applicantEligibilityDesc",))
         or _first(payload, ("applicantEligibilityDesc",))
         or _first(synopsis, ("additionalInformationOnEligibility",))
         or _first(payload, ("additionalInformationOnEligibility",))
