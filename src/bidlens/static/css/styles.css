@@ -9828,6 +9828,15 @@ details[open] .accordion-summary::after {
   background: #166b66;
 }
 
+.opp-card-interest-status {
+  cursor: default;
+  pointer-events: none;
+}
+
+.opp-card-interest-status.btn-success:hover {
+  background: linear-gradient(180deg, #2d8a84 0%, #1d7670 100%);
+}
+
 .opp-card-button.btn-warning {
   background: rgba(154, 107, 47, 0.12);
   color: #8d6431;

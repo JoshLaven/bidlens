@@ -204,6 +204,33 @@ class OpportunityCardMetadataTests(unittest.TestCase):
         self.assertNotIn('content: "•";', Path("src/bidlens/static/css/styles.css").read_text())
         self.assertNotIn("&bull;", shortlist_html)
 
+    def test_my_shortlist_interested_is_a_static_status(self):
+        shortlist_html = self._render_card(
+            "Shortlisted opportunity",
+            view="my_shortlist",
+            user_vote="PURSUE",
+        )
+
+        self.assertIn('class="btn btn-sm opp-card-button opp-card-button--primary btn-success opp-card-interest-status"', shortlist_html)
+        self.assertIn('role="status"', shortlist_html)
+        self.assertIn("&#10003; Interested", shortlist_html)
+        self.assertNotIn('data-vote-button="PURSUE"', shortlist_html)
+        self.assertNotIn("voteOpp('123', 'PURSUE')", shortlist_html)
+        self.assertNotIn("<button", shortlist_html.split("&#10003; Interested", 1)[0].rsplit('<div class="opp-card-actions">', 1)[1])
+        self.assertIn('data-vote-button="PASS"', shortlist_html)
+        self.assertIn("voteOpp('123', 'PASS')", shortlist_html)
+
+    def test_feed_interested_remains_an_action(self):
+        feed_html = self._render_card(
+            "Feed opportunity",
+            view="feed",
+            user_vote=None,
+        )
+
+        self.assertIn('data-vote-button="PURSUE"', feed_html)
+        self.assertIn("voteOpp('123', 'PURSUE')", feed_html)
+        self.assertNotIn("opp-card-interest-status", feed_html)
+
     def test_feed_and_my_shortlist_use_same_collapsed_action_wrapper(self):
         feed_html = self._render_card("Shared opportunity", view="feed", user_vote="PURSUE")
         shortlist_html = self._render_card("Shared opportunity", view="my_shortlist", user_vote="PURSUE")

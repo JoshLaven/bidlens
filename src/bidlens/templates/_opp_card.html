@@ -171,6 +171,13 @@
     </div>
     {% elif view != 'archive' %}
     <div class="opp-card-actions">
+      {% if view == 'my_shortlist' %}
+      <span class="btn btn-sm opp-card-button opp-card-button--primary btn-success opp-card-interest-status"
+            role="status"
+            aria-label="Interested. This opportunity is on your Shortlist.">
+        &#10003; Interested
+      </span>
+      {% else %}
       <button type="button"
               class="btn btn-sm opp-card-button opp-card-button--primary {{ 'btn-success' if opp.user_vote == 'PURSUE' else 'btn-primary' }}"
               data-vote-button="PURSUE"
@@ -178,6 +185,7 @@
               onclick="voteOpp('{{ opp.id }}', 'PURSUE')">
         {% if opp.user_vote == 'PURSUE' %}&#10003; Interested{% else %}Interested{% endif %}
       </button>
+      {% endif %}
       <div class="opp-card-actions-secondary">
         {% if view not in ['feed', 'my_shortlist'] %}
           <span class="opp-card-pass-label" data-pass-helper {% if opp.user_vote == 'PASS' %}hidden{% endif %}>Not relevant?</span>

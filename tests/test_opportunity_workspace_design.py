@@ -36,6 +36,8 @@ class OpportunityWorkspaceDesignTests(unittest.TestCase):
     def test_my_shortlist_preserves_checked_interested_state(self):
         self.assertIn("view='my_shortlist'", (TEMPLATES / "my_shortlist.html").read_text())
         self.assertIn("&#10003; Interested", self.card)
+        self.assertIn("opp-card-interest-status", self.card)
+        self.assertIn('role="status"', self.card)
         self.assertIn("Archive", self.card)
 
     def test_archive_preserves_rich_details_in_expanded_section(self):
