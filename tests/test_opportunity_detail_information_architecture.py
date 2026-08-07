@@ -50,8 +50,15 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
         self.assertIn("{% if opportunity.salesforce_opportunity_url %}", self.sidebar_template)
         self.assertIn("View Opportunity &#8599;", self.sidebar_template)
         self.assertIn("Not linked", self.sidebar_template)
-        self.assertIn("Link Opportunity &#8594;", self.sidebar_template)
-        self.assertIn("linkOverviewSalesforce", self.template)
+        self.assertNotIn("Link Opportunity &#8594;", self.sidebar_template)
+        linked_branch = self.sidebar_template[
+            self.sidebar_template.index("{% if opportunity.salesforce_opportunity_url %}"):
+            self.sidebar_template.index(
+                "{% else %}",
+                self.sidebar_template.index("{% if opportunity.salesforce_opportunity_url %}"),
+            )
+        ]
+        self.assertIn("View Opportunity &#8599;", linked_branch)
         self.assertIn('aria-label="Email this opportunity"', self.sidebar_template)
         self.assertIn("openOpportunityEmail", self.template)
         self.assertIn('aria-label="Copy solicitation number"', self.sidebar_template)
@@ -59,56 +66,68 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
     def test_get_up_to_speed_replaces_the_legacy_brief_presentation(self):
         self.assertIn('class="detail-description-section guts-card"', self.template)
         self.assertIn('id="guts-heading">Get Up To Speed', self.template)
-        self.assertIn("A holistic summary of this opportunity.", self.template)
+        self.assertIn("A holistic summary of this opportunity", self.template)
+        self.assertIn("based on the latest communications and notes.", self.template)
         self.assertIn("AI Brief", self.template)
         self.assertNotIn(">Opportunity Brief<", self.template)
         self.assertNotIn(">Generate AI Brief<", self.template)
 
-    def test_get_up_to_speed_has_only_v1_orientation_sections_and_empty_states(self):
-        for heading in (
+    def test_get_up_to_speed_uses_team_summary_and_recent_developments(self):
+        for heading in ("Team Summary", "Recent Developments"):
+            self.assertIn(heading, self.template)
+        for excluded_heading in (
             "Overall Status",
             "Official Updates",
             "Internal Activity",
+            "Risks / Watch Items",
+            "Suggested Next Steps",
         ):
-            self.assertIn(heading, self.template)
-        for excluded_heading in ("Risks / Watch Items", "Suggested Next Steps"):
             self.assertNotIn(excluded_heading, self.template)
-        for empty_state in (
-            "No status summary is available yet.",
-            "No official updates identified.",
-            "No recent internal activity.",
-        ):
+        for empty_state in ("No Team Summary has been generated yet.", "No recent developments identified."):
             self.assertIn(empty_state, self.template)
 
-    def test_get_up_to_speed_preserves_existing_generation_handler(self):
-        self.assertEqual(self.template.count('id="generate-brief-button"'), 1)
-        self.assertIn("onclick=\"generateBrief('{{ opportunity.id }}')\"", self.template)
-        self.assertIn("{{ 'Regenerate' if guts_generation else 'Generate' }}", self.template)
-        self.assertIn("/generate-guts", self.template)
-        self.assertIn('id="brief-generate-status"', self.template)
+    def test_get_up_to_speed_uses_server_side_team_summary_generation(self):
+        self.assertIn(
+            'action="/opportunity/{{ opportunity.id }}/communication-summary"',
+            self.template,
+        )
+        self.assertIn('name="csrf_token" value="{{ communication_summary_csrf_token }}"', self.template)
+        self.assertIn('name="return_tab" value="overview"', self.template)
+        self.assertIn("communication_summary.status == 'ready'", self.template)
+        self.assertNotIn('id="generate-brief-button"', self.template)
+        self.assertNotIn("generateBrief(", self.template)
+        self.assertNotIn("/generate-guts", self.template)
         self.assertIn("overview-document-count", self.template)
 
-    def test_get_up_to_speed_renders_canonical_statements_one_to_one(self):
-        for collection in (
-            "overall_status",
-            "recent_developments",
-            "internal_activity",
-        ):
-            self.assertIn(f"guts_presentation.{collection}", self.template)
+    def test_get_up_to_speed_renders_current_team_summary_and_developments(self):
+        self.assertIn("{{ communication_summary.current_status }}", self.template)
+        self.assertIn("for statement in recent_developments", self.template)
         self.assertIn('data-guts-statement-id="{{ statement.persisted_statement_id }}"', self.template)
         self.assertIn('data-guts-statement-key="{{ statement.statement_key }}"', self.template)
         self.assertIn("{{ statement.text }}", self.template)
+        for legacy_collection in (
+            "guts_presentation.overall_status",
+            "guts_presentation.recent_developments",
+            "guts_presentation.internal_activity",
+        ):
+            self.assertNotIn(legacy_collection, self.template)
 
-    def test_communication_uses_summary_and_collapsed_email_accordions(self):
-        self.assertIn('id="communication-summary-heading">AI Summary', self.template)
-        self.assertIn('class="communication-email-accordion"', self.template)
-        self.assertNotIn('<details open class="communication-email-accordion"', self.template)
-        self.assertIn("{{ message.body }}", self.template)
-        accordion_start = self.template.index('<details class="communication-email-accordion">')
-        summary_end = self.template.index("</summary>", accordion_start)
-        self.assertNotIn("message.subject", self.template[accordion_start:summary_end])
-        self.assertIn("<dt>Subject</dt>", self.template)
-        self.assertNotIn("Documents</span>", self.template)
+    def test_communication_uses_only_timeline_and_collapsed_email_accordions(self):
+        communication = self.template[
+            self.template.index('data-detail-panel="communication"'):
+            self.template.index('data-detail-panel="notes"')
+        ]
+        self.assertNotIn("Team Summary", communication)
+        self.assertNotIn('id="communication-summary-heading"', communication)
+        self.assertIn('id="communication-timeline-heading"', communication)
+        self.assertIn('class="communication-email-accordion"', communication)
+        self.assertNotIn('<details open class="communication-email-accordion"', communication)
+        self.assertIn("{{ message.body }}", communication)
+        accordion_start = communication.index('<details class="communication-email-accordion">')
+        summary_end = communication.index("</summary>", accordion_start)
+        self.assertNotIn("message.subject", communication[accordion_start:summary_end])
+        self.assertIn("<dt>Subject</dt>", communication)
+        self.assertNotIn("Documents</span>", communication)
 
     def test_reference_combines_identifiers_source_and_salesforce_with_copy(self):
         reference_start = self.template.index('data-detail-panel="reference"')
@@ -144,12 +163,18 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
         self.assertLess(folder_start, nav_start)
         self.assertLess(nav_start, content_start)
 
-    def test_persistent_inspector_contains_client_and_metadata(self):
-        self.assertIn("detail-context-row--client", self.sidebar_template)
-        self.assertIn(">Client<", self.sidebar_template)
-        self.assertIn('class="detail-inspector-metadata"', self.template)
-        for label in ("Created", "Source", "Last updated"):
-            self.assertIn(f">{label}<", self.template)
+    def test_persistent_inspector_uses_current_identity_and_metadata_groups(self):
+        self.assertNotIn("detail-context-row--client", self.sidebar_template)
+        self.assertNotIn(">Client<", self.sidebar_template)
+        self.assertIn('class="detail-context-row detail-context-row--source"', self.sidebar_template)
+        self.assertIn("View Source &#8599;", self.sidebar_template)
+        self.assertIn('class="detail-inspector-metadata"', self.sidebar_template)
+        metadata_start = self.sidebar_template.index('class="detail-inspector-metadata"')
+        metadata_end = self.sidebar_template.index("</dl>", metadata_start)
+        metadata = self.sidebar_template[metadata_start:metadata_end]
+        self.assertIn(">Created<", metadata)
+        self.assertIn(">Last updated<", metadata)
+        self.assertNotIn(">Source<", metadata)
 
     def test_history_source_action_is_in_the_card_header(self):
         header_start = self.template.index('class="detail-workspace-card-header"')

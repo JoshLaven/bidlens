@@ -21,7 +21,7 @@ PRECEDENCE = {"current_state": 0, "official_evidence": 1, "organizational_knowle
 CONFLICT_FIELDS = {
     "response_deadline": "response_deadline", "solicitation_number": "solicitation_number",
     "agency": "client", "client": "client", "source_stage": "source_stage",
-    "opportunity_type": "opportunity_type", "canonical_type": "canonical_type", "set_aside": "set_aside",
+    "opportunity_type": "opportunity_type", "canonical_type": "canonical_type", "set_aside": "set_aside", "eligibility": "eligibility",
     "organization_outcome": "organization_outcome",
 }
 
@@ -79,7 +79,7 @@ def _normalize_conflict_value(field: str, value):
     text = normalize_evidence_text(str(value))
     if field == "response_deadline":
         return text[:10]
-    if field in {"client", "agency", "solicitation_number", "source_stage", "opportunity_type", "canonical_type", "set_aside"}:
+    if field in {"client", "agency", "solicitation_number", "source_stage", "opportunity_type", "canonical_type", "set_aside", "eligibility"}:
         return re.sub(r"\s+", " ", text).casefold()
     return text
 

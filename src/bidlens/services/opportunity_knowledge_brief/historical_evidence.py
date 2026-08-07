@@ -19,7 +19,7 @@ from .organizational_evidence import normalize_evidence_text
 UPDATE_FIELDS = {
     "response_deadline": "Response deadline", "source_stage": "Source stage",
     "solicitation_number": "Solicitation number", "opportunity_type": "Opportunity type",
-    "set_aside": "Set-aside", "title": "Title", "agency": "Agency", "naics": "NAICS",
+    "set_aside": "Set-aside", "eligibility": "Eligibility", "title": "Title", "agency": "Agency", "naics": "NAICS",
     "naics_title": "NAICS title",
 }
 HISTORY_TYPES = {"source_updated", "grants_synopsis_version", "grants_forecast_version"}

@@ -330,10 +330,20 @@
           </div>
         {% endif %}
 
-        {% if opp.set_aside %}
+        {% if opp.qualification_display %}
           <div class="opp-detail-row">
-            <span class="opp-detail-label">Set-Aside</span>
-            <span class="opp-detail-value">{{ opp.set_aside }}</span>
+            <span class="opp-detail-label">{{ opp.qualification_display.label }}</span>
+            <span class="opp-detail-value">
+              {% if opp.qualification_display.is_long %}
+                <span>{{ opp.qualification_display.preview }}</span>
+                <details class="opp-qualification-details">
+                  <summary>Show full eligibility</summary>
+                  <p>{{ opp.qualification_display.value }}</p>
+                </details>
+              {% else %}
+                {{ opp.qualification_display.value }}
+              {% endif %}
+            </span>
           </div>
         {% endif %}
 

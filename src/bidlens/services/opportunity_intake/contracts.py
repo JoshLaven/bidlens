@@ -34,6 +34,7 @@ class IntakeCandidate:
     naics: str | None = None
     naics_title: str | None = None
     set_aside: str | None = None
+    eligibility: str | None = None
 
 
 @dataclass(frozen=True)

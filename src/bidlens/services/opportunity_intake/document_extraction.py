@@ -18,6 +18,8 @@ FIELD_NAMES = (
     "solicitation_number",
     "opportunity_type",
     "canonical_type",
+    "set_aside",
+    "eligibility",
     "description",
 )
 CONFIDENCE_VALUES = {"high", "medium", "low", "unknown"}
@@ -73,14 +75,23 @@ def extraction_schema() -> dict[str, Any]:
     }
 
 
-SYSTEM_INSTRUCTIONS = """Extract opportunity facts only from the supplied RFP text. Return null when a value is absent or uncertain; never invent or infer missing facts. Use YYYY-MM-DD for response_deadline when an explicit date is present. Use concise source evidence copied or closely paraphrased from the document for each non-null field. Description should be a brief factual synopsis, not analysis. opportunity_type is lifecycle Stage and should be RFP, RFI, Forecast, or null. canonical_type is the award mechanism and must be Grant, Cooperative Agreement, Contract, Task Order, or null. Do not infer canonical_type from the document title or the word RFP alone. Do not include instructions, recommendations, or commentary outside the schema."""
+SYSTEM_INSTRUCTIONS = """Extract opportunity facts only from the supplied RFP text. Return null when a value is absent or uncertain; never invent or infer missing facts. Use YYYY-MM-DD for response_deadline when an explicit date is present. Use concise source evidence copied or closely paraphrased from the document for each non-null field. Description should be a brief factual synopsis, not analysis. opportunity_type is lifecycle Stage and should be RFP, RFI, Forecast, or null. canonical_type is the award mechanism and must be Grant, Cooperative Agreement, Contract, Task Order, or null. Do not infer canonical_type from the document title or the word RFP alone. set_aside is an explicit procurement competition restriction. eligibility is an explicit grant applicant-eligibility statement. Extract them independently from explicit evidence only; never copy one into the other. Do not include instructions, recommendations, or commentary outside the schema."""
 
 
 def parse_extraction_payload(payload: Any, *, model: str) -> IntakeExtractionResult:
-    legacy_fields = set(FIELD_NAMES) - {"canonical_type"}
-    if isinstance(payload, dict) and set(payload) == {*legacy_fields, "warnings"}:
+    added_fields = {"canonical_type", "set_aside", "eligibility"}
+    legacy_fields = set(FIELD_NAMES) - added_fields
+    payload_fields = set(payload) if isinstance(payload, dict) else set()
+    missing_added = added_fields - payload_fields
+    if (
+        isinstance(payload, dict)
+        and {*legacy_fields, "warnings"}.issubset(payload_fields)
+        and payload_fields.issubset({*FIELD_NAMES, "warnings"})
+        and missing_added
+    ):
         payload = dict(payload)
-        payload["canonical_type"] = {"value": None, "confidence": "unknown", "evidence": None}
+        for field in missing_added:
+            payload[field] = {"value": None, "confidence": "unknown", "evidence": None}
     if not isinstance(payload, dict) or set(payload) != {*FIELD_NAMES, "warnings"}:
         raise IntakeExtractionError("invalid_response", "The AI extraction response was invalid.")
     values: dict[str, str | None] = {}

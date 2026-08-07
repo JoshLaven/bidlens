@@ -81,6 +81,7 @@ from ..services.feed_queries import (
 from ..services.pursuit_lanes import user_my_lanes
 from ..services.agency_display import agency_presentation
 from ..services.account_aliases import resolve_account_display_name
+from ..services.opportunity_qualification import qualification_presentation
 from ..services.opportunity_outcomes import (
     OUTCOME_BIDDING,
     OUTCOME_NO_BID,
@@ -781,6 +782,7 @@ def _enrich_opps(rows, db, user, watched_col=True):
             current_user_interested=opp.current_user_interested,
         )
         opp.normalized_opportunity_type = _normalized_opportunity_type(opp)
+        opp.qualification_display = qualification_presentation(opp)
         opp.agency_display = account_display
         opp.parent_agency = agency.parent
         opp.sub_agency = agency.sub_agency
@@ -1939,6 +1941,7 @@ async def export_opportunities_csv(
         "NAICS",
         "NAICS Title",
         "Set-Aside",
+        "Eligibility",
         "Account Type",
         "Account Type Confidence",
         "Account Type Source",
@@ -1991,6 +1994,7 @@ async def export_opportunities_csv(
             opp.naics or "",
             opp.naics_title or "",
             opp.set_aside or "",
+            opp.eligibility or "",
             opp.account_type or "",
             opp.account_type_confidence or "",
             opp.account_type_source or "",
@@ -2150,6 +2154,7 @@ async def opportunity_detail(
     account_display = resolve_account_display_name(opportunity.agency)
     agency = agency_presentation(account_display)
     opportunity.agency_display = account_display
+    opportunity.qualification_display = qualification_presentation(opportunity)
     opportunity.parent_agency = agency.parent
     opportunity.sub_agency = agency.sub_agency
     try:

@@ -389,6 +389,26 @@
           {% if opportunity.updated_at %}<div class="key-info-row"><span class="key-info-label">Last Updated</span><span class="key-info-value">{{ opportunity.updated_at.strftime("%Y-%m-%d %H:%M") }}</span></div>{% endif %}
         </section>
 
+        {% if opportunity.qualification_display %}
+        <section class="detail-reference-section detail-qualification-section" aria-labelledby="reference-qualification-heading">
+          <h3 id="reference-qualification-heading">Qualification</h3>
+          <div class="key-info-row">
+            <span class="key-info-label">{{ opportunity.qualification_display.label }}</span>
+            <span class="key-info-value">
+              {% if opportunity.qualification_display.is_long %}
+                <span class="detail-qualification-preview">{{ opportunity.qualification_display.preview }}</span>
+                <details class="detail-qualification-details">
+                  <summary>Show full eligibility</summary>
+                  <p>{{ opportunity.qualification_display.value }}</p>
+                </details>
+              {% else %}
+                {{ opportunity.qualification_display.value }}
+              {% endif %}
+            </span>
+          </div>
+        </section>
+        {% endif %}
+
         <section class="detail-reference-section" aria-labelledby="reference-salesforce-heading">
           <h3 id="reference-salesforce-heading">Salesforce</h3>
         {% if opportunity.salesforce_opportunity_id or opportunity.salesforce_opportunity_url or opportunity.salesforce_synced_at %}

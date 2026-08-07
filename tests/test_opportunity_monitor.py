@@ -73,6 +73,22 @@ class OpportunityMonitorTests(unittest.TestCase):
         self.assertEqual(opportunity.raw_source_payload, {"revision": 1})
         self.assertEqual(self.db.query(OpportunityUpdateEvent).count(), 0)
 
+    def test_missing_qualification_values_do_not_erase_existing_values(self):
+        opportunity = self._opportunity(
+            canonical_type="Grant",
+            eligibility="State governments",
+        )
+
+        result = apply_source_update(
+            self.db,
+            opportunity,
+            {"eligibility": None, "set_aside": None},
+        )
+
+        self.assertFalse(result.changed)
+        self.assertEqual(opportunity.eligibility, "State governments")
+        self.assertIsNone(opportunity.set_aside)
+
     def test_unlinked_change_is_recorded_without_salesforce_sync(self):
         opportunity = self._opportunity()
 

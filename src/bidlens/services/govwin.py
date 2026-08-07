@@ -6,6 +6,7 @@ from typing import Any
 from .account_type_classifier import classify_account_type
 from .opportunity_stages import govwin_display_stage
 from .opportunity_types import govwin_api_canonical_type
+from .opportunity_qualification import govwin_eligibility, govwin_set_aside
 
 
 SOURCE = "govwin_api"
@@ -102,7 +103,8 @@ class GovWinAdapter:
             "response_deadline": response_deadline,
             "naics": self._optional_text(opportunity.get("naics")),
             "naics_title": self._optional_text(opportunity.get("naics_title")),
-            "set_aside": self._optional_text(opportunity.get("set_aside")),
+            "set_aside": govwin_set_aside(opportunity),
+            "eligibility": govwin_eligibility(opportunity),
             "account_type": account_type.account_type,
             "account_type_confidence": account_type.confidence,
             "account_type_source": account_type.source,

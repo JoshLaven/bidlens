@@ -75,6 +75,7 @@ class Opportunity(Base):
     naics = Column(String, nullable=True)
     naics_title = Column(String, nullable=True)
     set_aside = Column(String, nullable=True)
+    eligibility = Column(Text, nullable=True)
     account_type = Column(String, nullable=True)
     account_type_confidence = Column(String, nullable=True)
     account_type_source = Column(String, nullable=True)

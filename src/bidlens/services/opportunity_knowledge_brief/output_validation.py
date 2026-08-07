@@ -231,7 +231,7 @@ def _current_sources(manifest: GUTSManifest) -> dict[str, SourceMetadata]:
     for name in (
         "title", "client", "description", "response_deadline", "posted_date", "solicitation_number",
         "opportunity_type", "canonical_type", "source_stage", "source", "source_record_id", "source_url", "sam_url",
-        "bidlens_id", "sam_notice_id", "naics", "naics_title", "set_aside",
+        "bidlens_id", "sam_notice_id", "naics", "naics_title", "set_aside", "eligibility",
     ):
         field = getattr(state, name)
         if field is None:

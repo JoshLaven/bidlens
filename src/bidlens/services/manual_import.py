@@ -34,6 +34,7 @@ TEMPLATE_HEADERS = (
     "naics",
     "naics_title",
     "set_aside",
+    "eligibility",
 )
 REASON_LABELS = {
     "new_opportunity": "New opportunity",
@@ -162,6 +163,7 @@ def _normalize_row(row: dict[str, Any], row_number: int) -> tuple[dict[str, Any]
         "naics": _clean(row.get("naics")),
         "naics_title": _clean(row.get("naics_title")),
         "set_aside": _clean(row.get("set_aside")),
+        "eligibility": _clean(row.get("eligibility")),
         "account_type": account_type.account_type,
         "account_type_confidence": account_type.confidence,
         "account_type_source": account_type.source,

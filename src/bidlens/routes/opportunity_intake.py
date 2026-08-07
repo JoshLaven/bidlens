@@ -79,6 +79,8 @@ def _form_values(values: Mapping[str, Any] | None) -> dict[str, str]:
         "solicitation_number": str(values.get("solicitation_number") or ""),
         "opportunity_type": str(values.get("opportunity_type") or "RFP"),
         "canonical_type": str(values.get("canonical_type") or ""),
+        "set_aside": str(values.get("set_aside") or ""),
+        "eligibility": str(values.get("eligibility") or ""),
         "description": str(values.get("description") or ""),
     }
 
@@ -382,6 +384,8 @@ def publish_manual_intake(
     solicitation_number: str = Form(""),
     opportunity_type: str = Form("RFP"),
     canonical_type: str = Form(""),
+    set_aside: str = Form(""),
+    eligibility: str = Form(""),
     description: str = Form(""),
     add_to_shortlist: str | None = Form(None),
     confirm_probable_duplicates: str | None = Form(None),
@@ -419,6 +423,8 @@ def publish_manual_intake(
         "solicitation_number": solicitation_number,
         "opportunity_type": opportunity_type,
         "canonical_type": canonical_type,
+        "set_aside": set_aside,
+        "eligibility": eligibility,
         "description": description,
     }
     shortlist_selected = add_to_shortlist is not None

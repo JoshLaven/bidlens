@@ -25,6 +25,7 @@ from .services.opportunity_history import (
 )
 from .services.opportunity_monitor import apply_source_update
 from .services.opportunity_types import grants_canonical_type
+from .services.opportunity_qualification import grants_eligibility
 from .services.qualification import new_opportunity_qualification_status
 from .services.pursuit_lanes import refresh_opportunity_lane_matches
 
@@ -387,7 +388,6 @@ def normalize_grants_gov_record(record: dict[str, Any]) -> tuple[dict[str, Any] 
             "summary",
             "additionalInformation",
             "additionalInfo",
-            "additionalInformationOnEligibility",
         )
         or _first_path(
             record,
@@ -396,8 +396,6 @@ def normalize_grants_gov_record(record: dict[str, Any]) -> tuple[dict[str, Any] 
             ("synopsis", "descriptionText"),
             ("synopsis", "additionalInformation"),
             ("synopsis", "additionalInfo"),
-            ("synopsis", "additionalInformationOnEligibility"),
-            ("synopsis", "applicantEligibilityDesc"),
         )
     )
 
@@ -428,6 +426,7 @@ def normalize_grants_gov_record(record: dict[str, Any]) -> tuple[dict[str, Any] 
         "naics": None,
         "naics_title": None,
         "set_aside": None,
+        "eligibility": grants_eligibility(record),
         "description": description,
         "description_url": None,
         "description_text": description,

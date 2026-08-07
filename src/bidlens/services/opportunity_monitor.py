@@ -37,6 +37,7 @@ DEFAULT_MONITORED_FIELDS = (
     "naics",
     "naics_title",
     "set_aside",
+    "eligibility",
     "account_type",
     "account_type_confidence",
     "account_type_source",
@@ -59,6 +60,7 @@ FIELD_LABELS = {
     "naics": "NAICS",
     "naics_title": "NAICS title",
     "set_aside": "Set-aside",
+    "eligibility": "Eligibility",
     "account_type": "Account type",
     "account_type_confidence": "Account type confidence",
     "account_type_source": "Account type source",
@@ -68,7 +70,7 @@ FIELD_LABELS = {
     "sam_url": "SAM URL",
 }
 
-LONG_TEXT_FIELDS = {"description", "description_text"}
+LONG_TEXT_FIELDS = {"description", "description_text", "eligibility"}
 URL_FIELDS = {"source_url", "description_url", "sam_url"}
 
 

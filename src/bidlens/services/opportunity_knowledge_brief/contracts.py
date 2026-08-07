@@ -173,6 +173,7 @@ class CurrentOpportunityState(GUTSContract):
     naics: CurrentStateField
     naics_title: CurrentStateField
     set_aside: CurrentStateField
+    eligibility: CurrentStateField | None = None
     description_original_character_count: int
     description_was_truncated: bool
     outcome: OrganizationOutcomeState | None = None
@@ -438,7 +439,7 @@ class ValidatedBriefingOutput(GUTSContract):
 KNOWN_CURRENT_STATE_FIELDS = frozenset({
     "title", "agency", "client", "description", "response_deadline", "posted_date",
     "solicitation_number", "opportunity_type", "canonical_type", "source_stage", "source", "source_record_id",
-    "source_url", "sam_url", "bidlens_id", "sam_notice_id", "naics", "naics_title", "set_aside",
+    "source_url", "sam_url", "bidlens_id", "sam_notice_id", "naics", "naics_title", "set_aside", "eligibility",
 })
 
 

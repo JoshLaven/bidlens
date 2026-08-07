@@ -50,18 +50,22 @@ def normalize_candidate(values: IntakeCandidate | Mapping[str, Any]) -> IntakeCa
         raw: Mapping[str, Any] = values.__dict__
     else:
         raw = values
+    canonical_type = normalize_canonical_type(raw.get("canonical_type"))
+    set_aside = clean_text(raw.get("set_aside")) if canonical_type in {"Contract", "Task Order"} else None
+    eligibility = clean_multiline_text(raw.get("eligibility")) if canonical_type in {"Grant", "Cooperative Agreement"} else None
     return IntakeCandidate(
         title=clean_text(raw.get("title")),
         client=clean_text(raw.get("client")),
         response_deadline=parse_date(raw.get("response_deadline")),
         solicitation_number=clean_text(raw.get("solicitation_number")),
         opportunity_type=clean_text(raw.get("opportunity_type")),
-        canonical_type=normalize_canonical_type(raw.get("canonical_type")),
+        canonical_type=canonical_type,
         description=clean_multiline_text(raw.get("description")),
         source_url=clean_text(raw.get("source_url")),
         naics=clean_text(raw.get("naics")),
         naics_title=clean_text(raw.get("naics_title")),
-        set_aside=clean_text(raw.get("set_aside")),
+        set_aside=set_aside,
+        eligibility=eligibility,
     )
 
 
@@ -97,5 +101,6 @@ def opportunity_field_values(
         "naics": candidate.naics,
         "naics_title": candidate.naics_title,
         "set_aside": candidate.set_aside,
+        "eligibility": candidate.eligibility,
     })
     return values

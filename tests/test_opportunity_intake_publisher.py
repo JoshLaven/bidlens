@@ -106,6 +106,28 @@ class OpportunityPublisherTests(unittest.TestCase):
         self.assertEqual(opportunity.opportunity_type, "Forecast")
         self.assertEqual(opportunity.canonical_type, "Cooperative Agreement")
 
+    def test_reviewed_qualification_persists_only_the_type_appropriate_field(self):
+        grant_result = self._publish(
+            self._draft(),
+            review=self._review(
+                canonical_type="Grant", eligibility="State governments", set_aside="8(a)",
+            ),
+        )
+        contract_result = self._publish(
+            self._draft(),
+            review=self._review(
+                title="Reviewed contract",
+                solicitation_number="RFP-2026-43",
+                canonical_type="Contract",
+                eligibility="Nonprofits",
+                set_aside="SDVOSB",
+            ),
+        )
+        grant = self.db.get(Opportunity, grant_result.opportunity_id)
+        contract = self.db.get(Opportunity, contract_result.opportunity_id)
+        self.assertEqual((grant.eligibility, grant.set_aside), ("State governments", None))
+        self.assertEqual((contract.set_aside, contract.eligibility), ("SDVOSB", None))
+
     def _publish(self, draft, *, shortlist=False, key=None, user=None, review=None):
         return OpportunityPublisher.publish_reviewed_draft(
             self.db,

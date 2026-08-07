@@ -292,6 +292,7 @@ def _normalize_row(row: dict[str, Any], row_number: int) -> tuple[dict[str, Any]
         "naics": _clean(row.get("Primary NAICS Id")),
         "naics_title": _clean(row.get("Primary NAICS Title")),
         "set_aside": None,
+        "eligibility": None,
         "account_type": account_type.account_type,
         "account_type_confidence": account_type.confidence,
         "account_type_source": account_type.source,

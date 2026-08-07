@@ -83,6 +83,8 @@ class CanonicalOpportunityTypeTests(unittest.TestCase):
                     title="Preview opportunity",
                     agency="Agency",
                     canonical_type=canonical_type,
+                    set_aside=None,
+                    eligibility=None,
                     description=description,
                     description_text=None,
                     sam_url=None,
@@ -91,4 +93,6 @@ class CanonicalOpportunityTypeTests(unittest.TestCase):
                 payload = _build_preview_payload(opportunity)
                 self.assertEqual(payload["state"], state)
                 self.assertEqual(payload["canonical_type"], canonical_type)
+                self.assertIsNone(payload["set_aside"])
+                self.assertIsNone(payload["eligibility"])
                 self.assertTrue(existing_fields.issubset(payload))

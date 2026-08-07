@@ -34,7 +34,7 @@ class ManifestBuilder:
             "title", "client", "description", "response_deadline", "posted_date",
             "solicitation_number", "opportunity_type", "canonical_type", "source_stage", "source",
             "source_record_id", "source_url", "sam_url", "bidlens_id", "sam_notice_id",
-            "naics", "naics_title", "set_aside",
+            "naics", "naics_title", "set_aside", "eligibility",
         ):
             field = getattr(current_state, field_name)
             if field is None:

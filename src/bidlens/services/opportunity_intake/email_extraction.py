@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 SOURCE_VALUES = {"email", "attachment", "unknown"}
 
 
-EMAIL_SYSTEM_INSTRUCTIONS = """Extract opportunity facts only from the supplied email intake text. Sections labelled ATTACHMENT contain solicitation documents and are the primary authority when they conflict with informal email wording. EMAIL SUBJECT and EMAIL BODY provide supplemental context. Return null when a value is absent or uncertain and never invent facts. For response_deadline, use YYYY-MM-DD only for an explicit proposal response deadline; do not substitute a question deadline, intent-to-bid date, meeting date, or informational date. Description must be a brief factual synopsis. opportunity_type is lifecycle Stage and must be RFP, RFI, Forecast, or null. canonical_type is the award mechanism and must be Grant, Cooperative Agreement, Contract, Task Order, or null; do not infer it from the word RFP alone. For each field, identify whether its primary support came from email, attachment, or is unknown. Do not return commentary outside the schema."""
+EMAIL_SYSTEM_INSTRUCTIONS = """Extract opportunity facts only from the supplied email intake text. Sections labelled ATTACHMENT contain solicitation documents and are the primary authority when they conflict with informal email wording. EMAIL SUBJECT and EMAIL BODY provide supplemental context. Return null when a value is absent or uncertain and never invent facts. For response_deadline, use YYYY-MM-DD only for an explicit proposal response deadline; do not substitute a question deadline, intent-to-bid date, meeting date, or informational date. Description must be a brief factual synopsis. opportunity_type is lifecycle Stage and must be RFP, RFI, Forecast, or null. canonical_type is the award mechanism and must be Grant, Cooperative Agreement, Contract, Task Order, or null; do not infer it from the word RFP alone. set_aside is an explicit procurement competition restriction. eligibility is an explicit grant applicant-eligibility statement. Extract them independently from explicit evidence only and never copy one into the other. For each field, identify whether its primary support came from email, attachment, or is unknown. Do not return commentary outside the schema."""
 
 
 def email_extraction_schema() -> dict[str, Any]:
@@ -68,12 +68,21 @@ class IntakeEmailExtractor(Protocol):
 
 
 def parse_email_extraction_payload(payload: Any, *, model: str) -> IntakeEmailExtractionResult:
-    legacy_fields = set(FIELD_NAMES) - {"canonical_type"}
-    if isinstance(payload, dict) and set(payload) == {*legacy_fields, "warnings"}:
+    added_fields = {"canonical_type", "set_aside", "eligibility"}
+    legacy_fields = set(FIELD_NAMES) - added_fields
+    payload_fields = set(payload) if isinstance(payload, dict) else set()
+    missing_added = added_fields - payload_fields
+    if (
+        isinstance(payload, dict)
+        and {*legacy_fields, "warnings"}.issubset(payload_fields)
+        and payload_fields.issubset({*FIELD_NAMES, "warnings"})
+        and missing_added
+    ):
         payload = dict(payload)
-        payload["canonical_type"] = {
-            "value": None, "confidence": "unknown", "evidence": None, "source": "unknown",
-        }
+        for field in missing_added:
+            payload[field] = {
+                "value": None, "confidence": "unknown", "evidence": None, "source": "unknown",
+            }
     if not isinstance(payload, dict) or set(payload) != {*FIELD_NAMES, "warnings"}:
         raise IntakeExtractionError("invalid_response", "The AI extraction response was invalid.")
     values: dict[str, str | None] = {}

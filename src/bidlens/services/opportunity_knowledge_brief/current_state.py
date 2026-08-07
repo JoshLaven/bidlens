@@ -130,6 +130,7 @@ class CurrentStateAssembler:
             naics=_field(opportunity.id, "naics", opportunity.naics),
             naics_title=_field(opportunity.id, "naics_title", opportunity.naics_title),
             set_aside=_field(opportunity.id, "set_aside", opportunity.set_aside),
+            eligibility=_field(opportunity.id, "eligibility", opportunity.eligibility),
             description_original_character_count=original_description_count,
             description_was_truncated=description_was_truncated,
             outcome=outcome,
@@ -142,7 +143,7 @@ class CurrentStateAssembler:
         field_names = (
             "title", "client", "description", "response_deadline", "posted_date", "solicitation_number",
             "opportunity_type", "canonical_type", "source_stage", "source", "source_record_id", "source_url", "sam_url",
-            "bidlens_id", "sam_notice_id", "naics", "naics_title", "set_aside",
+            "bidlens_id", "sam_notice_id", "naics", "naics_title", "set_aside", "eligibility",
         )
         snapshot = {
             "opportunity_id": state.opportunity_id,

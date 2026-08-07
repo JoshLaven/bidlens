@@ -89,7 +89,7 @@ def _current_state_sources(state: CurrentOpportunityState) -> list[dict[str, Any
     fields = (
         "title", "client", "description", "response_deadline", "posted_date", "solicitation_number",
         "opportunity_type", "canonical_type", "source_stage", "source", "source_record_id", "source_url", "sam_url",
-        "bidlens_id", "sam_notice_id", "naics", "naics_title", "set_aside",
+        "bidlens_id", "sam_notice_id", "naics", "naics_title", "set_aside", "eligibility",
     )
     for name in fields:
         field = getattr(state, name)

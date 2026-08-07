@@ -91,6 +91,16 @@
           </select>
         </div>
 
+        <div class="form-group opportunity-intake-qualification" data-qualification-for="procurement" hidden>
+          <label for="intake-set-aside">Set-Aside</label>
+          <input id="intake-set-aside" name="set_aside" type="text" value="{{ form_values.set_aside }}" maxlength="500">
+        </div>
+
+        <div class="form-group opportunity-intake-field--wide opportunity-intake-qualification" data-qualification-for="assistance" hidden>
+          <label for="intake-eligibility">Eligibility</label>
+          <textarea id="intake-eligibility" name="eligibility" rows="4">{{ form_values.eligibility }}</textarea>
+        </div>
+
         <div class="form-group opportunity-intake-field--wide">
           <label for="intake-description">Description</label>
           <textarea id="intake-description" name="description" rows="8">{{ form_values.description }}</textarea>
@@ -114,4 +124,21 @@
     </form>
   </section>
 </div>
+<script>
+(() => {
+  const typeSelect = document.getElementById('intake-canonical-type');
+  const groups = document.querySelectorAll('[data-qualification-for]');
+  if (!typeSelect || !groups.length) return;
+  const updateQualificationFields = () => {
+    const procurement = ['Contract', 'Task Order'].includes(typeSelect.value);
+    const assistance = ['Grant', 'Cooperative Agreement'].includes(typeSelect.value);
+    groups.forEach((group) => {
+      const visible = group.dataset.qualificationFor === 'procurement' ? procurement : assistance;
+      group.hidden = !visible;
+    });
+  };
+  typeSelect.addEventListener('change', updateQualificationFields);
+  updateQualificationFields();
+})();
+</script>
 {% endblock %}

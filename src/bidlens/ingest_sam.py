@@ -17,6 +17,7 @@ from .services.ingestion_runs import record_source_activity
 from .services.opportunity_history import record_imported_history
 from .services.opportunity_monitor import apply_source_update
 from .services.opportunity_types import sam_canonical_type
+from .services.opportunity_qualification import sam_set_aside
 from .services.qualification import new_opportunity_qualification_status
 from .services.pursuit_lanes import refresh_opportunity_lane_matches
 
@@ -499,7 +500,7 @@ def normalize_sam_record(rec: Dict[str, Any], allowed_types: Set[str]) -> Option
     response_deadline = _parse_date(rec.get("responseDeadLine") or rec.get("responseDeadline"))
 
     naics = rec.get("naics") or rec.get("naicsCode")
-    set_aside = rec.get("typeOfSetAside") or rec.get("setAside") or rec.get("setAsideCode")
+    set_aside = sam_set_aside(rec)
 
     description = (
         rec.get("description")
@@ -538,6 +539,7 @@ def normalize_sam_record(rec: Dict[str, Any], allowed_types: Set[str]) -> Option
         "response_deadline": response_deadline,
         "naics": str(naics) if naics else None,
         "set_aside": str(set_aside) if set_aside else None,
+        "eligibility": None,
         "description": description_text,
         "description_url": description_url,
         "description_text": description_text,

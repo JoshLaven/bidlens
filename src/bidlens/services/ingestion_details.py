@@ -11,6 +11,7 @@ FIELD_LABELS = {
     "source_stage": "Status",
     "opportunity_type": "Opportunity type",
     "set_aside": "Set-aside",
+    "eligibility": "Eligibility",
     "source_url": "Source URL",
     "sam_url": "SAM URL",
     "description_url": "Solicitation documents",

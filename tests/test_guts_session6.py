@@ -161,7 +161,7 @@ class GUTSSession6Tests(unittest.TestCase):
         self.assertEqual(generation.provider, "openai")
         self.assertEqual((generation.input_tokens, generation.output_tokens, generation.total_tokens), (100, 30, 130))
         self.assertEqual(generation.validation_retry_count, 0)
-        self.assertEqual(len(generation.sources), 18)
+        self.assertEqual(len(generation.sources), 19)
         self.assertEqual(len(generation.statements), 2)
         self.assertEqual(self.db.query(OpportunityKnowledgeBriefStatementSource).count(), 2)
         self.assertIsNotNone(generation.manifest_hash)
