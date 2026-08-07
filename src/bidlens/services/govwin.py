@@ -5,6 +5,7 @@ from typing import Any
 
 from .account_type_classifier import classify_account_type
 from .opportunity_stages import govwin_display_stage
+from .opportunity_types import govwin_api_canonical_type
 
 
 SOURCE = "govwin_api"
@@ -95,6 +96,7 @@ class GovWinAdapter:
             "title": str(opportunity.get("title") or f"GovWin Opportunity {opportunity_id}").strip(),
             "agency": agency,
             "opportunity_type": govwin_display_stage(source_stage) or "RFP",
+            "canonical_type": govwin_api_canonical_type(opportunity),
             "source_stage": source_stage,
             "posted_date": posted_date,
             "response_deadline": response_deadline,

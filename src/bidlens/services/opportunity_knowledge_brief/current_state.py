@@ -119,6 +119,7 @@ class CurrentStateAssembler:
             posted_date=_field(opportunity.id, "posted_date", _date_value(opportunity.posted_date)),
             solicitation_number=_field(opportunity.id, "solicitation_number", opportunity.solicitation_number),
             opportunity_type=_field(opportunity.id, "opportunity_type", opportunity.opportunity_type),
+            canonical_type=_field(opportunity.id, "canonical_type", opportunity.canonical_type),
             source_stage=_field(opportunity.id, "source_stage", opportunity.source_stage),
             source=_field(opportunity.id, "source", opportunity.source),
             source_record_id=_field(opportunity.id, "source_record_id", opportunity.source_record_id),
@@ -140,14 +141,14 @@ class CurrentStateAssembler:
     def compact_snapshot(state: CurrentOpportunityState) -> dict:
         field_names = (
             "title", "client", "description", "response_deadline", "posted_date", "solicitation_number",
-            "opportunity_type", "source_stage", "source", "source_record_id", "source_url", "sam_url",
+            "opportunity_type", "canonical_type", "source_stage", "source", "source_record_id", "source_url", "sam_url",
             "bidlens_id", "sam_notice_id", "naics", "naics_title", "set_aside",
         )
         snapshot = {
             "opportunity_id": state.opportunity_id,
             "organization_id": state.organization_id,
             "workspace_id": state.workspace_id,
-            "fields": {name: getattr(state, name).value for name in field_names},
+            "fields": {name: getattr(state, name).value if getattr(state, name) is not None else None for name in field_names},
             "description_original_character_count": state.description_original_character_count,
             "description_was_truncated": state.description_was_truncated,
             "outcome": state.outcome.serializable_dict() if state.outcome else None,

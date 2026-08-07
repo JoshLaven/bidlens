@@ -24,6 +24,7 @@ from .services.opportunity_history import (
     record_imported_history,
 )
 from .services.opportunity_monitor import apply_source_update
+from .services.opportunity_types import grants_canonical_type
 from .services.qualification import new_opportunity_qualification_status
 from .services.pursuit_lanes import refresh_opportunity_lane_matches
 
@@ -420,6 +421,7 @@ def normalize_grants_gov_record(record: dict[str, Any]) -> tuple[dict[str, Any] 
         "title": title,
         "agency": agency,
         "opportunity_type": opportunity_type,
+        "canonical_type": grants_canonical_type(record),
         "source_stage": source_stage,
         "posted_date": posted_date or date_fallback,
         "response_deadline": response_deadline or date_fallback,
@@ -531,6 +533,7 @@ def enrich_grants_gov_opportunity_detail(db: Session, opportunity: Opportunity) 
         "posted_date",
         "response_deadline",
         "opportunity_type",
+        "canonical_type",
         "source_stage",
     )
     monitor_result = apply_source_update(

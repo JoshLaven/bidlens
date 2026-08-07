@@ -47,6 +47,7 @@ class GutsCurrentStateTests(unittest.TestCase):
             title="Health Evaluation",
             agency="Department of Health",
             opportunity_type="RFP",
+            canonical_type="Contract",
             source_stage="Solicitation",
             posted_date=date(2026, 7, 1),
             response_deadline=date(2026, 9, 1),
@@ -160,6 +161,7 @@ class GutsCurrentStateTests(unittest.TestCase):
         ):
             self.assertNotIn(excluded, rendered)
         self.assertEqual(snapshot["fields"]["client"], "Department Of Health")
+        self.assertEqual(snapshot["fields"]["canonical_type"], "Contract")
 
     def test_assembler_queries_no_notes_messages_history_or_prior_brief(self):
         statements = []

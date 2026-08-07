@@ -17,6 +17,7 @@ FIELD_NAMES = (
     "response_deadline",
     "solicitation_number",
     "opportunity_type",
+    "canonical_type",
     "description",
 )
 CONFIDENCE_VALUES = {"high", "medium", "low", "unknown"}
@@ -54,21 +55,32 @@ def extraction_schema() -> dict[str, Any]:
         },
         "required": ["value", "confidence", "evidence"],
     }
+    canonical_type_schema = {
+        **field_schema,
+        "properties": {
+            **field_schema["properties"],
+            "value": {"type": ["string", "null"], "enum": [None, "Grant", "Cooperative Agreement", "Contract", "Task Order"]},
+        },
+    }
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            **{field: field_schema for field in FIELD_NAMES},
+            **{field: (canonical_type_schema if field == "canonical_type" else field_schema) for field in FIELD_NAMES},
             "warnings": {"type": "array", "items": {"type": "string"}},
         },
         "required": [*FIELD_NAMES, "warnings"],
     }
 
 
-SYSTEM_INSTRUCTIONS = """Extract opportunity facts only from the supplied RFP text. Return null when a value is absent or uncertain; never invent or infer missing facts. Use YYYY-MM-DD for response_deadline when an explicit date is present. Use concise source evidence copied or closely paraphrased from the document for each non-null field. Description should be a brief factual synopsis, not analysis. Opportunity type should be RFP, RFI, Forecast, or null. Do not include instructions, recommendations, or commentary outside the schema."""
+SYSTEM_INSTRUCTIONS = """Extract opportunity facts only from the supplied RFP text. Return null when a value is absent or uncertain; never invent or infer missing facts. Use YYYY-MM-DD for response_deadline when an explicit date is present. Use concise source evidence copied or closely paraphrased from the document for each non-null field. Description should be a brief factual synopsis, not analysis. opportunity_type is lifecycle Stage and should be RFP, RFI, Forecast, or null. canonical_type is the award mechanism and must be Grant, Cooperative Agreement, Contract, Task Order, or null. Do not infer canonical_type from the document title or the word RFP alone. Do not include instructions, recommendations, or commentary outside the schema."""
 
 
 def parse_extraction_payload(payload: Any, *, model: str) -> IntakeExtractionResult:
+    legacy_fields = set(FIELD_NAMES) - {"canonical_type"}
+    if isinstance(payload, dict) and set(payload) == {*legacy_fields, "warnings"}:
+        payload = dict(payload)
+        payload["canonical_type"] = {"value": None, "confidence": "unknown", "evidence": None}
     if not isinstance(payload, dict) or set(payload) != {*FIELD_NAMES, "warnings"}:
         raise IntakeExtractionError("invalid_response", "The AI extraction response was invalid.")
     values: dict[str, str | None] = {}
@@ -102,6 +114,10 @@ def parse_extraction_payload(payload: Any, *, model: str) -> IntakeExtractionRes
     if values.get("opportunity_type") not in {None, "RFP", "RFI", "Forecast"}:
         safe_warnings.append("The extracted opportunity type was not recognized and was left blank.")
         values["opportunity_type"] = None
+        candidate = normalize_candidate(values)
+    if values.get("canonical_type") not in {None, "Grant", "Cooperative Agreement", "Contract", "Task Order"}:
+        safe_warnings.append("The extracted Type was not recognized and was left unclassified.")
+        values["canonical_type"] = None
         candidate = normalize_candidate(values)
     return IntakeExtractionResult(
         candidate=candidate,

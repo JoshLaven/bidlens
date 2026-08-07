@@ -16,6 +16,7 @@ from .services.ingestion_details import build_error_detail, build_invalid_detail
 from .services.ingestion_runs import record_source_activity
 from .services.opportunity_history import record_imported_history
 from .services.opportunity_monitor import apply_source_update
+from .services.opportunity_types import sam_canonical_type
 from .services.qualification import new_opportunity_qualification_status
 from .services.pursuit_lanes import refresh_opportunity_lane_matches
 
@@ -532,6 +533,7 @@ def normalize_sam_record(rec: Dict[str, Any], allowed_types: Set[str]) -> Option
         "title": str(title),
         "agency": str(agency),
         "opportunity_type": str(opportunity_type),
+        "canonical_type": sam_canonical_type(rec),
         "posted_date": posted_date,
         "response_deadline": response_deadline,
         "naics": str(naics) if naics else None,

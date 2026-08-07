@@ -78,6 +78,7 @@ def _form_values(values: Mapping[str, Any] | None) -> dict[str, str]:
         "response_deadline": str(values.get("response_deadline") or ""),
         "solicitation_number": str(values.get("solicitation_number") or ""),
         "opportunity_type": str(values.get("opportunity_type") or "RFP"),
+        "canonical_type": str(values.get("canonical_type") or ""),
         "description": str(values.get("description") or ""),
     }
 
@@ -380,6 +381,7 @@ def publish_manual_intake(
     response_deadline: str = Form(""),
     solicitation_number: str = Form(""),
     opportunity_type: str = Form("RFP"),
+    canonical_type: str = Form(""),
     description: str = Form(""),
     add_to_shortlist: str | None = Form(None),
     confirm_probable_duplicates: str | None = Form(None),
@@ -416,6 +418,7 @@ def publish_manual_intake(
         "response_deadline": response_deadline,
         "solicitation_number": solicitation_number,
         "opportunity_type": opportunity_type,
+        "canonical_type": canonical_type,
         "description": description,
     }
     shortlist_selected = add_to_shortlist is not None

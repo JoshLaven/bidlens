@@ -380,6 +380,7 @@
         <section class="detail-reference-section" aria-labelledby="reference-source-heading">
           <h3 id="reference-source-heading">Source</h3>
           <div class="key-info-row"><span class="key-info-label">Import Source</span><span class="key-info-value">{{ source_label or 'Unknown' }}</span></div>
+          <div class="key-info-row"><span class="key-info-label">Type</span><span class="key-info-value">{{ opportunity.canonical_type or 'Not yet classified' }}</span></div>
           {% if opportunity.source_url or opportunity.sam_url %}
             <div class="key-info-row"><span class="key-info-label">Source URL</span><span class="key-info-value"><a href="{{ opportunity.source_url or opportunity.sam_url }}" target="_blank" rel="noreferrer">Open source &#8599;</a><button type="button" class="reference-copy-action" data-copy-value="{{ opportunity.source_url or opportunity.sam_url }}" aria-label="Copy source URL">Copy</button></span></div>
           {% endif %}

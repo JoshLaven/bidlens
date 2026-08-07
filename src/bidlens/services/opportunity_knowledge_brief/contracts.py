@@ -162,6 +162,7 @@ class CurrentOpportunityState(GUTSContract):
     posted_date: CurrentStateField
     solicitation_number: CurrentStateField
     opportunity_type: CurrentStateField
+    canonical_type: CurrentStateField | None = None
     source_stage: CurrentStateField
     source: CurrentStateField
     source_record_id: CurrentStateField
@@ -324,8 +325,9 @@ class GUTSManifest(GUTSContract):
 
     def allowed_source_ids(self) -> tuple[str, ...]:
         current_ids = tuple(
-            getattr(self.current_state, name).source_id
+            field.source_id
             for name in sorted(KNOWN_CURRENT_STATE_FIELDS - {"agency"})
+            if (field := getattr(self.current_state, name)) is not None
         )
         outcome_ids = (
             (f"current_state:opportunity:{self.opportunity_id}:organization_outcome",)
@@ -435,7 +437,7 @@ class ValidatedBriefingOutput(GUTSContract):
 
 KNOWN_CURRENT_STATE_FIELDS = frozenset({
     "title", "agency", "client", "description", "response_deadline", "posted_date",
-    "solicitation_number", "opportunity_type", "source_stage", "source", "source_record_id",
+    "solicitation_number", "opportunity_type", "canonical_type", "source_stage", "source", "source_record_id",
     "source_url", "sam_url", "bidlens_id", "sam_notice_id", "naics", "naics_title", "set_aside",
 })
 

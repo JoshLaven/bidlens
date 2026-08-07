@@ -68,6 +68,7 @@ class Opportunity(Base):
     title = Column(String, nullable=False)
     agency = Column(String, nullable=False)
     opportunity_type = Column(String, nullable=False)
+    canonical_type = Column(String, nullable=True)
     source_stage = Column(String, nullable=True, index=True)
     posted_date = Column(Date, nullable=False)
     response_deadline = Column(Date, nullable=False)

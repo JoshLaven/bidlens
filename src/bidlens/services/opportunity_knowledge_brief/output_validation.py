@@ -230,10 +230,12 @@ def _current_sources(manifest: GUTSManifest) -> dict[str, SourceMetadata]:
     mapping: dict[str, SourceMetadata] = {}
     for name in (
         "title", "client", "description", "response_deadline", "posted_date", "solicitation_number",
-        "opportunity_type", "source_stage", "source", "source_record_id", "source_url", "sam_url",
+        "opportunity_type", "canonical_type", "source_stage", "source", "source_record_id", "source_url", "sam_url",
         "bidlens_id", "sam_notice_id", "naics", "naics_title", "set_aside",
     ):
         field = getattr(state, name)
+        if field is None:
+            continue
         mapping[field.source_id] = SourceMetadata(
             source_id=field.source_id, source_class="current_state", source_type=name,
             searchable=json.dumps({"field": name, "value": field.value}, ensure_ascii=False, sort_keys=True),

@@ -25,6 +25,7 @@ from .opportunity_stages import (
     govwin_display_stage,
     is_excluded_govwin_stage,
 )
+from .opportunity_types import govwin_spreadsheet_canonical_type
 from .qualification import new_opportunity_qualification_status
 from .pursuit_lanes import refresh_opportunity_lane_matches
 
@@ -284,6 +285,7 @@ def _normalize_row(row: dict[str, Any], row_number: int) -> tuple[dict[str, Any]
         "title": title,
         "agency": agency,
         "opportunity_type": govwin_display_stage(source_stage) or "RFP",
+        "canonical_type": govwin_spreadsheet_canonical_type(row),
         "source_stage": source_stage,
         "posted_date": posted_date,
         "response_deadline": response_deadline,

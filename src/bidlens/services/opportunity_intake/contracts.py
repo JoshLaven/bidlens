@@ -28,6 +28,7 @@ class IntakeCandidate:
     response_deadline: date | None = None
     solicitation_number: str | None = None
     opportunity_type: str | None = None
+    canonical_type: str | None = None
     description: str | None = None
     source_url: str | None = None
     naics: str | None = None

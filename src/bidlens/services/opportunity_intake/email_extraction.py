@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 SOURCE_VALUES = {"email", "attachment", "unknown"}
 
 
-EMAIL_SYSTEM_INSTRUCTIONS = """Extract opportunity facts only from the supplied email intake text. Sections labelled ATTACHMENT contain solicitation documents and are the primary authority when they conflict with informal email wording. EMAIL SUBJECT and EMAIL BODY provide supplemental context. Return null when a value is absent or uncertain and never invent facts. For response_deadline, use YYYY-MM-DD only for an explicit proposal response deadline; do not substitute a question deadline, intent-to-bid date, meeting date, or informational date. Description must be a brief factual synopsis. Opportunity type must be RFP, RFI, Forecast, or null. For each field, identify whether its primary support came from email, attachment, or is unknown. Do not return commentary outside the schema."""
+EMAIL_SYSTEM_INSTRUCTIONS = """Extract opportunity facts only from the supplied email intake text. Sections labelled ATTACHMENT contain solicitation documents and are the primary authority when they conflict with informal email wording. EMAIL SUBJECT and EMAIL BODY provide supplemental context. Return null when a value is absent or uncertain and never invent facts. For response_deadline, use YYYY-MM-DD only for an explicit proposal response deadline; do not substitute a question deadline, intent-to-bid date, meeting date, or informational date. Description must be a brief factual synopsis. opportunity_type is lifecycle Stage and must be RFP, RFI, Forecast, or null. canonical_type is the award mechanism and must be Grant, Cooperative Agreement, Contract, Task Order, or null; do not infer it from the word RFP alone. For each field, identify whether its primary support came from email, attachment, or is unknown. Do not return commentary outside the schema."""
 
 
 def email_extraction_schema() -> dict[str, Any]:
@@ -41,7 +41,16 @@ def email_extraction_schema() -> dict[str, Any]:
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            **{field: field_schema() for field in FIELD_NAMES},
+            **{
+                field: ({
+                    **field_schema(),
+                    "properties": {
+                        **field_schema()["properties"],
+                        "value": {"type": ["string", "null"], "enum": [None, "Grant", "Cooperative Agreement", "Contract", "Task Order"]},
+                    },
+                } if field == "canonical_type" else field_schema())
+                for field in FIELD_NAMES
+            },
             "warnings": {"type": "array", "items": {"type": "string"}},
         },
         "required": [*FIELD_NAMES, "warnings"],
@@ -59,6 +68,12 @@ class IntakeEmailExtractor(Protocol):
 
 
 def parse_email_extraction_payload(payload: Any, *, model: str) -> IntakeEmailExtractionResult:
+    legacy_fields = set(FIELD_NAMES) - {"canonical_type"}
+    if isinstance(payload, dict) and set(payload) == {*legacy_fields, "warnings"}:
+        payload = dict(payload)
+        payload["canonical_type"] = {
+            "value": None, "confidence": "unknown", "evidence": None, "source": "unknown",
+        }
     if not isinstance(payload, dict) or set(payload) != {*FIELD_NAMES, "warnings"}:
         raise IntakeExtractionError("invalid_response", "The AI extraction response was invalid.")
     values: dict[str, str | None] = {}
@@ -90,6 +105,9 @@ def parse_email_extraction_payload(payload: Any, *, model: str) -> IntakeEmailEx
     if values.get("opportunity_type") not in {None, "RFP", "RFI", "Forecast"}:
         safe_warnings.append("The extracted opportunity type was not recognized and was left blank.")
         values["opportunity_type"] = None
+    if values.get("canonical_type") not in {None, "Grant", "Cooperative Agreement", "Contract", "Task Order"}:
+        safe_warnings.append("The extracted Type was not recognized and was left unclassified.")
+        values["canonical_type"] = None
     candidate = normalize_candidate(values)
     if raw_deadline and candidate.response_deadline is None:
         safe_warnings.append("The extracted response deadline was not a valid date and was left blank.")

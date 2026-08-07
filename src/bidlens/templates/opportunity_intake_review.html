@@ -73,10 +73,20 @@
         </div>
 
         <div class="form-group">
-          <label for="intake-type">Opportunity Type</label>
+          <label for="intake-type">Stage</label>
           <select id="intake-type" name="opportunity_type">
             {% for value in ['RFP', 'RFI', 'Forecast'] %}
               <option value="{{ value }}" {% if form_values.opportunity_type == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="intake-canonical-type">Type</label>
+          <select id="intake-canonical-type" name="canonical_type">
+            <option value="" {% if not form_values.canonical_type %}selected{% endif %}>Not yet classified</option>
+            {% for value in ['Grant', 'Cooperative Agreement', 'Contract', 'Task Order'] %}
+              <option value="{{ value }}" {% if form_values.canonical_type == value %}selected{% endif %}>{{ value }}</option>
             {% endfor %}
           </select>
         </div>

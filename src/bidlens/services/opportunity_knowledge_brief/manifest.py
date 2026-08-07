@@ -32,11 +32,14 @@ class ManifestBuilder:
             raise ManifestValidationError("Evidence text cannot be empty.")
         for field_name in (
             "title", "client", "description", "response_deadline", "posted_date",
-            "solicitation_number", "opportunity_type", "source_stage", "source",
+            "solicitation_number", "opportunity_type", "canonical_type", "source_stage", "source",
             "source_record_id", "source_url", "sam_url", "bidlens_id", "sam_notice_id",
             "naics", "naics_title", "set_aside",
         ):
-            if getattr(current_state, field_name).source_id != current_state_source_id(
+            field = getattr(current_state, field_name)
+            if field is None:
+                continue
+            if field.source_id != current_state_source_id(
                 current_state.opportunity_id, field_name
             ):
                 raise ManifestValidationError("Current-state source IDs are not controlled.")

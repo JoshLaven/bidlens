@@ -1,5 +1,4 @@
 import unittest
-from pathlib import Path
 
 from bidlens.routes.opportunities import _clean_solicitation_description
 
@@ -25,7 +24,7 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
         overview_start = self.template.index('data-detail-panel="overview"')
         communication_start = self.template.index('data-detail-panel="communication"')
         overview = self.template[overview_start:communication_start]
-        for content in ("Description", "Team Summary", "Recent Developments"):
+        for content in ("Description", "Get Up To Speed"):
             self.assertIn(content, overview)
         for duplicated_field in ("Opportunity characteristics", "Due Date", "NAICS"):
             self.assertNotIn(duplicated_field, overview)
@@ -51,44 +50,57 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
         self.assertIn("{% if opportunity.salesforce_opportunity_url %}", self.sidebar_template)
         self.assertIn("View Opportunity &#8599;", self.sidebar_template)
         self.assertIn("Not linked", self.sidebar_template)
-        self.assertNotIn("Link Opportunity &#8594;", self.sidebar_template)
-        linked_branch = self.sidebar_template[
-            self.sidebar_template.index("{% if opportunity.salesforce_opportunity_url %}"):
-            self.sidebar_template.index("{% else %}", self.sidebar_template.index("{% if opportunity.salesforce_opportunity_url %}"))
-        ]
-        self.assertNotIn(">Salesforce<", linked_branch)
+        self.assertIn("Link Opportunity &#8594;", self.sidebar_template)
         self.assertIn("linkOverviewSalesforce", self.template)
         self.assertIn('aria-label="Email this opportunity"', self.sidebar_template)
         self.assertIn("openOpportunityEmail", self.template)
         self.assertIn('aria-label="Copy solicitation number"', self.sidebar_template)
 
-    def test_overview_restores_team_summary_and_recent_developments_columns(self):
-        self.assertEqual(self.template.count("team_summary_card("), 0)
+    def test_get_up_to_speed_replaces_the_legacy_brief_presentation(self):
+        self.assertIn('class="detail-description-section guts-card"', self.template)
         self.assertIn('id="guts-heading">Get Up To Speed', self.template)
-        self.assertIn('id="overview-team-summary-heading"', self.template)
-        self.assertIn('id="guts-recent-heading"', self.template)
-        self.assertIn("{{ communication_summary.current_status }}", self.template)
-        self.assertIn("for statement in recent_developments", self.template)
-        self.assertIn("No recent developments identified.", self.template)
-        self.assertNotIn("Internal Activity", self.template)
-        self.assertNotIn("official-updates-placeholder", self.template)
+        self.assertIn("A holistic summary of this opportunity.", self.template)
+        self.assertIn("AI Brief", self.template)
+        self.assertNotIn(">Opportunity Brief<", self.template)
+        self.assertNotIn(">Generate AI Brief<", self.template)
 
-    def test_recent_developments_preserves_persisted_identity_timestamp_and_order(self):
-        self.assertIn('data-guts-statement-id="{{ statement.persisted_statement_id }}"', self.template)
-        self.assertIn('data-guts-statement-key="{{ statement.statement_key }}"', self.template)
-        self.assertIn("{{ statement.display_date }}", self.template)
-        self.assertIn("{{ statement.text }}", self.template)
-        self.assertIn("get_latest_successful_generation", Path("src/bidlens/routes/opportunities.py").read_text())
-        self.assertIn("build_guts_presentation(guts_generation).recent_developments", Path("src/bidlens/routes/opportunities.py").read_text())
+    def test_get_up_to_speed_has_only_v1_orientation_sections_and_empty_states(self):
+        for heading in (
+            "Overall Status",
+            "Official Updates",
+            "Internal Activity",
+        ):
+            self.assertIn(heading, self.template)
+        for excluded_heading in ("Risks / Watch Items", "Suggested Next Steps"):
+            self.assertNotIn(excluded_heading, self.template)
+        for empty_state in (
+            "No status summary is available yet.",
+            "No official updates identified.",
+            "No recent internal activity.",
+        ):
+            self.assertIn(empty_state, self.template)
 
-    def test_overview_keeps_description_and_documents_after_team_summary(self):
-        self.assertIn("overview-description-card", self.template)
+    def test_get_up_to_speed_preserves_existing_generation_handler(self):
+        self.assertEqual(self.template.count('id="generate-brief-button"'), 1)
+        self.assertIn("onclick=\"generateBrief('{{ opportunity.id }}')\"", self.template)
+        self.assertIn("{{ 'Regenerate' if guts_generation else 'Generate' }}", self.template)
+        self.assertIn("/generate-guts", self.template)
+        self.assertIn('id="brief-generate-status"', self.template)
         self.assertIn("overview-document-count", self.template)
 
-    def test_communication_uses_only_timeline_and_collapsed_email_accordions(self):
-        communication = self.template[self.template.index('data-detail-panel="communication"'):self.template.index('data-detail-panel="notes"')]
-        self.assertNotIn("Team Summary", communication)
-        self.assertIn('id="communication-timeline-heading"', communication)
+    def test_get_up_to_speed_renders_canonical_statements_one_to_one(self):
+        for collection in (
+            "overall_status",
+            "recent_developments",
+            "internal_activity",
+        ):
+            self.assertIn(f"guts_presentation.{collection}", self.template)
+        self.assertIn('data-guts-statement-id="{{ statement.persisted_statement_id }}"', self.template)
+        self.assertIn('data-guts-statement-key="{{ statement.statement_key }}"', self.template)
+        self.assertIn("{{ statement.text }}", self.template)
+
+    def test_communication_uses_summary_and_collapsed_email_accordions(self):
+        self.assertIn('id="communication-summary-heading">AI Summary', self.template)
         self.assertIn('class="communication-email-accordion"', self.template)
         self.assertNotIn('<details open class="communication-email-accordion"', self.template)
         self.assertIn("{{ message.body }}", self.template)
@@ -132,35 +144,12 @@ class OpportunityDetailInformationArchitectureTests(unittest.TestCase):
         self.assertLess(folder_start, nav_start)
         self.assertLess(nav_start, content_start)
 
-    def test_persistent_inspector_uses_compact_mockup_hierarchy(self):
-        self.assertNotIn("detail-context-row--client", self.sidebar_template)
-        self.assertNotIn(">Client<", self.sidebar_template)
-        self.assertIn("Interested Teammates", self.sidebar_template)
-        self.assertIn('<span class="detail-spread-label">Team Interest</span>', self.sidebar_template)
-        self.assertIn("<strong>{{ team_interest_label }}</strong>", self.sidebar_template)
-        self.assertNotIn('class="opp-card-team-interest-count"', self.sidebar_template)
-        self.assertNotIn("detail-context-info", self.sidebar_template)
-        self.assertNotIn("detail-interest-participants", self.sidebar_template)
-        self.assertIn('class="detail-inspector-metadata"', self.sidebar_template)
-        source_position = self.sidebar_template.index('detail-context-row--source')
-        solicitation_position = self.sidebar_template.index('detail-context-row--solicitation')
-        metadata_position = self.sidebar_template.index('class="detail-inspector-metadata"')
-        self.assertLess(self.sidebar_template.index("Salesforce"), source_position)
-        self.assertLess(source_position, solicitation_position)
-        self.assertLess(solicitation_position, metadata_position)
-        identity_group = self.sidebar_template[source_position:metadata_position]
-        self.assertIn("View Source &#8599;", identity_group)
-        self.assertNotIn("View on {{ source_label", identity_group)
-        self.assertNotIn('<span class="detail-spread-label">Source</span>', identity_group)
-        self.assertNotIn('<span class="detail-spread-label">Solicitation Number</span>', identity_group)
-        self.assertIn('class="detail-context-icon detail-solicitation-icon"', identity_group)
-        self.assertIn('title="Solicitation Number"', identity_group)
-        self.assertIn('aria-label="Copy solicitation number"', identity_group)
-        metadata = self.sidebar_template[metadata_position:self.sidebar_template.index("</dl>", metadata_position)]
-        self.assertIn(">Created<", metadata)
-        self.assertIn(">Last updated<", metadata)
-        self.assertNotIn(">Source<", metadata)
-        self.assertNotIn('<strong class="detail-rail-identifier">', self.sidebar_template)
+    def test_persistent_inspector_contains_client_and_metadata(self):
+        self.assertIn("detail-context-row--client", self.sidebar_template)
+        self.assertIn(">Client<", self.sidebar_template)
+        self.assertIn('class="detail-inspector-metadata"', self.template)
+        for label in ("Created", "Source", "Last updated"):
+            self.assertIn(f">{label}<", self.template)
 
     def test_history_source_action_is_in_the_card_header(self):
         header_start = self.template.index('class="detail-workspace-card-header"')

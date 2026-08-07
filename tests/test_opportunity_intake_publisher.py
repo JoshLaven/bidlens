@@ -96,6 +96,16 @@ class OpportunityPublisherTests(unittest.TestCase):
         values.update(overrides)
         return values
 
+    def test_reviewed_canonical_type_is_persisted_independently_of_stage(self):
+        draft = self._draft()
+        result = self._publish(
+            draft,
+            review=self._review(opportunity_type="Forecast", canonical_type="Cooperative Agreement"),
+        )
+        opportunity = self.db.get(Opportunity, result.opportunity_id)
+        self.assertEqual(opportunity.opportunity_type, "Forecast")
+        self.assertEqual(opportunity.canonical_type, "Cooperative Agreement")
+
     def _publish(self, draft, *, shortlist=False, key=None, user=None, review=None):
         return OpportunityPublisher.publish_reviewed_draft(
             self.db,

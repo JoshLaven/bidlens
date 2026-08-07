@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import Any, Mapping
 
 from .contracts import DEFAULT_OPPORTUNITY_TYPE, INTAKE_SOURCE, IntakeCandidate
+from ..opportunity_types import normalize_canonical_type
 
 
 _WHITESPACE = re.compile(r"\s+")
@@ -55,6 +56,7 @@ def normalize_candidate(values: IntakeCandidate | Mapping[str, Any]) -> IntakeCa
         response_deadline=parse_date(raw.get("response_deadline")),
         solicitation_number=clean_text(raw.get("solicitation_number")),
         opportunity_type=clean_text(raw.get("opportunity_type")),
+        canonical_type=normalize_canonical_type(raw.get("canonical_type")),
         description=clean_multiline_text(raw.get("description")),
         source_url=clean_text(raw.get("source_url")),
         naics=clean_text(raw.get("naics")),
@@ -88,6 +90,7 @@ def opportunity_field_values(
         "agency": candidate.client,
         "response_deadline": candidate.response_deadline,
         "opportunity_type": candidate.opportunity_type or values["opportunity_type"],
+        "canonical_type": candidate.canonical_type,
         "description": candidate.description,
         "description_text": candidate.description,
         "source_url": candidate.source_url,
