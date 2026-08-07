@@ -327,11 +327,37 @@ class OpportunityCardMetadataTests(unittest.TestCase):
                 body = html.split('<div class="opp-card-expanded">', 1)[1]
                 self.assertNotIn('class="opp-detail-label">Salesforce', body)
                 self.assertIn('<span class="sr-only">Salesforce</span>', body)
-                self.assertIn("Open in Salesforce", body)
+                self.assertEqual(body.count("Open in Salesforce"), 1)
                 self.assertIn('href="https://salesforce.example/006linked"', body)
                 self.assertIn('target="_blank"', body)
                 self.assertIn('rel="noreferrer"', body)
                 self.assertNotIn("Created in Salesforce", body)
+
+    def test_salesforce_link_count_respects_queue_and_linkage(self):
+        for view, expected in (
+            ("feed", 1),
+            ("my_shortlist", 1),
+            ("user_archive", 1),
+            ("triage", 0),
+        ):
+            with self.subTest(view=view):
+                linked = self._render_card(
+                    "Linked Salesforce opportunity",
+                    view=view,
+                    salesforce_opportunity_id="006linked",
+                    salesforce_opportunity_url="https://salesforce.example/006linked",
+                )
+                self.assertEqual(linked.count("Open in Salesforce"), expected)
+
+        for view in ("feed", "my_shortlist", "user_archive", "triage"):
+            with self.subTest(view=view):
+                unlinked = self._render_card(
+                    "Unlinked Salesforce opportunity",
+                    view=view,
+                    salesforce_opportunity_id=None,
+                    salesforce_opportunity_url=None,
+                )
+                self.assertNotIn("Open in Salesforce", unlinked)
 
     def test_my_shortlist_body_and_update_indicator_use_shortlist_context(self):
         html = self._render_card(

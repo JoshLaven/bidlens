@@ -338,12 +338,6 @@
               <span class="opp-detail-label">Date Shortlisted</span>
               <span class="opp-detail-value">{{ opp.date_shortlisted.strftime('%b %d, %Y') if opp.date_shortlisted else 'Not available' }}</span>
             </div>
-            {% if salesforce_url %}
-              <div class="opp-detail-row">
-                <span class="opp-detail-label"><span class="sr-only">Salesforce action</span></span>
-                <span class="opp-detail-value"><a href="{{ salesforce_url }}" target="_blank" rel="noreferrer" class="opp-card-crm-link">Open in Salesforce &#8599;</a></span>
-              </div>
-            {% endif %}
           {% endif %}
         </div>
       </div>
