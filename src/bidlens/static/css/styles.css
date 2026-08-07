@@ -9913,6 +9913,7 @@ details[open] .accordion-summary::after {
   font-weight: 600;
   color: var(--gray-700);
   letter-spacing: 0.02em;
+  transform: translateX(-12px);
 }
 
 .opp-card-more-label-text--expanded {
@@ -10267,6 +10268,10 @@ details[open] .accordion-summary::after {
     display: flex;
     align-items: flex-start;
     flex-wrap: wrap;
+  }
+
+  .opp-card-more-label {
+    transform: none;
   }
 
   .opp-footer-utilities {

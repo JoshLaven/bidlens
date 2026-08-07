@@ -273,7 +273,7 @@
         <div class="opp-detail-column">
           <div class="opp-detail-row">
             <span class="opp-detail-label">Type</span>
-            <span class="opp-detail-value">{{ opp.canonical_type or 'Not yet classified' }}</span>
+            <span class="opp-detail-value">{{ opp.canonical_type or 'Unclassified' }}</span>
           </div>
           {{ qualification_row(opp) }}
           {% if opp.posted_date %}
@@ -285,7 +285,13 @@
           {% if view == 'my_shortlist' and has_salesforce_linkage %}
             <div class="opp-detail-row">
               <span class="opp-detail-label">Salesforce</span>
-              <span class="opp-detail-value">{{ salesforce_status or 'Linked' }}</span>
+              <span class="opp-detail-value">
+                {% if salesforce_url %}
+                  <a href="{{ salesforce_url }}" target="_blank" rel="noreferrer" class="opp-card-crm-link">Open in Salesforce &#8599;</a>
+                {% else %}
+                  {{ salesforce_status or 'Linked' }}
+                {% endif %}
+              </span>
             </div>
           {% endif %}
           {% if view == 'triage' and opp.source_record_id %}
@@ -312,7 +318,13 @@
           {% if view in ['feed', 'user_archive', 'archive'] and has_salesforce_linkage %}
             <div class="opp-detail-row">
               <span class="opp-detail-label">Salesforce</span>
-              <span class="opp-detail-value">{{ salesforce_status or 'Linked' }}</span>
+              <span class="opp-detail-value">
+                {% if salesforce_url %}
+                  <a href="{{ salesforce_url }}" target="_blank" rel="noreferrer" class="opp-card-crm-link">Open in Salesforce &#8599;</a>
+                {% else %}
+                  {{ salesforce_status or 'Linked' }}
+                {% endif %}
+              </span>
             </div>
           {% endif %}
           {% if view == 'triage' and source_value %}

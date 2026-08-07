@@ -307,6 +307,30 @@ class OpportunityCardMetadataTests(unittest.TestCase):
         for removed in ("Source Record ID", "External Key", "CRM Activity", "Account Type", "Recent Changes"):
             self.assertNotIn(f">{removed}</span>", body)
 
+    def test_unclassified_type_uses_concise_display_label(self):
+        html = self._render_card("Unclassified type", canonical_type=None)
+
+        self.assertIn(">Unclassified</span>", html)
+        self.assertNotIn("Not yet classified", html)
+
+    def test_linked_salesforce_metadata_uses_accessible_external_action(self):
+        for view in ("feed", "my_shortlist", "user_archive"):
+            with self.subTest(view=view):
+                html = self._render_card(
+                    "Salesforce action",
+                    view=view,
+                    salesforce_opportunity_id="006linked",
+                    salesforce_opportunity_url="https://salesforce.example/006linked",
+                    salesforce_action="created",
+                )
+                body = html.split('<div class="opp-card-expanded">', 1)[1]
+                self.assertIn(">Salesforce</span>", body)
+                self.assertIn("Open in Salesforce", body)
+                self.assertIn('href="https://salesforce.example/006linked"', body)
+                self.assertIn('target="_blank"', body)
+                self.assertIn('rel="noreferrer"', body)
+                self.assertNotIn("Created in Salesforce", body)
+
     def test_my_shortlist_body_and_update_indicator_use_shortlist_context(self):
         html = self._render_card(
             "Shortlist IA",
