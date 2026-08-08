@@ -10507,6 +10507,80 @@ details[open] .accordion-summary::after {
   text-align: right;
 }
 
+.microsoft-capability-list {
+  overflow: hidden;
+  border: 1px solid rgba(176, 191, 208, 0.42);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.microsoft-capability-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px 18px;
+}
+
+.microsoft-capability-row + .microsoft-capability-row {
+  border-top: 1px solid rgba(176, 191, 208, 0.34);
+}
+
+.microsoft-capability-row h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.microsoft-capability-row ul {
+  display: flex;
+  gap: 6px 22px;
+  margin: 6px 0 0 17px;
+  color: var(--gray-500);
+  font-size: 0.76rem;
+  flex-wrap: wrap;
+}
+
+.microsoft-adoption-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-block: 1px solid rgba(176, 191, 208, 0.38);
+}
+
+.microsoft-adoption-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 15px 18px;
+}
+
+.microsoft-adoption-summary > div + div {
+  border-left: 1px solid rgba(176, 191, 208, 0.38);
+}
+
+.microsoft-adoption-summary span,
+.microsoft-adoption-actions p {
+  color: var(--gray-500);
+  font-size: 0.76rem;
+}
+
+.microsoft-adoption-summary strong {
+  color: var(--gray-800);
+  font-size: 0.9rem;
+}
+
+.microsoft-adoption-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 14px;
+}
+
+.microsoft-adoption-actions p {
+  max-width: 680px;
+  margin: 0;
+}
+
 .integration-card-actions {
   display: flex;
   gap: 8px;
@@ -10544,8 +10618,19 @@ details[open] .accordion-summary::after {
   font-weight: 700;
 }
 
-.integration-credential-form input {
+.integration-credential-form input,
+.integration-credential-form select {
   width: 100%;
+}
+
+.microsoft-connection-mode {
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.microsoft-connection-mode .integration-credential-form {
+  margin-top: 14px;
 }
 
 .integration-credential-form .btn {
@@ -11177,6 +11262,20 @@ details[open] .accordion-summary::after {
 
   .configuration-center-section-heading p {
     text-align: left;
+  }
+
+  .microsoft-adoption-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .microsoft-adoption-summary > div + div {
+    border-top: 1px solid rgba(176, 191, 208, 0.38);
+    border-left: 0;
+  }
+
+  .microsoft-adoption-actions {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .configuration-connector-actions > div {

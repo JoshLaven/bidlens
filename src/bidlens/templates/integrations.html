@@ -45,15 +45,13 @@
         {{ integration_directory_card(
           'microsoft-365',
           'Microsoft 365',
-          'Connect your Microsoft identity. Email sync is not enabled yet.',
+          'Connect Microsoft 365 for email and future Microsoft business services.',
           center.microsoft.directory_status.label,
           center.microsoft.directory_status.level,
           'Configure',
           '/integrations/microsoft' ~ org_q,
           'M365'
         ) }}
-        {{ integration_directory_card('outlook', 'Outlook', 'Email and calendar integration.', 'Coming soon', 'neutral', 'Coming soon', None, 'O', True) }}
-        {{ integration_directory_card('teams', 'Teams', 'Collaboration and notifications.', 'Coming soon', 'neutral', 'Coming soon', None, 'T', True) }}
         {{ integration_directory_card('hubspot', 'HubSpot', 'CRM integration for future customer workflows.', 'Coming soon', 'neutral', 'Coming soon', None, 'H', True) }}
         {{ integration_directory_card('sharepoint', 'SharePoint', 'Document workspace integration for pursuit materials.', 'Coming soon', 'neutral', 'Coming soon', None, 'SP', True) }}
       </div>

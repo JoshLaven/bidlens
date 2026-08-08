@@ -43,7 +43,6 @@ from ..services.communication_summary import (
     validate_csrf_token as validate_communication_summary_csrf_token,
 )
 from ..services.microsoft import (
-    PROVIDER_MICROSOFT,
     STATUS_CONNECTED,
     STATUS_REAUTHORIZATION_REQUIRED,
     MicrosoftConnectionError,
@@ -51,6 +50,7 @@ from ..services.microsoft import (
     connection_has_scope,
     safe_error_message,
 )
+from ..services.microsoft_integration_context import resolve_microsoft_integration_context
 from ..services.opportunity_email import (
     OpportunityEmailValidationError,
     audit_email_send,
@@ -235,15 +235,11 @@ def _workspace_for_user(db: Session, user) -> Workspace | None:
 
 
 def _microsoft_connection_for_user(db: Session, *, workspace: Workspace, user) -> ExternalIntegrationConnection | None:
-    return (
-        db.query(ExternalIntegrationConnection)
-        .filter(
-            ExternalIntegrationConnection.workspace_id == workspace.id,
-            ExternalIntegrationConnection.user_id == user.id,
-            ExternalIntegrationConnection.provider == PROVIDER_MICROSOFT,
-        )
-        .first()
-    )
+    return resolve_microsoft_integration_context(
+        db,
+        workspace=workspace,
+        current_user=user,
+    ).current_user_connection
 
 
 def _is_admin(user) -> bool:

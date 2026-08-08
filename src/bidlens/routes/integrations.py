@@ -48,6 +48,7 @@ from ..services.salesforce import (
 from ..services.microsoft import (
     MICROSOFT_SCOPES,
     PROVIDER_MICROSOFT,
+    STATUS_CONNECTED,
     MicrosoftConfigError,
     MicrosoftConnectionError,
     MicrosoftConnectionService,
@@ -58,6 +59,11 @@ from ..services.microsoft import (
     state_digest,
 )
 from ..services.microsoft_conversation_sync import sync_tracked_microsoft_conversations
+from ..services.microsoft_integration_context import resolve_microsoft_integration_context
+from ..services.microsoft_workspace_configuration import (
+    MicrosoftWorkspaceConfigurationError,
+    MicrosoftWorkspaceConfigurationService,
+)
 
 
 router = APIRouter()
@@ -524,15 +530,11 @@ def _configuration_center_context(
     workspace = db.query(Workspace).filter(Workspace.organization_id == organization_id).first()
     microsoft_connection = None
     if workspace and current_user_id is not None:
-        microsoft_connection = (
-            db.query(ExternalIntegrationConnection)
-            .filter(
-                ExternalIntegrationConnection.workspace_id == workspace.id,
-                ExternalIntegrationConnection.user_id == current_user_id,
-                ExternalIntegrationConnection.provider == PROVIDER_MICROSOFT,
-            )
-            .first()
-        )
+        microsoft_connection = resolve_microsoft_integration_context(
+            db,
+            workspace=workspace,
+            current_user_id=current_user_id,
+        ).current_user_connection
 
     center = {
         "sam": {
@@ -775,37 +777,35 @@ def _microsoft_user_context(request: Request, db: Session):
     return user, workspace, None
 
 
-def _microsoft_admin_adoption(db: Session, workspace: Workspace, viewer) -> list[dict[str, Any]]:
-    if getattr(viewer, "current_role", "member") != "admin":
-        return []
-    memberships = (
-        db.query(OrganizationMembership, User)
-        .join(User, User.id == OrganizationMembership.user_id)
-        .filter(OrganizationMembership.organization_id == workspace.organization_id)
-        .order_by(User.name.asc(), User.email.asc())
-        .all()
-    )
-    connections = {
-        connection.user_id: connection_status_summary(connection)
-        for connection in (
-            db.query(ExternalIntegrationConnection)
-            .filter(
-                ExternalIntegrationConnection.workspace_id == workspace.id,
-                ExternalIntegrationConnection.provider == PROVIDER_MICROSOFT,
-            )
+def _microsoft_adoption_summary(db: Session, workspace: Workspace) -> dict[str, int]:
+    member_ids = {
+        user_id
+        for (user_id,) in (
+            db.query(OrganizationMembership.user_id)
+            .filter(OrganizationMembership.organization_id == workspace.organization_id)
             .all()
         )
     }
-    rows = []
-    for membership, member in memberships:
-        status = connections.get(member.id, connection_status_summary(None))
-        rows.append({
-            "name": member.name or member.email,
-            "email": member.email,
-            "role": membership.role,
-            "status": status,
-        })
-    return rows
+    connected_ids = {
+        user_id
+        for (user_id,) in (
+            db.query(ExternalIntegrationConnection.user_id)
+            .filter(
+                ExternalIntegrationConnection.workspace_id == workspace.id,
+                ExternalIntegrationConnection.provider == PROVIDER_MICROSOFT,
+                ExternalIntegrationConnection.connection_status == STATUS_CONNECTED,
+                ExternalIntegrationConnection.user_id.in_(member_ids),
+            )
+            .all()
+        )
+    } if member_ids else set()
+    connected = len(connected_ids)
+    total = len(member_ids)
+    return {
+        "connected": connected,
+        "not_connected": max(0, total - connected),
+        "total": total,
+    }
 
 
 @router.get("/integrations/microsoft")
@@ -813,7 +813,17 @@ async def microsoft_connection_page(request: Request, db: Session = Depends(get_
     user, workspace, redirect = _microsoft_user_context(request, db)
     if redirect:
         return redirect
-    service = MicrosoftConnectionService(db=db, workspace=workspace, user=user)
+    microsoft_context = resolve_microsoft_integration_context(
+        db,
+        workspace=workspace,
+        current_user=user,
+    )
+    mode_error_code = request.query_params.get("mode_error") or ""
+    mode_error = {
+        "organization_tenant_required": "Enter the authoritative Microsoft tenant ID before enabling organization-managed mode.",
+        "organization_tenant_conflict": "Organization-managed mode was not enabled because existing member connections use a different or unverified tenant.",
+        "invalid_connection_mode": "Select a valid Microsoft connection mode.",
+    }.get(mode_error_code)
     def query_count(name: str) -> int:
         try:
             return max(0, int(request.query_params.get(name) or 0))
@@ -824,8 +834,12 @@ async def microsoft_connection_page(request: Request, db: Session = Depends(get_
         "user": user,
         "active_page": "integrations",
         "workspace": workspace,
-        "status": service.safe_status(),
-        "admin_rows": _microsoft_admin_adoption(db, workspace, user),
+        "microsoft_context": microsoft_context,
+        "mode_saved": request.query_params.get("mode_saved") == "1",
+        "mode_error": mode_error,
+        "mode_conflict_count": query_count("conflicts"),
+        "status": connection_status_summary(microsoft_context.current_user_connection),
+        "adoption": _microsoft_adoption_summary(db, workspace),
         "connected_success": request.query_params.get("connected") == "1",
         "tested": request.query_params.get("tested"),
         "disconnected": request.query_params.get("disconnected") == "1",
@@ -833,11 +847,59 @@ async def microsoft_connection_page(request: Request, db: Session = Depends(get_
         "page_error": safe_error_message(request.query_params.get("error") or ""),
         "scope_summary": ", ".join(MICROSOFT_SCOPES),
         "is_admin": getattr(user, "current_role", "member") == "admin",
+        "manage_users_url": (
+            f"/admin/organizations/{workspace.organization_id}/users?org_id={workspace.organization_id}"
+            if getattr(user, "current_role", "member") == "admin"
+            else None
+        ),
         "sync_status": request.query_params.get("sync_status"),
         "sync_checked": query_count("checked"),
         "sync_imported": query_count("imported"),
         "sync_errors": query_count("errors"),
     })
+
+
+@router.post("/integrations/microsoft/mode")
+async def configure_microsoft_connection_mode(
+    request: Request,
+    mode: str = Form(...),
+    external_tenant_id: str = Form(""),
+    tenant_display_name: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user, redirect = _admin_or_redirect(request, db)
+    if redirect:
+        return redirect
+    workspace = _current_workspace(db, user)
+    if workspace is None:
+        return RedirectResponse(url="/", status_code=303)
+    service = MicrosoftWorkspaceConfigurationService(db=db, workspace=workspace)
+    try:
+        service.set_connection_mode(
+            mode,
+            external_tenant_id=external_tenant_id,
+            tenant_display_name=tenant_display_name,
+        )
+        db.add(Event(
+            org_id=workspace.organization_id,
+            user_id=user.id,
+            event_type="integration_lifecycle",
+            payload={
+                "provider": PROVIDER_MICROSOFT,
+                "workspace_id": workspace.id,
+                "outcome": "connection_mode_updated",
+                "mode": mode.strip().lower(),
+            },
+        ))
+        db.commit()
+    except MicrosoftWorkspaceConfigurationError as exc:
+        db.rollback()
+        query = urlencode({
+            "mode_error": exc.code,
+            "conflicts": exc.conflict_count,
+        })
+        return RedirectResponse(url=f"/integrations/microsoft?{query}", status_code=303)
+    return RedirectResponse(url="/integrations/microsoft?mode_saved=1", status_code=303)
 
 
 @router.post("/integrations/microsoft/sync")

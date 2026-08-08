@@ -14,11 +14,16 @@ import requests
 from sqlalchemy.orm import Session
 
 from .. import config
-from ..models import Event, ExternalIntegrationConnection, User, Workspace
+from ..models import Event, ExternalIntegrationConnection, User, Workspace, WorkspaceIntegration
 from .integration_credentials import decrypt_credentials, encrypt_credentials
+from .microsoft_integration_context import MICROSOFT_PROVIDER, resolve_microsoft_integration_context
+from .microsoft_workspace_configuration import (
+    MicrosoftWorkspaceConfigurationError,
+    MicrosoftWorkspaceConfigurationService,
+)
 
 
-PROVIDER_MICROSOFT = "microsoft"
+PROVIDER_MICROSOFT = MICROSOFT_PROVIDER
 ALLOWED_PROVIDERS = {PROVIDER_MICROSOFT}
 STATUS_CONNECTED = "connected"
 STATUS_REAUTHORIZATION_REQUIRED = "reauthorization_required"
@@ -109,6 +114,8 @@ def safe_error_message(code: str) -> str:
         "provider_throttled": "Microsoft is throttling email requests. Please try again later.",
         "outcome_uncertain": "BidLens could not confirm whether Microsoft accepted this email. Check your Sent Items before trying again to avoid sending a duplicate.",
         "not_connected": "No Microsoft account is connected.",
+        "organization_tenant_not_configured": "The workspace Microsoft tenant is not configured. Ask a workspace administrator for help.",
+        "organization_tenant_mismatch": "Connect a Microsoft account from this workspace's configured Microsoft 365 organization.",
     }.get(code, "Microsoft connection could not be completed.")
 
 
@@ -199,15 +206,11 @@ class MicrosoftConnectionService:
             raise MicrosoftConfigError(f"Missing Microsoft config: {', '.join(missing)}")
 
     def connection(self) -> ExternalIntegrationConnection | None:
-        return (
-            self.db.query(ExternalIntegrationConnection)
-            .filter(
-                ExternalIntegrationConnection.workspace_id == self.workspace.id,
-                ExternalIntegrationConnection.user_id == self.user.id,
-                ExternalIntegrationConnection.provider == PROVIDER_MICROSOFT,
-            )
-            .first()
-        )
+        return resolve_microsoft_integration_context(
+            self.db,
+            workspace=self.workspace,
+            current_user=self.user,
+        ).current_user_connection
 
     def safe_status(self) -> dict[str, Any]:
         return connection_status_summary(self.connection())
@@ -296,6 +299,15 @@ class MicrosoftConnectionService:
             raise MicrosoftConnectionError("token_exchange_failed", safe_error_message("token_exchange_failed"))
         identity = self.verify_identity(str(access_token), id_token=token_response.get("id_token"))
 
+        try:
+            MicrosoftWorkspaceConfigurationService(
+                db=self.db,
+                workspace=self.workspace,
+            ).validate_member_tenant(identity.tenant_id)
+        except MicrosoftWorkspaceConfigurationError as exc:
+            self._audit("integration_lifecycle", outcome="failed", error_code=exc.code)
+            raise MicrosoftConnectionError(exc.code, safe_error_message(exc.code)) from exc
+
         duplicate = (
             self.db.query(ExternalIntegrationConnection)
             .filter(
@@ -310,16 +322,39 @@ class MicrosoftConnectionService:
             self._audit("integration_lifecycle", outcome="failed", error_code="identity_already_connected")
             raise MicrosoftConnectionError("identity_mismatch", "This Microsoft identity is already connected to another BidLens user.")
 
+        workspace_integration = (
+            self.db.query(WorkspaceIntegration)
+            .filter(
+                WorkspaceIntegration.workspace_id == self.workspace.id,
+                WorkspaceIntegration.provider == PROVIDER_MICROSOFT,
+            )
+            .one_or_none()
+        )
+        if workspace_integration is None:
+            workspace_integration = WorkspaceIntegration(
+                workspace_id=self.workspace.id,
+                provider=PROVIDER_MICROSOFT,
+                mode="individual",
+                status="configured",
+            )
+            self.db.add(workspace_integration)
+            self.db.flush()
+        elif workspace_integration.mode == "individual":
+            workspace_integration.status = "configured"
+
         connection = self.connection()
         now = utcnow()
         if connection is None:
             connection = ExternalIntegrationConnection(
+                workspace_integration_id=workspace_integration.id,
                 workspace_id=self.workspace.id,
                 user_id=self.user.id,
                 provider=PROVIDER_MICROSOFT,
                 connected_at=now,
             )
             self.db.add(connection)
+        elif connection.workspace_integration_id is None:
+            connection.workspace_integration_id = workspace_integration.id
         connection.connection_status = STATUS_CONNECTED
         connection.external_tenant_id = identity.tenant_id
         connection.external_user_id = identity.user_id
@@ -389,6 +424,13 @@ class MicrosoftConnectionService:
     def access_token_for_connection(self, connection: ExternalIntegrationConnection) -> str:
         if connection.workspace_id != self.workspace.id or connection.user_id != self.user.id:
             raise MicrosoftConnectionError("not_connected", "Connection does not belong to this user.")
+        try:
+            MicrosoftWorkspaceConfigurationService(
+                db=self.db,
+                workspace=self.workspace,
+            ).validate_member_tenant(connection.external_tenant_id)
+        except MicrosoftWorkspaceConfigurationError as exc:
+            raise MicrosoftConnectionError(exc.code, safe_error_message(exc.code)) from exc
         expires_at = connection.access_token_expires_at
         now = utcnow()
         if expires_at is not None:

@@ -1,12 +1,15 @@
 import base64
+import asyncio
 import datetime as dt
 import json
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
+from starlette.requests import Request
 
 from bidlens.database import Base
 from bidlens.models import (
@@ -14,9 +17,11 @@ from bidlens.models import (
     ExternalIntegrationConnection,
     ExternalIntegrationOAuthState,
     Organization,
+    OrganizationMembership,
     User,
     Workspace,
 )
+from bidlens.routes import integrations
 from bidlens.services.integration_credentials import decrypt_credentials, encrypt_credentials
 from bidlens.services.microsoft import (
     MICROSOFT_SCOPES,
@@ -244,6 +249,124 @@ class MicrosoftConnectionTests(unittest.TestCase):
         self.assertNotEqual(record.state_digest, state)
         self.assertNotIn(verifier, record.encrypted_code_verifier)
         self.assertEqual(record.return_path, "/integrations/microsoft")
+
+    def test_workspace_adoption_uses_member_counts_without_roster_rows(self):
+        third_user = User(email="third@example.com", name="Third", organization_id=self.org.id)
+        self.db.add(third_user)
+        self.db.flush()
+        self.db.add_all([
+            OrganizationMembership(organization_id=self.org.id, user_id=self.user.id, role="admin"),
+            OrganizationMembership(organization_id=self.org.id, user_id=self.other_user.id, role="member"),
+            OrganizationMembership(organization_id=self.org.id, user_id=third_user.id, role="member"),
+            ExternalIntegrationConnection(
+                workspace_id=self.workspace.id,
+                user_id=self.user.id,
+                provider=PROVIDER_MICROSOFT,
+                connection_status=STATUS_CONNECTED,
+            ),
+            ExternalIntegrationConnection(
+                workspace_id=self.workspace.id,
+                user_id=self.other_user.id,
+                provider=PROVIDER_MICROSOFT,
+                connection_status=STATUS_DISCONNECTED,
+            ),
+        ])
+        self.db.commit()
+
+        self.assertEqual(
+            integrations._microsoft_adoption_summary(self.db, self.workspace),
+            {"connected": 1, "not_connected": 2, "total": 3},
+        )
+
+    def test_microsoft_configuration_template_uses_workspace_capability_architecture(self):
+        html = integrations.templates.env.get_template("microsoft_connection.html").render(
+            request=SimpleNamespace(query_params={}),
+            workspace=self.workspace,
+            status={
+                "connected": True,
+                "status": STATUS_CONNECTED,
+                "level": "success",
+                "label": "Connected",
+                "connected_at": dt.datetime(2026, 8, 1),
+                "last_verified_at": dt.datetime(2026, 8, 2),
+            },
+            adoption={"connected": 1, "not_connected": 1, "total": 2},
+            scope_summary="Mail.Send, Mail.ReadWrite",
+            is_admin=True,
+            manage_users_url=f"/admin/organizations/{self.org.id}/users?org_id={self.org.id}",
+        )
+
+        self.assertIn("<h1>Microsoft 365</h1>", html)
+        self.assertIn("Workspace Integration", html)
+        self.assertIn("Capabilities", html)
+        self.assertIn("Outlook Email", html)
+        self.assertIn("Enabled", html)
+        for capability in ("Calendar", "Teams", "OneDrive", "SharePoint"):
+            self.assertIn(capability, html)
+        self.assertEqual(html.count("Coming Soon"), 4)
+        self.assertIn("Workspace Adoption", html)
+        self.assertIn("1 user", html)
+        self.assertIn("Manage Users", html)
+        self.assertNotIn("admin-table", html)
+        self.assertNotIn("Connected email", html)
+
+    def test_microsoft_configuration_template_defaults_missing_adoption_to_zero(self):
+        html = integrations.templates.env.get_template("microsoft_connection.html").render(
+            request=SimpleNamespace(query_params={}),
+            workspace=self.workspace,
+            status={
+                "connected": False,
+                "status": "not_connected",
+                "level": "neutral",
+                "label": "Not connected",
+            },
+            scope_summary="Mail.Send, Mail.ReadWrite",
+            is_admin=False,
+            manage_users_url=None,
+        )
+
+        self.assertIn("Workspace Adoption", html)
+        self.assertEqual(html.count("0 users"), 3)
+
+    @patch("bidlens.routes.integrations._microsoft_user_context")
+    def test_microsoft_connection_route_renders_real_adoption_and_actions(self, user_context):
+        self.user.current_role = "admin"
+        self.db.add_all([
+            OrganizationMembership(organization_id=self.org.id, user_id=self.user.id, role="admin"),
+            OrganizationMembership(organization_id=self.org.id, user_id=self.other_user.id, role="member"),
+            ExternalIntegrationConnection(
+                workspace_id=self.workspace.id,
+                user_id=self.user.id,
+                provider=PROVIDER_MICROSOFT,
+                connection_status=STATUS_CONNECTED,
+                connected_at=dt.datetime(2026, 8, 1),
+                last_verified_at=dt.datetime(2026, 8, 2),
+            ),
+        ])
+        self.db.commit()
+        user_context.return_value = (self.user, self.workspace, None)
+        request = Request({
+            "type": "http",
+            "method": "GET",
+            "path": "/integrations/microsoft",
+            "root_path": "",
+            "scheme": "http",
+            "query_string": b"",
+            "headers": [],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+        })
+
+        response = asyncio.run(integrations.microsoft_connection_page(request, self.db))
+        html = response.body.decode()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Workspace Adoption", html)
+        self.assertIn("1 user", html)
+        self.assertIn("Test Connection", html)
+        self.assertIn("Disconnect", html)
+        self.assertIn("Sync Now", html)
+        self.assertIn(f"/admin/organizations/{self.org.id}/users", html)
 
 
 if __name__ == "__main__":

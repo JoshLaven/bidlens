@@ -1,15 +1,21 @@
 {% extends "base.html" %}
 {% from "_back_navigation.html" import back_navigation %}
 {% set hide_context_sidebar = true %}
-{% block title %}Microsoft Connection - BidLens{% endblock %}
+{% block title %}Microsoft 365 - BidLens{% endblock %}
 {% block content %}
+{% set adoption_summary = adoption|default({}, true) %}
+{% set adoption_connected = adoption_summary.connected|default(0, true) %}
+{% set adoption_not_connected = adoption_summary.not_connected|default(0, true) %}
+{% set adoption_total = adoption_summary.total|default(0, true) %}
+{% set integration_context = microsoft_context|default(none, true) %}
+{% set connection_mode = integration_context.mode if integration_context else 'individual' %}
 <div class="admin-page-layout workspace-management-page">
   <div class="admin-page-content">
     <div class="integration-config-header">
       {{ back_navigation('Integrations', '/integrations' ~ ('?org_id=' ~ request.query_params.get('org_id') if request.query_params.get('org_id') else '')) }}
       <div>
-        <h1>Microsoft 365 Connection</h1>
-        <p>Connect your own Microsoft account so future BidLens actions can use your delegated identity.</p>
+        <h1>Microsoft 365</h1>
+        <p>Connect Microsoft services to communication workflows across your BidLens workspace.</p>
       </div>
     </div>
 
@@ -18,33 +24,80 @@
     {% if tested == 'success' %}<div class="alert alert-success">Microsoft connection verified.</div>{% endif %}
     {% if tested and tested != 'success' %}<div class="alert alert-warning">{{ status.last_error_message or 'Microsoft connection could not be verified.' }}</div>{% endif %}
     {% if error_code %}<div class="alert alert-warning">{{ page_error }}</div>{% endif %}
+    {% if mode_saved %}<div class="alert alert-success">Microsoft connection mode updated.</div>{% endif %}
+    {% if mode_error %}<div class="alert alert-warning">{{ mode_error }}{% if mode_conflict_count %} Review {{ mode_conflict_count }} conflicting connection(s) before trying again.{% endif %}</div>{% endif %}
     {% if sync_status == 'success' %}<div class="alert alert-success">Conversation sync completed: {{ sync_imported }} new message(s) imported across {{ sync_checked }} tracked conversation(s).</div>{% endif %}
     {% if sync_status == 'partial' %}<div class="alert alert-warning">Conversation sync completed with {{ sync_errors }} conversation error(s). {{ sync_imported }} new message(s) were imported successfully.</div>{% endif %}
     {% if sync_status == 'reauthorization' %}<div class="alert alert-warning">Conversation sync requires one or more users to reconnect Microsoft. Successfully imported messages were preserved.</div>{% endif %}
 
-    <section class="configuration-center-section">
+    <section class="configuration-center-section microsoft-workspace-integration" aria-labelledby="microsoft-workspace-integration-heading">
       <div class="configuration-center-section-heading">
         <div>
-          <span>Personal integration</span>
-          <h2>Connection Status</h2>
+          <span>Microsoft 365</span>
+          <h2 id="microsoft-workspace-integration-heading">Workspace Integration</h2>
         </div>
         <span class="configuration-health configuration-health--{{ status.level }}">
           <i aria-hidden="true"></i>{{ status.label }}
         </span>
       </div>
 
+      <div class="microsoft-connection-mode">
+        <dl class="integration-status-list">
+          <div>
+            <dt>Connection Mode</dt>
+            <dd>{{ 'Organization-managed' if connection_mode == 'organization' else 'Individual connections' }}</dd>
+          </div>
+          {% if connection_mode == 'organization' %}
+            <div>
+              <dt>Tenant</dt>
+              <dd>{{ integration_context.tenant_display_name or 'Microsoft 365 organization' }}</dd>
+            </div>
+            {% if is_admin %}
+              <div>
+                <dt>Tenant ID</dt>
+                <dd>{{ integration_context.external_tenant_id }}</dd>
+              </div>
+            {% endif %}
+          {% endif %}
+        </dl>
+        <p class="integration-mock-note">
+          {% if connection_mode == 'organization' %}
+            Organization mode establishes this workspace's Microsoft tenant. Member mailbox access still uses delegated Microsoft identities.
+          {% else %}
+            Members connect their own Microsoft accounts and may belong to different Microsoft tenants.
+          {% endif %}
+        </p>
+
+        {% if is_admin %}
+          <form method="post" action="/integrations/microsoft/mode" class="integration-credential-form">
+            <label>
+              <span>Connection mode</span>
+              <select name="mode">
+                <option value="individual" {% if connection_mode == 'individual' %}selected{% endif %}>Individual connections</option>
+                <option value="organization" {% if connection_mode == 'organization' %}selected{% endif %}>Organization-managed</option>
+              </select>
+            </label>
+            <label>
+              <span>Authoritative tenant ID</span>
+              <input type="text" name="external_tenant_id" value="{{ integration_context.external_tenant_id or '' if integration_context else '' }}" autocomplete="off">
+            </label>
+            <label>
+              <span>Tenant display name</span>
+              <input type="text" name="tenant_display_name" value="{{ integration_context.tenant_display_name or '' if integration_context else '' }}" autocomplete="organization">
+            </label>
+            <button type="submit" class="btn btn-outline-secondary">Save Connection Mode</button>
+          </form>
+        {% endif %}
+      </div>
+
       {% if status.connected %}
         <dl class="integration-status-list">
           <div>
-            <dt>Connected account</dt>
-            <dd>{{ status.connected_display_name or 'Microsoft user' }}</dd>
+            <dt>Workspace</dt>
+            <dd>{{ workspace.name }}</dd>
           </div>
           <div>
-            <dt>Email</dt>
-            <dd>{{ status.connected_email or 'Not provided by Microsoft' }}</dd>
-          </div>
-          <div>
-            <dt>Connected</dt>
+            <dt>Connected date</dt>
             <dd>{{ status.connected_at.strftime('%b %d, %Y %I:%M %p') if status.connected_at else 'Connected' }}</dd>
           </div>
           <div>
@@ -64,57 +117,66 @@
         <p>Your Microsoft authorization has expired or was revoked. Reconnect your account to continue.</p>
         <a href="/integrations/microsoft/oauth/start" class="btn btn-primary">Reconnect Microsoft Account</a>
       {% else %}
-        <p>BidLens verifies your Microsoft identity and can send opportunity email you initiate. It retrieves only the exact BidLens-created message by ID to save conversation tracking metadata; it does not scan your mailbox or access attachments.</p>
+        <p>BidLens uses delegated Microsoft connections. Each member connects their own identity before using Microsoft-powered email workflows.</p>
         <a href="/integrations/microsoft/oauth/start" class="btn btn-primary">Connect Microsoft Account</a>
       {% endif %}
 
-      <p class="integration-mock-note">Requested delegated permissions: {{ scope_summary }}. BidLens reads only conversations it previously initiated and tracks; it does not scan the mailbox broadly.</p>
+      <p class="integration-mock-note">This is a delegated user connection, not tenant-wide application access. Requested permissions: {{ scope_summary }}. BidLens reads only conversations it previously initiated and tracks; it does not scan mailboxes broadly.</p>
     </section>
 
-    {% if is_admin %}
-      <section class="configuration-center-section">
-        <div class="configuration-center-section-heading">
+    <section class="configuration-center-section" aria-labelledby="microsoft-capabilities-heading">
+      <div class="configuration-center-section-heading">
+        <div>
+          <span>Services</span>
+          <h2 id="microsoft-capabilities-heading">Capabilities</h2>
+        </div>
+        <p>Microsoft services available through the shared Microsoft 365 integration.</p>
+      </div>
+      <div class="microsoft-capability-list">
+        <article class="microsoft-capability-row">
           <div>
-            <span>Workspace visibility</span>
-            <h2>Microsoft Adoption</h2>
+            <h3>Outlook Email</h3>
+            <ul>
+              <li>Link opportunity emails</li>
+              <li>Summarize communication threads</li>
+              <li>Use email activity in opportunity context</li>
+            </ul>
           </div>
+          <span class="configuration-health configuration-health--success"><i aria-hidden="true"></i>Enabled</span>
+        </article>
+        {% for capability in ('Calendar', 'Teams', 'OneDrive', 'SharePoint') %}
+          <article class="microsoft-capability-row">
+            <div><h3>{{ capability }}</h3></div>
+            <span class="integration-coming-soon">Coming Soon</span>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="configuration-center-section" aria-labelledby="microsoft-adoption-heading">
+      <div class="configuration-center-section-heading">
+        <div>
+          <span>Workspace</span>
+          <h2 id="microsoft-adoption-heading">Workspace Adoption</h2>
+        </div>
+        {% if manage_users_url %}<a href="{{ manage_users_url }}" class="details-link">Manage Users &rarr;</a>{% endif %}
+      </div>
+      <div class="microsoft-adoption-summary" aria-label="Microsoft 365 workspace adoption">
+        <div><span>Connected</span><strong>{{ adoption_connected }} {{ 'user' if adoption_connected == 1 else 'users' }}</strong></div>
+        <div><span>Not Connected</span><strong>{{ adoption_not_connected }} {{ 'user' if adoption_not_connected == 1 else 'users' }}</strong></div>
+        <div><span>Total workspace users</span><strong>{{ adoption_total }} {{ 'user' if adoption_total == 1 else 'users' }}</strong></div>
+      </div>
+      {% if is_admin %}
+        <div class="microsoft-adoption-actions">
+          <p>BidLens automatically checks tracked Outlook conversations approximately every 15 minutes. Only conversations initiated from BidLens are synchronized.</p>
           <div>
-            <p>Admins can sync BidLens-tracked conversations. They cannot test, refresh, disconnect, or manage another user's credentials.</p>
-            <p>BidLens automatically checks tracked Outlook conversations approximately every 15 minutes. Only conversations initiated from BidLens are synchronized.</p>
             <form method="post" action="/integrations/microsoft/sync" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Syncing…';">
               <button class="btn btn-primary" type="submit">Sync Now</button>
             </form>
           </div>
         </div>
-        <div class="admin-table-wrap">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Connected email</th>
-                <th>Last verified</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in admin_rows %}
-                <tr>
-                  <td>
-                    <strong>{{ row.name }}</strong><br>
-                    <span class="muted">{{ row.email }}</span>
-                  </td>
-                  <td>{{ row.role|title }}</td>
-                  <td><span class="configuration-health configuration-health--{{ row.status.level }}"><i aria-hidden="true"></i>{{ row.status.label }}</span></td>
-                  <td>{{ row.status.connected_email or '—' }}</td>
-                  <td>{{ row.status.last_verified_at.strftime('%b %d, %Y') if row.status.last_verified_at else '—' }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    {% endif %}
+      {% endif %}
+    </section>
   </div>
 </div>
 {% endblock %}

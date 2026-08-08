@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Text, ForeignKey, Enum, Index, text
+from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Text, ForeignKey, Enum, Index, CheckConstraint, text
 from sqlalchemy.orm import relationship
 import enum
 from .database import Base
@@ -980,6 +980,11 @@ class Workspace(Base):
         "OpportunityCommunicationMessage",
         cascade="all, delete-orphan",
     )
+    workspace_integrations = relationship(
+        "WorkspaceIntegration",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+    )
 
 
 class WorkspaceInvitation(Base):
@@ -1167,6 +1172,32 @@ class SalesforceOAuthState(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class WorkspaceIntegration(Base):
+    __tablename__ = "workspace_integrations"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "provider", name="uq_workspace_integration_workspace_provider"),
+        CheckConstraint("provider IN ('microsoft')", name="ck_workspace_integration_provider"),
+        CheckConstraint("mode IN ('individual', 'organization')", name="ck_workspace_integration_mode"),
+        CheckConstraint(
+            "status IN ('not_configured', 'configured', 'action_required', 'disconnected')",
+            name="ck_workspace_integration_status",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    provider = Column(String, nullable=False, index=True)
+    mode = Column(String, nullable=False, default="individual", server_default="individual", index=True)
+    status = Column(String, nullable=False, default="not_configured", server_default="not_configured", index=True)
+    external_tenant_id = Column(String, nullable=True)
+    tenant_display_name = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    workspace = relationship("Workspace", back_populates="workspace_integrations")
+    member_connections = relationship("ExternalIntegrationConnection", back_populates="workspace_integration")
+
+
 class ExternalIntegrationConnection(Base):
     __tablename__ = "external_integration_connections"
     __table_args__ = (
@@ -1182,6 +1213,7 @@ class ExternalIntegrationConnection(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True)
+    workspace_integration_id = Column(Integer, ForeignKey("workspace_integrations.id"), nullable=True, index=True)
     workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     provider = Column(String, nullable=False, index=True)
@@ -1205,6 +1237,7 @@ class ExternalIntegrationConnection(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     workspace = relationship("Workspace")
+    workspace_integration = relationship("WorkspaceIntegration", back_populates="member_connections")
     user = relationship("User")
 
 
